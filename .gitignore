@@ -1,0 +1,79 @@
+# Dependências
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build / Compilação
+dist/
+build/
+*.tsbuildinfo
+
+# Arquivos de ambiente
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Arquivos de sistema operacional
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDEs e editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Testes
+coverage/
+.nyc_output/
+*.lcov
+
+# Temporários
+*.tmp
+*.temp
+.cache/
+.temp/
+
+# Arquivos de backup
+*.bak
+*.backup
+*~
+
+# Arquivos específicos do NestJS
+*.js.map
+*.d.ts.map
+
+# Arquivos de migração compilados (manter apenas os .ts)
+dist/migrations/
+
+# Arquivos de configuração local
+.eslintcache
+.prettiercache
+

@@ -13,6 +13,8 @@ import { GroupsModule } from './groups/groups.module';
 import { TagsModule } from './tags/tags.module';
 import { ScoreConfigModule } from './score-config/score-config.module';
 import { EmailModule } from './email/email.module';
+import { EmailConnectionsModule } from './email-connections/email-connections.module';
+import { EmailConnection } from './entities/email-connection.entity';
 import { User } from './entities/user.entity';
 import { Product } from './entities/product.entity';
 import { Sale } from './entities/sale.entity';
@@ -41,7 +43,7 @@ import { EmailVerification } from './entities/email-verification.entity';
         username: configService.get<string>('DB_USERNAME') || 'root',
         password: configService.get<string>('DB_PASSWORD') || '',
         database: configService.get<string>('DB_DATABASE') || 'nucleo_crm',
-        entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification],
+        entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection],
         synchronize: false, // Usar migrations ao invés de synchronize
         migrations: ['dist/migrations/*.js'],
         migrationsRun: false, // Executar migrations manualmente via npm run migration:run
@@ -58,6 +60,7 @@ import { EmailVerification } from './entities/email-verification.entity';
     TagsModule,
     ScoreConfigModule,
     EmailModule,
+    EmailConnectionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

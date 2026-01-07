@@ -160,8 +160,8 @@ export class NuvemshopController {
       const connection = await this.nuvemshopService.getActiveConnection(req.user.userId, storeId);
       
       // Tentar descriptografar o token
-      let decryptedToken = null;
-      let decryptError = null;
+      let decryptedToken: string | null = null;
+      let decryptError: string | null = null;
       try {
         decryptedToken = await this.nuvemshopService.getAccessToken(req.user.userId, storeId);
       } catch (error) {
@@ -169,7 +169,7 @@ export class NuvemshopController {
       }
 
       // Testar o token fazendo uma requisição à API
-      let apiTest = null;
+      let apiTest: { status: number; statusText: string; ok: boolean } | { error: string } | null = null;
       if (decryptedToken) {
         try {
           const testResponse = await fetch(

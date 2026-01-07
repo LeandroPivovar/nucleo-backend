@@ -3,7 +3,9 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true, // Necessário para verificar assinatura HMAC dos webhooks da Shopify
+  });
 
   // Habilitar CORS para o frontend
   app.enableCors({

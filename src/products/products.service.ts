@@ -76,6 +76,9 @@ export class ProductsService {
    * Sincroniza o produto com todas as integrações ativas (Nuvemshop e Shopify)
    */
   private async syncToIntegrations(userId: number, product: Product): Promise<void> {
+    const externalIds = product.externalIds || { nuvemshop: {}, shopify: {} };
+    let hasChanges = false;
+
     // Sincronizar com Nuvemshop
     try {
       const nuvemshopConnections = await this.nuvemshopService.getConnections(userId);
@@ -83,14 +86,38 @@ export class ProductsService {
 
       for (const connection of activeNuvemshopConnections) {
         try {
-          const nuvemshopProductData = this.convertToNuvemshopFormat(product);
-          await this.nuvemshopService.syncProduct(
+          // Verificar se já temos o ID salvo
+          let existingProductId = externalIds.nuvemshop?.[connection.storeId];
+
+          // Se não temos ID, buscar por SKU ou nome para evitar duplicatas
+          if (!existingProductId && product.sku) {
+            existingProductId = await this.findNuvemshopProductBySku(
+              userId,
+              connection.storeId,
+              product.sku,
+            );
+          }
+
+          const nuvemshopProductData = this.convertToNuvemshopFormat(product, existingProductId);
+          
+          const result = await this.nuvemshopService.syncProduct(
             userId,
             connection.storeId,
             nuvemshopProductData,
           );
+
+          // Salvar o ID retornado (a API da Nuvemshop retorna o produto com o campo 'id')
+          const returnedProductId = result?.id;
+          if (returnedProductId) {
+            if (!externalIds.nuvemshop) {
+              externalIds.nuvemshop = {};
+            }
+            externalIds.nuvemshop[connection.storeId] = returnedProductId;
+            hasChanges = true;
+          }
+
           this.logger.log(
-            `Produto ${product.id} sincronizado com Nuvemshop (storeId: ${connection.storeId})`,
+            `Produto ${product.id} ${existingProductId ? 'atualizado' : 'criado'} na Nuvemshop (storeId: ${connection.storeId}, productId: ${returnedProductId})`,
           );
         } catch (error) {
           this.logger.error(
@@ -110,10 +137,35 @@ export class ProductsService {
 
       for (const connection of activeShopifyConnections) {
         try {
-          const shopifyProductData = this.convertToShopifyFormat(product);
-          await this.shopifyService.syncProduct(userId, connection.shop, shopifyProductData);
+          // Verificar se já temos o ID salvo
+          let existingProductId = externalIds.shopify?.[connection.shop];
+
+          // Se não temos ID, buscar por SKU para evitar duplicatas
+          if (!existingProductId && product.sku) {
+            existingProductId = await this.findShopifyProductBySku(
+              userId,
+              connection.shop,
+              product.sku,
+            );
+          }
+
+          const shopifyProductData = this.convertToShopifyFormat(product, existingProductId);
+          
+          const result = await this.shopifyService.syncProduct(userId, connection.shop, shopifyProductData);
+
+          // Salvar o ID retornado (formato GraphQL: gid://shopify/Product/123456)
+          // O método syncProduct do Shopify retorna result.data?.productSet?.product
+          const returnedProductId = result?.id;
+          if (returnedProductId) {
+            if (!externalIds.shopify) {
+              externalIds.shopify = {};
+            }
+            externalIds.shopify[connection.shop] = returnedProductId;
+            hasChanges = true;
+          }
+
           this.logger.log(
-            `Produto ${product.id} sincronizado com Shopify (shop: ${connection.shop})`,
+            `Produto ${product.id} ${existingProductId ? 'atualizado' : 'criado'} na Shopify (shop: ${connection.shop}, productId: ${returnedProductId})`,
           );
         } catch (error) {
           this.logger.error(
@@ -125,12 +177,21 @@ export class ProductsService {
     } catch (error) {
       this.logger.error('Erro ao buscar conexões Shopify:', error);
     }
+
+    // Salvar os IDs externos atualizados
+    if (hasChanges) {
+      product.externalIds = externalIds;
+      await this.productRepository.save(product);
+    }
   }
 
   /**
    * Converte o produto do formato Nucleo CRM para o formato Nuvemshop
    */
-  private convertToNuvemshopFormat(product: Product): {
+  private convertToNuvemshopFormat(
+    product: Product,
+    existingProductId?: number,
+  ): {
     name: { pt?: string; en?: string; es?: string };
     description?: { pt?: string; en?: string; es?: string };
     variants: Array<{
@@ -145,6 +206,7 @@ export class ProductsService {
     id?: number;
   } {
     return {
+      ...(existingProductId && { id: existingProductId }), // Incluir ID se existir para atualizar
       name: {
         pt: product.name,
       },
@@ -168,9 +230,71 @@ export class ProductsService {
   }
 
   /**
+   * Busca um produto na Nuvemshop pelo SKU
+   */
+  private async findNuvemshopProductBySku(
+    userId: number,
+    storeId: string,
+    sku: string,
+  ): Promise<number | undefined> {
+    try {
+      const products = await this.nuvemshopService.getProducts(userId, storeId, { limit: 250 });
+      
+      for (const product of products) {
+        // Verificar se alguma variante tem o SKU correspondente
+        if (product.variants && Array.isArray(product.variants)) {
+          const matchingVariant = product.variants.find((v: any) => v.sku === sku);
+          if (matchingVariant && product.id) {
+            return product.id;
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Erro ao buscar produto por SKU na Nuvemshop: ${sku}`, error);
+    }
+    return undefined;
+  }
+
+  /**
+   * Busca um produto na Shopify pelo SKU
+   * Retorna o ID no formato GraphQL (gid://shopify/Product/123456)
+   */
+  private async findShopifyProductBySku(
+    userId: number,
+    shop: string,
+    sku: string,
+  ): Promise<string | undefined> {
+    try {
+      const products = await this.shopifyService.getProducts(userId, shop, { limit: 250 });
+      
+      for (const product of products) {
+        // Verificar se alguma variante tem o SKU correspondente
+        if (product.variants && Array.isArray(product.variants)) {
+          const matchingVariant = product.variants.find((v: any) => v.sku === sku);
+          if (matchingVariant && product.id) {
+            // Converter ID numérico para formato GraphQL
+            // Se já estiver no formato GraphQL, retornar como está
+            if (typeof product.id === 'string' && product.id.startsWith('gid://')) {
+              return product.id;
+            }
+            // Se for numérico, converter para formato GraphQL
+            return `gid://shopify/Product/${product.id}`;
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Erro ao buscar produto por SKU na Shopify: ${sku}`, error);
+    }
+    return undefined;
+  }
+
+  /**
    * Converte o produto do formato Nucleo CRM para o formato Shopify (GraphQL)
    */
-  private convertToShopifyFormat(product: Product): {
+  private convertToShopifyFormat(
+    product: Product,
+    existingProductId?: string,
+  ): {
     title: string;
     variants?: Array<{
       optionValues: Array<{ optionName: string; name: string }>;
@@ -181,6 +305,7 @@ export class ProductsService {
     id?: string;
   } {
     return {
+      ...(existingProductId && { id: existingProductId }), // Incluir ID se existir para atualizar
       title: product.name,
       variants: [
         {
@@ -190,8 +315,6 @@ export class ProductsService {
           inventoryQuantity: product.stock || 0,
         },
       ],
-      // TODO: Armazenar o ID do produto na Shopify para atualizações futuras
-      // id: product.shopifyProductId,
     };
   }
 

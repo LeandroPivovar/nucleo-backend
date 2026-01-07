@@ -35,6 +35,12 @@ export class Product {
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
+  @Column({ type: 'json', nullable: true })
+  externalIds: {
+    nuvemshop?: Record<string, number>; // { storeId: productId }
+    shopify?: Record<string, string>; // { shop: productId }
+  } | null;
+
   @ManyToOne(() => User)
   @JoinColumn({ name: 'userId' })
   user: User;

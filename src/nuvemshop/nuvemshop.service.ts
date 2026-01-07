@@ -214,8 +214,10 @@ export class NuvemshopService {
       
       // Verificar se o escopo inclui read_products
       if (scope && !scope.includes('read_products')) {
-        console.warn('AVISO: O token não tem o escopo read_products. Escopo atual:', scope);
-        console.warn('Isso pode causar erros ao tentar buscar produtos da API.');
+        console.error('ERRO CRÍTICO: O token não tem o escopo read_products!');
+        console.error('Escopo atual recebido da Nuvemshop:', scope);
+        console.error('AÇÃO NECESSÁRIA: Configure o escopo "read_products" no painel de desenvolvedor da Nuvemshop para o App ID:', this.clientId);
+        console.error('Isso causará erros ao tentar buscar produtos da API.');
       }
     } catch (error) {
       console.error('ERRO: Token não pode ser descriptografado após salvar!', error);
@@ -438,6 +440,15 @@ export class NuvemshopService {
         });
 
         if (response.status === 401 || response.status === 403) {
+          // Verificar se o problema é escopo insuficiente
+          const connection = await this.getActiveConnection(userId, storeId);
+          if (connection.scope && !connection.scope.includes('read_products')) {
+            throw new UnauthorizedException(
+              'Token não possui o escopo "read_products" necessário para buscar produtos. ' +
+              'Por favor, reconecte a integração e certifique-se de que o app na Nuvemshop tenha o escopo "read_products" configurado no painel do desenvolvedor.',
+            );
+          }
+          
           throw new UnauthorizedException(
             error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado',
           );

@@ -137,6 +137,9 @@ Body: {
    - `read_products, write_products` - Para sincronização de produtos
    - `read_orders, write_orders` - Para receber pedidos
    - `read_checkouts, write_checkouts` - Para carrinhos abandonados
+   
+   ⚠️ **IMPORTANTE:** Os scopes devem ser configurados no painel de desenvolvedor da Nuvemshop (https://partners.nuvemshop.com.br/).
+   A Nuvemshop não permite passar scopes na URL de autorização. Veja `CONFIGURAR_SCOPES_NUVEMSHOP.md` para mais detalhes.
 
 ## 🔍 Troubleshooting
 
@@ -151,4 +154,12 @@ Body: {
 ### Erro: "Assinatura inválida" (webhooks)
 - Verifique se o `NUVEMSHOP_CLIENT_SECRET` está correto
 - Certifique-se de que o `rawBody` está habilitado no `main.ts` (já está configurado)
+
+### Erro: "Invalid access token" ao buscar produtos
+- **Causa mais comum:** O token não possui o escopo `read_products`
+- **Solução:** 
+  1. Acesse o painel de desenvolvedor da Nuvemshop (https://partners.nuvemshop.com.br/)
+  2. Configure o escopo `read_products` no app (App ID: 24731)
+  3. **Reconecte** a integração para obter um novo token com os scopes corretos
+  4. Veja `CONFIGURAR_SCOPES_NUVEMSHOP.md` para instruções detalhadas
 

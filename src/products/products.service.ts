@@ -128,11 +128,37 @@ export class ProductsService {
         const allProducts = await this.productRepository.find({ where: { userId } });
         this.logger.log(`[IMPORT] >>> Total de produtos do usuário: ${allProducts.length}`);
         
+        // Log de todos os produtos para debug
+        this.logger.log(`[IMPORT] >>> Produtos existentes:`, allProducts.map(p => ({
+          id: p.id,
+          name: p.name,
+          sku: p.sku,
+          externalIds: p.externalIds,
+        })));
+        
         const existingByExternalId = allProducts.find((p) => {
           const extIds = (p.externalIds as any) || {};
-          const hasMatch = extIds.nuvemshop?.[storeId] === nuvemshopProductId;
+          // Comparar convertendo ambos para número para evitar problemas de tipo
+          const storedId = extIds.nuvemshop?.[storeId];
+          const hasMatch = storedId != null && (
+            storedId === nuvemshopProductId || 
+            Number(storedId) === Number(nuvemshopProductId)
+          );
           if (hasMatch) {
             this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO! ID local: ${p.id}, externalIds:`, JSON.stringify(extIds));
+          } else if (storedId != null) {
+            // Log detalhado para debug apenas se houver externalIds
+            this.logger.log(`[IMPORT] >>> Comparando:`, {
+              produtoId: p.id,
+              produtoExternalIds: JSON.stringify(extIds),
+              buscandoStoreId: storeId,
+              buscandoProductId: nuvemshopProductId,
+              tipoBuscando: typeof nuvemshopProductId,
+              storedId: storedId,
+              tipoStored: typeof storedId,
+              extIdsNuvemshop: extIds.nuvemshop,
+              match: hasMatch,
+            });
           }
           return hasMatch;
         });

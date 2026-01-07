@@ -132,8 +132,24 @@ export class ProductsService {
               );
               if (existingProductId) {
                 this.logger.log(`Produto encontrado por nome na Nuvemshop: ${existingProductId}`);
+                // Salvar o ID encontrado imediatamente para evitar buscar novamente
+                if (!externalIds.nuvemshop) {
+                  externalIds.nuvemshop = {};
+                }
+                externalIds.nuvemshop[connection.storeId] = existingProductId;
+                hasChanges = true;
               }
             }
+          }
+          
+          // Se encontrou ID por SKU, também salvar
+          if (existingProductId && !externalIds.nuvemshop?.[connection.storeId]) {
+            if (!externalIds.nuvemshop) {
+              externalIds.nuvemshop = {};
+            }
+            externalIds.nuvemshop[connection.storeId] = existingProductId;
+            hasChanges = true;
+            this.logger.debug(`ID encontrado por SKU/nome salvo: ${existingProductId}`);
           }
 
           const nuvemshopProductData = this.convertToNuvemshopFormat(product, existingProductId);
@@ -149,13 +165,15 @@ export class ProductsService {
           );
 
           // Salvar o ID retornado (a API da Nuvemshop retorna o produto com o campo 'id')
-          const returnedProductId = result?.id;
+          // Se já tínhamos um ID (encontrado por SKU/nome), usar esse, senão usar o retornado
+          const returnedProductId = result?.id || existingProductId;
           if (returnedProductId) {
             if (!externalIds.nuvemshop) {
               externalIds.nuvemshop = {};
             }
             externalIds.nuvemshop[connection.storeId] = returnedProductId;
             hasChanges = true;
+            this.logger.debug(`ID salvo no externalIds: ${returnedProductId} para storeId: ${connection.storeId}`);
           }
 
           this.logger.log(
@@ -189,6 +207,15 @@ export class ProductsService {
               connection.shop,
               product.sku,
             );
+            // Salvar o ID encontrado imediatamente para evitar buscar novamente
+            if (existingProductId && !externalIds.shopify?.[connection.shop]) {
+              if (!externalIds.shopify) {
+                externalIds.shopify = {};
+              }
+              externalIds.shopify[connection.shop] = existingProductId;
+              hasChanges = true;
+              this.logger.debug(`ID encontrado por SKU na Shopify salvo: ${existingProductId}`);
+            }
           }
 
           const shopifyProductData = this.convertToShopifyFormat(product, existingProductId);
@@ -267,9 +294,9 @@ export class ProductsService {
         : undefined,
       variants: [
         {
-          price: product.price.toFixed(2),
+          price: (typeof product.price === 'number' ? product.price : parseFloat(String(product.price)) || 0).toFixed(2),
           stock_management: true,
-          stock: product.stock || 0,
+          stock: typeof product.stock === 'number' ? product.stock : parseInt(String(product.stock)) || 0,
           weight: '0.50', // Peso padrão, pode ser configurável no futuro
           sku: product.sku || undefined,
         },
@@ -403,9 +430,9 @@ export class ProductsService {
       variants: [
         {
           optionValues: [], // Produto simples sem opções
-          price: product.price.toFixed(2),
+          price: (typeof product.price === 'number' ? product.price : parseFloat(String(product.price)) || 0).toFixed(2),
           sku: product.sku || undefined,
-          inventoryQuantity: product.stock || 0,
+          inventoryQuantity: typeof product.stock === 'number' ? product.stock : parseInt(String(product.stock)) || 0,
         },
       ],
     };

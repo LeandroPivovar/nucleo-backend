@@ -308,7 +308,7 @@ export class NuvemshopService {
         `${this.apiBaseUrl}/${storeId}/products?limit=1`,
         {
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            'Authentication': `bearer ${accessToken}`,
             'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -350,15 +350,15 @@ export class NuvemshopService {
       ? `${this.apiBaseUrl}/${storeId}/products/${productData.id}`
       : `${this.apiBaseUrl}/${storeId}/products`;
 
-    const response = await fetch(url, {
-      method: productData.id ? 'PUT' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
-      },
-      body: JSON.stringify(productData),
-    });
+      const response = await fetch(url, {
+        method: productData.id ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authentication': `bearer ${accessToken}`,
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+        },
+        body: JSON.stringify(productData),
+      });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -407,7 +407,7 @@ export class NuvemshopService {
 
       console.log('URL da requisição:', url);
       console.log('Headers da requisição:', {
-        'Authorization': `Bearer ${accessToken.substring(0, 20)}...`,
+        'Authentication': `bearer ${accessToken.substring(0, 20)}...`,
         'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -415,7 +415,7 @@ export class NuvemshopService {
 
       const response = await fetch(url, {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authentication': `bearer ${accessToken}`,
           'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -500,7 +500,7 @@ export class NuvemshopService {
 
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authentication': `bearer ${accessToken}`,
         'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
         'Content-Type': 'application/json',
       },
@@ -534,7 +534,7 @@ export class NuvemshopService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
+          'Authentication': `bearer ${accessToken}`,
         'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
         },
         body: JSON.stringify({
@@ -565,7 +565,7 @@ export class NuvemshopService {
       `${this.apiBaseUrl}/${storeId}/webhooks`,
       {
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authentication': `bearer ${accessToken}`,
         'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
         },
       },

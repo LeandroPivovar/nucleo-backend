@@ -177,7 +177,7 @@ export class NuvemshopController {
             `https://api.nuvemshop.com.br/v1/${storeId}/products?limit=1`,
             {
               headers: {
-                'Authorization': `Bearer ${decryptedToken}`,
+                'Authentication': `bearer ${decryptedToken}`,
                 'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',

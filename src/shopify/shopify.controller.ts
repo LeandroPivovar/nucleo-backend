@@ -141,6 +141,32 @@ export class ShopifyController {
   }
 
   /**
+   * Busca produtos da loja
+   */
+  @Get('products')
+  @UseGuards(JwtAuthGuard)
+  async getProducts(
+    @Request() req,
+    @Query('shop') shop: string,
+    @Query('limit') limit?: string,
+    @Query('page') page?: string,
+  ) {
+    const products = await this.shopifyService.getProducts(
+      req.user.userId,
+      shop,
+      {
+        limit: limit ? parseInt(limit) : undefined,
+        page: page ? parseInt(page) : undefined,
+      },
+    );
+
+    return {
+      products,
+      count: products.length,
+    };
+  }
+
+  /**
    * Busca carrinhos abandonados
    */
   @Get('checkouts/abandoned')

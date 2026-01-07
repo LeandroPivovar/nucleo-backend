@@ -175,6 +175,32 @@ export class NuvemshopController {
   }
 
   /**
+   * Busca produtos da loja
+   */
+  @Get('products')
+  @UseGuards(JwtAuthGuard)
+  async getProducts(
+    @Request() req,
+    @Query('storeId') storeId: string,
+    @Query('limit') limit?: string,
+    @Query('page') page?: string,
+  ) {
+    const products = await this.nuvemshopService.getProducts(
+      req.user.userId,
+      storeId,
+      {
+        limit: limit ? parseInt(limit) : undefined,
+        page: page ? parseInt(page) : undefined,
+      },
+    );
+
+    return {
+      products,
+      count: products.length,
+    };
+  }
+
+  /**
    * Busca carrinhos abandonados
    */
   @Get('checkouts/abandoned')

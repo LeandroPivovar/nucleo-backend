@@ -260,6 +260,39 @@ export class ShopifyService {
   }
 
   /**
+   * Busca produtos da loja Shopify
+   */
+  async getProducts(
+    userId: number,
+    shop: string,
+    params?: {
+      limit?: number;
+      page?: number;
+    },
+  ): Promise<any[]> {
+    const accessToken = await this.getAccessToken(userId, shop);
+
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.page) queryParams.append('page', params.page.toString());
+
+    const url = `https://${shop}/admin/api/${this.apiVersion}/products.json${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'X-Shopify-Access-Token': accessToken,
+      },
+    });
+
+    if (!response.ok) {
+      throw new BadRequestException('Falha ao buscar produtos');
+    }
+
+    const data = await response.json();
+    return data.products || [];
+  }
+
+  /**
    * Busca carrinhos abandonados
    */
   async getAbandonedCheckouts(

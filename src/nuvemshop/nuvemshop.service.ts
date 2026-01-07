@@ -218,6 +218,42 @@ export class NuvemshopService {
   }
 
   /**
+   * Busca produtos da loja Nuvemshop
+   */
+  async getProducts(
+    userId: number,
+    storeId: string,
+    params?: {
+      limit?: number;
+      page?: number;
+    },
+  ): Promise<any[]> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.page) queryParams.append('page', params.page.toString());
+
+    const url = `${this.apiBaseUrl}/${storeId}/products${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.error_description || error.message || 'Falha ao buscar produtos',
+      );
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  /**
    * Busca carrinhos abandonados
    */
   async getAbandonedCheckouts(

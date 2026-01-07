@@ -108,33 +108,8 @@ export class NuvemshopController {
       throw new BadRequestException('Token de acesso inválido');
     }
 
-    // Testar o token antes de salvar
-    try {
-      const testResponse = await fetch(
-        `https://api.nuvemshop.com.br/v1/${storeId}/products?limit=1`,
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-        },
-      );
-
-      if (!testResponse.ok) {
-        const errorData = await testResponse.json().catch(() => ({}));
-        throw new BadRequestException(
-          `Token inválido: ${errorData.message || errorData.error || 'Não foi possível validar o token'}`,
-        );
-      }
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      // Se não conseguir testar, ainda salva mas avisa
-      console.warn('Não foi possível validar o token antes de salvar:', error);
-    }
+    // Não validar o token aqui - ele veio diretamente da Nuvemshop e deve ser válido
+    // A validação acontecerá quando o token for usado nas requisições à API
 
     // Salvar conexão
     const connection = await this.nuvemshopService.createOrUpdateConnection(

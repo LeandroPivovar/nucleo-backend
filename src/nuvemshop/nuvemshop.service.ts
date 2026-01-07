@@ -325,6 +325,7 @@ export class NuvemshopService {
 
   /**
    * Sincroniza um produto (criar ou atualizar)
+   * Nota: Ao atualizar (PUT), não podemos enviar variants - use updateVariant separadamente
    */
   async syncProduct(
     userId: number,
@@ -332,12 +333,13 @@ export class NuvemshopService {
     productData: {
       name: { pt?: string; en?: string; es?: string };
       description?: { pt?: string; en?: string; es?: string };
-      variants: Array<{
+      variants?: Array<{
         price: string;
         stock_management: boolean;
         stock: number;
         weight: string;
         sku?: string;
+        id?: number;
       }>;
       images?: Array<{ src: string }>;
       categories?: number[];
@@ -345,6 +347,9 @@ export class NuvemshopService {
     },
   ): Promise<any> {
     const accessToken = await this.getAccessToken(userId, storeId);
+
+    // Separar variants do produto (variants não podem ser enviados no PUT)
+    const { variants, ...productDataWithoutVariants } = productData;
 
     const url = productData.id
       ? `${this.apiBaseUrl}/${storeId}/products/${productData.id}`
@@ -357,7 +362,8 @@ export class NuvemshopService {
           'Authentication': `bearer ${accessToken}`,
           'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
         },
-        body: JSON.stringify(productData),
+        // Ao atualizar (PUT), não enviar variants
+        body: JSON.stringify(productData.id ? productDataWithoutVariants : productData),
       });
 
       if (!response.ok) {
@@ -385,6 +391,165 @@ export class NuvemshopService {
           error.error_description || error.message || error.error || `Falha ao sincronizar produto (${response.status})`,
         );
       }
+
+      const result = await response.json();
+
+      // Se é atualização e temos variants, atualizar variantes separadamente
+      if (productData.id && variants && variants.length > 0) {
+        // Buscar variantes existentes do produto
+        const productDetails = await this.getProduct(userId, storeId, productData.id);
+        
+        if (productDetails && productDetails.variants && productDetails.variants.length > 0) {
+          // Atualizar primeira variante (assumindo produto simples com uma variante)
+          const existingVariant = productDetails.variants[0];
+          const variantToUpdate = variants[0];
+          
+          if (existingVariant.id) {
+            await this.updateVariant(
+              userId,
+              storeId,
+              productData.id,
+              existingVariant.id,
+              variantToUpdate,
+            );
+          }
+        } else if (variants.length > 0) {
+          // Se não tem variantes, criar uma nova
+          await this.createVariant(
+            userId,
+            storeId,
+            productData.id,
+            variants[0],
+          );
+        }
+      }
+
+      return result;
+  }
+
+  /**
+   * Busca detalhes de um produto específico
+   */
+  async getProduct(userId: number, storeId: string, productId: number): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const response = await fetch(
+      `${this.apiBaseUrl}/${storeId}/products/${productId}`,
+      {
+        headers: {
+          'Authentication': `bearer ${accessToken}`,
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText || 'Falha ao buscar produto' };
+      }
+      throw new BadRequestException(
+        error.error_description || error.message || error.error || 'Falha ao buscar produto',
+      );
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Atualiza uma variante de produto
+   */
+  async updateVariant(
+    userId: number,
+    storeId: string,
+    productId: number,
+    variantId: number,
+    variantData: {
+      price: string;
+      stock_management: boolean;
+      stock: number;
+      weight: string;
+      sku?: string;
+    },
+  ): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const response = await fetch(
+      `${this.apiBaseUrl}/${storeId}/products/${productId}/variants/${variantId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authentication': `bearer ${accessToken}`,
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+        },
+        body: JSON.stringify(variantData),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText || 'Falha ao atualizar variante' };
+      }
+      throw new BadRequestException(
+        error.error_description || error.message || error.error || 'Falha ao atualizar variante',
+      );
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Cria uma nova variante para um produto
+   */
+  async createVariant(
+    userId: number,
+    storeId: string,
+    productId: number,
+    variantData: {
+      price: string;
+      stock_management: boolean;
+      stock: number;
+      weight: string;
+      sku?: string;
+    },
+  ): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const response = await fetch(
+      `${this.apiBaseUrl}/${storeId}/products/${productId}/variants`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authentication': `bearer ${accessToken}`,
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+        },
+        body: JSON.stringify(variantData),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText || 'Falha ao criar variante' };
+      }
+      throw new BadRequestException(
+        error.error_description || error.message || error.error || 'Falha ao criar variante',
+      );
+    }
 
     return await response.json();
   }

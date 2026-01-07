@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   ParseIntPipe,
+  Logger,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -20,6 +21,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 @Controller('products')
 @UseGuards(JwtAuthGuard)
 export class ProductsController {
+  private readonly logger = new Logger(ProductsController.name);
+
   constructor(private readonly productsService: ProductsService) {}
 
   @Post()
@@ -44,7 +47,23 @@ export class ProductsController {
       };
     },
   ) {
-    return this.productsService.createOrUpdateFromIntegration(req.user.userId, importData);
+    this.logger.log(`[IMPORT] Recebida requisição de importação:`, {
+      userId: req.user.userId,
+      name: importData.name,
+      sku: importData.sku || 'não informado',
+      externalIds: importData.externalIds,
+    });
+    
+    const result = await this.productsService.createOrUpdateFromIntegration(req.user.userId, importData);
+    
+    this.logger.log(`[IMPORT] Produto processado:`, {
+      id: result.id,
+      name: result.name,
+      sku: result.sku,
+      externalIds: result.externalIds,
+    });
+    
+    return result;
   }
 
   @Get()

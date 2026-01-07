@@ -47,7 +47,8 @@ export class ProductsService {
       };
     },
   ): Promise<Product> {
-    this.logger.debug(`[IMPORT] Iniciando importação de produto:`, {
+    this.logger.log(`[IMPORT] ========== INICIANDO IMPORTAÇÃO ==========`);
+    this.logger.log(`[IMPORT] Dados recebidos:`, {
       name: productData.name,
       sku: productData.sku || 'não informado',
       externalIds: productData.externalIds,
@@ -56,13 +57,20 @@ export class ProductsService {
 
     // Verificar se produto já existe por SKU
     if (productData.sku) {
-      this.logger.debug(`[IMPORT] Verificando produto por SKU: ${productData.sku}`);
+      this.logger.log(`[IMPORT] >>> Verificando produto por SKU: ${productData.sku} (userId: ${userId})`);
       const existingBySku = await this.productRepository.findOne({
         where: { userId, sku: productData.sku },
       });
 
+      this.logger.log(`[IMPORT] >>> Resultado busca por SKU:`, {
+        encontrado: !!existingBySku,
+        id: existingBySku?.id,
+        sku: existingBySku?.sku,
+        name: existingBySku?.name,
+      });
+
       if (existingBySku) {
-        this.logger.log(`[IMPORT] Produto encontrado por SKU: ${productData.sku} (ID local: ${existingBySku.id})`);
+        this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO POR SKU: ${productData.sku} (ID local: ${existingBySku.id})`);
         
         // Atualizar produto existente
         Object.assign(existingBySku, {
@@ -77,8 +85,8 @@ export class ProductsService {
         // Mesclar externalIds se fornecido
         if (productData.externalIds) {
           const currentExternalIds = (existingBySku.externalIds as any) || {};
-          this.logger.debug(`[IMPORT] ExternalIds atual:`, currentExternalIds);
-          this.logger.debug(`[IMPORT] ExternalIds novo:`, productData.externalIds);
+          this.logger.log(`[IMPORT] ExternalIds atual:`, JSON.stringify(currentExternalIds));
+          this.logger.log(`[IMPORT] ExternalIds novo:`, JSON.stringify(productData.externalIds));
           
           existingBySku.externalIds = {
             ...currentExternalIds,
@@ -93,40 +101,44 @@ export class ProductsService {
             },
           } as any;
           
-          this.logger.debug(`[IMPORT] ExternalIds mesclado:`, existingBySku.externalIds);
+          this.logger.log(`[IMPORT] ExternalIds mesclado:`, JSON.stringify(existingBySku.externalIds));
         }
 
-        this.logger.log(`[IMPORT] Produto atualizado por SKU: ${productData.sku} (ID: ${existingBySku.id})`);
-        return this.productRepository.save(existingBySku);
+        const saved = await this.productRepository.save(existingBySku);
+        this.logger.log(`[IMPORT] ✅ PRODUTO ATUALIZADO POR SKU: ${productData.sku} (ID: ${saved.id})`);
+        this.logger.log(`[IMPORT] ========== FIM DA IMPORTAÇÃO (ATUALIZADO) ==========`);
+        return saved;
       } else {
-        this.logger.debug(`[IMPORT] Nenhum produto encontrado por SKU: ${productData.sku}`);
+        this.logger.log(`[IMPORT] ❌ Nenhum produto encontrado por SKU: ${productData.sku}`);
       }
+    } else {
+      this.logger.log(`[IMPORT] ⚠️ SKU não informado, pulando verificação por SKU`);
     }
 
     // Verificar se produto já existe por externalIds (Nuvemshop)
     if (productData.externalIds?.nuvemshop) {
-      this.logger.debug(`[IMPORT] Verificando produto por externalIds Nuvemshop:`, productData.externalIds.nuvemshop);
+      this.logger.log(`[IMPORT] >>> Verificando produto por externalIds Nuvemshop:`, JSON.stringify(productData.externalIds.nuvemshop));
       const storeIds = Object.keys(productData.externalIds.nuvemshop);
       
       for (const storeId of storeIds) {
         const nuvemshopProductId = productData.externalIds.nuvemshop[storeId];
-        this.logger.debug(`[IMPORT] Buscando produto com externalId Nuvemshop: storeId=${storeId}, productId=${nuvemshopProductId}`);
+        this.logger.log(`[IMPORT] >>> Buscando produto com externalId Nuvemshop: storeId=${storeId}, productId=${nuvemshopProductId}`);
         
         // Buscar produtos que tenham este ID externo
         const allProducts = await this.productRepository.find({ where: { userId } });
-        this.logger.debug(`[IMPORT] Total de produtos do usuário: ${allProducts.length}`);
+        this.logger.log(`[IMPORT] >>> Total de produtos do usuário: ${allProducts.length}`);
         
         const existingByExternalId = allProducts.find((p) => {
           const extIds = (p.externalIds as any) || {};
           const hasMatch = extIds.nuvemshop?.[storeId] === nuvemshopProductId;
           if (hasMatch) {
-            this.logger.debug(`[IMPORT] Produto encontrado! ID local: ${p.id}, externalIds:`, extIds);
+            this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO! ID local: ${p.id}, externalIds:`, JSON.stringify(extIds));
           }
           return hasMatch;
         });
 
         if (existingByExternalId) {
-          this.logger.log(`[IMPORT] Produto encontrado por externalId Nuvemshop: ${nuvemshopProductId} (ID local: ${existingByExternalId.id})`);
+          this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO POR EXTERNALID NUVEMSHOP: ${nuvemshopProductId} (ID local: ${existingByExternalId.id})`);
           
           // Atualizar produto existente
           Object.assign(existingByExternalId, {
@@ -141,7 +153,7 @@ export class ProductsService {
 
           // Mesclar externalIds
           const currentExternalIds = (existingByExternalId.externalIds as any) || {};
-          this.logger.debug(`[IMPORT] ExternalIds atual do produto encontrado:`, currentExternalIds);
+          this.logger.log(`[IMPORT] ExternalIds atual do produto encontrado:`, JSON.stringify(currentExternalIds));
           
           existingByExternalId.externalIds = {
             ...currentExternalIds,
@@ -156,24 +168,24 @@ export class ProductsService {
             },
           } as any;
 
-          this.logger.log(
-            `[IMPORT] Produto atualizado por externalId Nuvemshop: ${nuvemshopProductId} (ID: ${existingByExternalId.id})`,
-          );
-          return this.productRepository.save(existingByExternalId);
+          const saved = await this.productRepository.save(existingByExternalId);
+          this.logger.log(`[IMPORT] ✅ PRODUTO ATUALIZADO POR EXTERNALID NUVEMSHOP: ${nuvemshopProductId} (ID: ${saved.id})`);
+          this.logger.log(`[IMPORT] ========== FIM DA IMPORTAÇÃO (ATUALIZADO) ==========`);
+          return saved;
         } else {
-          this.logger.debug(`[IMPORT] Nenhum produto encontrado por externalId Nuvemshop: ${nuvemshopProductId}`);
+          this.logger.log(`[IMPORT] ❌ Nenhum produto encontrado por externalId Nuvemshop: ${nuvemshopProductId}`);
         }
       }
     }
 
     // Verificar se produto já existe por externalIds (Shopify)
     if (productData.externalIds?.shopify) {
-      this.logger.debug(`[IMPORT] Verificando produto por externalIds Shopify:`, productData.externalIds.shopify);
+      this.logger.log(`[IMPORT] >>> Verificando produto por externalIds Shopify:`, JSON.stringify(productData.externalIds.shopify));
       const shops = Object.keys(productData.externalIds.shopify);
       
       for (const shop of shops) {
         const shopifyProductId = productData.externalIds.shopify[shop];
-        this.logger.debug(`[IMPORT] Buscando produto com externalId Shopify: shop=${shop}, productId=${shopifyProductId}`);
+        this.logger.log(`[IMPORT] >>> Buscando produto com externalId Shopify: shop=${shop}, productId=${shopifyProductId}`);
         
         // Buscar produtos que tenham este ID externo
         const allProducts = await this.productRepository.find({ where: { userId } });
@@ -183,7 +195,7 @@ export class ProductsService {
         });
 
         if (existingByExternalId) {
-          this.logger.log(`[IMPORT] Produto encontrado por externalId Shopify: ${shopifyProductId} (ID local: ${existingByExternalId.id})`);
+          this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO POR EXTERNALID SHOPIFY: ${shopifyProductId} (ID local: ${existingByExternalId.id})`);
           
           // Atualizar produto existente
           Object.assign(existingByExternalId, {
@@ -211,25 +223,25 @@ export class ProductsService {
             },
           } as any;
 
-          this.logger.log(
-            `[IMPORT] Produto atualizado por externalId Shopify: ${shopifyProductId} (ID: ${existingByExternalId.id})`,
-          );
-          return this.productRepository.save(existingByExternalId);
+          const saved = await this.productRepository.save(existingByExternalId);
+          this.logger.log(`[IMPORT] ✅ PRODUTO ATUALIZADO POR EXTERNALID SHOPIFY: ${shopifyProductId} (ID: ${saved.id})`);
+          this.logger.log(`[IMPORT] ========== FIM DA IMPORTAÇÃO (ATUALIZADO) ==========`);
+          return saved;
         } else {
-          this.logger.debug(`[IMPORT] Nenhum produto encontrado por externalId Shopify: ${shopifyProductId}`);
+          this.logger.log(`[IMPORT] ❌ Nenhum produto encontrado por externalId Shopify: ${shopifyProductId}`);
         }
       }
     }
 
     // Se não encontrou por SKU nem por externalIds, verificar por nome
     if (productData.name) {
-      this.logger.debug(`[IMPORT] Verificando produto por nome: ${productData.name}`);
+      this.logger.log(`[IMPORT] >>> Verificando produto por nome: ${productData.name}`);
       const existingByName = await this.productRepository.findOne({
         where: { userId, name: productData.name },
       });
 
       if (existingByName) {
-        this.logger.log(`[IMPORT] Produto encontrado por nome: ${productData.name} (ID local: ${existingByName.id})`);
+        this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO POR NOME: ${productData.name} (ID local: ${existingByName.id})`);
         
         // Atualizar produto existente
         Object.assign(existingByName, {
@@ -244,7 +256,7 @@ export class ProductsService {
         // Mesclar externalIds
         if (productData.externalIds) {
           const currentExternalIds = (existingByName.externalIds as any) || {};
-          this.logger.debug(`[IMPORT] ExternalIds atual do produto encontrado por nome:`, currentExternalIds);
+          this.logger.log(`[IMPORT] ExternalIds atual do produto encontrado por nome:`, JSON.stringify(currentExternalIds));
           
           existingByName.externalIds = {
             ...currentExternalIds,
@@ -260,15 +272,17 @@ export class ProductsService {
           } as any;
         }
 
-        this.logger.log(`[IMPORT] Produto atualizado por nome: ${productData.name} (ID: ${existingByName.id})`);
-        return this.productRepository.save(existingByName);
+        const saved = await this.productRepository.save(existingByName);
+        this.logger.log(`[IMPORT] ✅ PRODUTO ATUALIZADO POR NOME: ${productData.name} (ID: ${saved.id})`);
+        this.logger.log(`[IMPORT] ========== FIM DA IMPORTAÇÃO (ATUALIZADO) ==========`);
+        return saved;
       } else {
-        this.logger.debug(`[IMPORT] Nenhum produto encontrado por nome: ${productData.name}`);
+        this.logger.log(`[IMPORT] ❌ Nenhum produto encontrado por nome: ${productData.name}`);
       }
     }
 
     // Se não encontrou, criar novo produto
-    this.logger.log(`[IMPORT] Nenhum produto encontrado. Criando novo produto: ${productData.name} (SKU: ${productData.sku || 'não informado'})`);
+    this.logger.log(`[IMPORT] ⚠️ NENHUM PRODUTO ENCONTRADO. CRIANDO NOVO PRODUTO: ${productData.name} (SKU: ${productData.sku || 'não informado'})`);
     const product = this.productRepository.create({
       ...productData,
       userId,
@@ -277,7 +291,9 @@ export class ProductsService {
     });
 
     const savedProduct = await this.productRepository.save(product);
-    this.logger.log(`[IMPORT] Novo produto criado: ${productData.name} (ID local: ${savedProduct.id}, SKU: ${productData.sku || 'não informado'})`);
+    this.logger.log(`[IMPORT] ✅ NOVO PRODUTO CRIADO: ${productData.name} (ID local: ${savedProduct.id}, SKU: ${productData.sku || 'não informado'})`);
+    this.logger.log(`[IMPORT] ExternalIds do novo produto:`, JSON.stringify(savedProduct.externalIds));
+    this.logger.log(`[IMPORT] ========== FIM DA IMPORTAÇÃO (CRIADO) ==========`);
     return savedProduct;
   }
 

@@ -63,11 +63,18 @@ export class ProductsService {
     Object.assign(product, updateProductDto);
     const updatedProduct = await this.productRepository.save(product);
 
-    // Sincronizar automaticamente com integrações ativas
-    this.syncToIntegrations(userId, updatedProduct).catch((error) => {
-      this.logger.error('Erro ao sincronizar produto com integrações:', error);
-      // Não lançar erro para não quebrar a atualização do produto local
+    // Recarregar o produto do banco para garantir que temos o externalIds atualizado
+    const productWithExternalIds = await this.productRepository.findOne({
+      where: { id: updatedProduct.id, userId },
     });
+
+    // Sincronizar automaticamente com integrações ativas
+    if (productWithExternalIds) {
+      this.syncToIntegrations(userId, productWithExternalIds).catch((error) => {
+        this.logger.error('Erro ao sincronizar produto com integrações:', error);
+        // Não lançar erro para não quebrar a atualização do produto local
+      });
+    }
 
     return updatedProduct;
   }
@@ -98,19 +105,34 @@ export class ProductsService {
           let existingProductId = externalIds.nuvemshop?.[connection.storeId];
 
           this.logger.debug(
-            `Sincronizando produto ${product.id} com Nuvemshop. ID existente: ${existingProductId || 'não encontrado'}, SKU: ${product.sku || 'não informado'}`,
+            `Sincronizando produto ${product.id} com Nuvemshop. ID existente: ${existingProductId || 'não encontrado'}, SKU: ${product.sku || 'não informado'}, Nome: ${product.name}`,
           );
 
-          // Se não temos ID, buscar por SKU para evitar duplicatas
-          if (!existingProductId && product.sku) {
-            this.logger.debug(`Buscando produto por SKU: ${product.sku}`);
-            existingProductId = await this.findNuvemshopProductBySku(
-              userId,
-              connection.storeId,
-              product.sku,
-            );
-            if (existingProductId) {
-              this.logger.log(`Produto encontrado por SKU na Nuvemshop: ${existingProductId}`);
+          // Se não temos ID, buscar por SKU ou nome para evitar duplicatas
+          if (!existingProductId) {
+            if (product.sku) {
+              this.logger.debug(`Buscando produto por SKU: ${product.sku}`);
+              existingProductId = await this.findNuvemshopProductBySku(
+                userId,
+                connection.storeId,
+                product.sku,
+              );
+              if (existingProductId) {
+                this.logger.log(`Produto encontrado por SKU na Nuvemshop: ${existingProductId}`);
+              }
+            }
+            
+            // Se não encontrou por SKU, tentar por nome
+            if (!existingProductId && product.name) {
+              this.logger.debug(`Buscando produto por nome: ${product.name}`);
+              existingProductId = await this.findNuvemshopProductByName(
+                userId,
+                connection.storeId,
+                product.name,
+              );
+              if (existingProductId) {
+                this.logger.log(`Produto encontrado por nome na Nuvemshop: ${existingProductId}`);
+              }
             }
           }
 
@@ -285,6 +307,43 @@ export class ProductsService {
       this.logger.debug(`Nenhum produto encontrado na Nuvemshop com SKU: ${sku}`);
     } catch (error) {
       this.logger.error(`Erro ao buscar produto por SKU na Nuvemshop: ${sku}`, error);
+    }
+    return undefined;
+  }
+
+  /**
+   * Busca um produto na Nuvemshop pelo nome
+   */
+  private async findNuvemshopProductByName(
+    userId: number,
+    storeId: string,
+    name: string,
+  ): Promise<number | undefined> {
+    try {
+      this.logger.debug(`Buscando produto na Nuvemshop por nome: ${name} (storeId: ${storeId})`);
+      const products = await this.nuvemshopService.getProducts(userId, storeId, { limit: 250 });
+      
+      this.logger.debug(`Total de produtos encontrados na Nuvemshop: ${products.length}`);
+      
+      for (const product of products) {
+        // A Nuvemshop retorna o nome como objeto { pt, en, es } ou string
+        let productName = '';
+        if (typeof product.name === 'object' && product.name !== null) {
+          productName = product.name.pt || product.name.en || product.name.es || '';
+        } else if (typeof product.name === 'string') {
+          productName = product.name;
+        }
+        
+        // Comparar nomes (case-insensitive, sem espaços extras)
+        if (productName.trim().toLowerCase() === name.trim().toLowerCase() && product.id) {
+          this.logger.log(`Produto encontrado na Nuvemshop por nome: ${name} -> Product ID: ${product.id}`);
+          return product.id;
+        }
+      }
+      
+      this.logger.debug(`Nenhum produto encontrado na Nuvemshop com nome: ${name}`);
+    } catch (error) {
+      this.logger.error(`Erro ao buscar produto por nome na Nuvemshop: ${name}`, error);
     }
     return undefined;
   }

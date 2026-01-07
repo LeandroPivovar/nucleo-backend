@@ -10,15 +10,21 @@ import {
   HttpStatus,
   Headers,
   Req,
+  Res,
+  Redirect,
 } from '@nestjs/common';
-import type { Request as ExpressRequest } from 'express';
+import type { Request as ExpressRequest, Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { NuvemshopService } from './nuvemshop.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import * as crypto from 'crypto';
 
 @Controller('nuvemshop')
 export class NuvemshopController {
-  constructor(private readonly nuvemshopService: NuvemshopService) {}
+  constructor(
+    private readonly nuvemshopService: NuvemshopService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * Inicia o fluxo OAuth - retorna a URL de autorização
@@ -41,32 +47,42 @@ export class NuvemshopController {
   /**
    * Callback OAuth - recebe o código e troca por token
    * Este endpoint é chamado pela Nuvemshop após o usuário autorizar
+   * Redireciona para o frontend com os dados necessários
    */
   @Get('auth/callback')
-  @HttpCode(HttpStatus.OK)
   async callback(
     @Query('code') code: string,
     @Query('state') state: string,
+    @Res() res: Response,
   ) {
     if (!code) {
-      throw new Error('Código de autorização não fornecido');
+      // Redirecionar para frontend com erro
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+      return res.redirect(`${frontendUrl}/integrations/nuvemshop/callback?error=no_code`);
     }
 
-    // Trocar código por token
-    const tokenData = await this.nuvemshopService.exchangeCodeForToken(code);
+    try {
+      // Trocar código por token
+      const tokenData = await this.nuvemshopService.exchangeCodeForToken(code);
 
-    // IMPORTANTE: Em uma aplicação real, você precisaria:
-    // 1. Verificar o state (CSRF token) - armazenar temporariamente e comparar
-    // 2. Identificar o usuário (pode passar userId via state ou usar sessão)
-    // Por enquanto, vamos retornar os dados para o frontend processar
+      // Redirecionar para o frontend com os dados na query string
+      // O frontend vai processar e salvar a conexão
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+      const redirectUrl = new URL(`${frontendUrl}/integrations/nuvemshop/callback`);
+      
+      // Passar os dados via query string (o frontend vai processar)
+      redirectUrl.searchParams.set('code', code);
+      redirectUrl.searchParams.set('state', state);
+      redirectUrl.searchParams.set('access_token', tokenData.access_token);
+      redirectUrl.searchParams.set('user_id', tokenData.user_id);
+      redirectUrl.searchParams.set('scope', tokenData.scope || '');
 
-    return {
-      success: true,
-      access_token: tokenData.access_token,
-      user_id: tokenData.user_id,
-      scope: tokenData.scope,
-      state, // Retornar state para verificação no frontend
-    };
+      return res.redirect(redirectUrl.toString());
+    } catch (error) {
+      // Redirecionar para frontend com erro
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
+      return res.redirect(`${frontendUrl}/integrations/nuvemshop/callback?error=auth_failed`);
+    }
   }
 
   /**

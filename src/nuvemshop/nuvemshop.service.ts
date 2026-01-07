@@ -47,6 +47,7 @@ export class NuvemshopService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify({
           client_id: this.clientId,
@@ -58,13 +59,43 @@ export class NuvemshopService {
     );
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const errorText = await response.text();
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText || 'Falha ao obter token de acesso' };
+      }
+      
+      console.error('Erro ao trocar código por token:', {
+        status: response.status,
+        statusText: response.statusText,
+        error,
+      });
+      
       throw new BadRequestException(
-        error.error_description || error.message || 'Falha ao obter token de acesso',
+        error.error_description || error.message || error.error || 'Falha ao obter token de acesso',
       );
     }
 
-    return await response.json();
+    const tokenData = await response.json();
+    
+    // Validar resposta
+    if (!tokenData.access_token || !tokenData.user_id) {
+      console.error('Resposta inválida da Nuvemshop:', tokenData);
+      throw new BadRequestException('Resposta inválida da Nuvemshop: token ou user_id não encontrados');
+    }
+
+    // Log para debug
+    console.log('Token obtido com sucesso:', {
+      tokenLength: tokenData.access_token.length,
+      tokenPrefix: tokenData.access_token.substring(0, 20) + '...',
+      userId: tokenData.user_id,
+      scope: tokenData.scope,
+      tokenType: tokenData.token_type,
+    });
+
+    return tokenData;
   }
 
   /**
@@ -128,7 +159,22 @@ export class NuvemshopService {
     accessToken: string,
     scope: string,
   ): Promise<NuvemshopConnection> {
+    // Log para debug (remover em produção)
+    console.log('Salvando conexão Nuvemshop:', {
+      userId,
+      storeId,
+      tokenLength: accessToken.length,
+      tokenPrefix: accessToken.substring(0, 20) + '...',
+      scope,
+    });
+
     const encryptedToken = this.encryptToken(accessToken);
+
+    // Log para debug (remover em produção)
+    console.log('Token criptografado:', {
+      encryptedLength: encryptedToken.length,
+      encryptedPrefix: encryptedToken.substring(0, 30) + '...',
+    });
 
     let connection = await this.nuvemshopConnectionRepository.findOne({
       where: { userId, storeId },
@@ -150,7 +196,20 @@ export class NuvemshopService {
       });
     }
 
-    return await this.nuvemshopConnectionRepository.save(connection);
+    const saved = await this.nuvemshopConnectionRepository.save(connection);
+    
+    // Verificar se o token foi salvo corretamente fazendo um teste de descriptografia
+    try {
+      const testDecrypt = this.decryptToken(saved.accessToken);
+      console.log('Token salvo e verificado com sucesso:', {
+        decryptedLength: testDecrypt.length,
+        matches: testDecrypt === accessToken,
+      });
+    } catch (error) {
+      console.error('ERRO: Token não pode ser descriptografado após salvar!', error);
+    }
+
+    return saved;
   }
 
   /**
@@ -187,7 +246,21 @@ export class NuvemshopService {
     }
 
     try {
+      // Log para debug (remover em produção)
+      console.log('Descriptografando token:', {
+        userId,
+        storeId,
+        encryptedLength: connection.accessToken.length,
+        encryptedPrefix: connection.accessToken.substring(0, 20) + '...',
+      });
+
       const token = this.decryptToken(connection.accessToken);
+      
+      // Log para debug (remover em produção)
+      console.log('Token descriptografado:', {
+        tokenLength: token.length,
+        tokenPrefix: token.substring(0, 20) + '...',
+      });
       
       if (!token || token.trim().length === 0) {
         throw new UnauthorizedException('Token de acesso inválido ou vazio');
@@ -199,7 +272,12 @@ export class NuvemshopService {
         throw error;
       }
       // Se houver erro na descriptografia, pode ser que o token esteja corrompido
-      console.error('Erro ao descriptografar token:', error);
+      console.error('Erro ao descriptografar token:', {
+        error: error instanceof Error ? error.message : String(error),
+        userId,
+        storeId,
+        encryptedTokenLength: connection.accessToken.length,
+      });
       throw new UnauthorizedException('Erro ao descriptografar token de acesso. Pode ser necessário reconectar a integração.');
     }
   }

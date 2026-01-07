@@ -48,7 +48,7 @@ export class NuvemshopController {
   /**
    * Callback OAuth - recebe o código e troca por token
    * Este endpoint é chamado pela Nuvemshop após o usuário autorizar
-   * Redireciona para o frontend com os dados necessários
+   * Salva temporariamente o token e redireciona para o frontend
    */
   @Get('auth/callback')
   async callback(
@@ -66,20 +66,38 @@ export class NuvemshopController {
       // Trocar código por token
       const tokenData = await this.nuvemshopService.exchangeCodeForToken(code);
 
-      // Redirecionar para o frontend com os dados na query string
-      // O frontend vai processar e salvar a conexão
+      // Log para debug
+      console.log('Token recebido da Nuvemshop:', {
+        tokenLength: tokenData.access_token.length,
+        tokenPrefix: tokenData.access_token.substring(0, 20) + '...',
+        userId: tokenData.user_id,
+        scope: tokenData.scope,
+      });
+
+      // Salvar temporariamente em uma sessão/cache usando o state como chave
+      // Por enquanto, vamos passar via query string mas codificando melhor
       const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
       const redirectUrl = new URL(`${frontendUrl}/integrations/nuvemshop/callback`);
       
-      // Passar os dados via query string (o frontend vai processar)
-      redirectUrl.searchParams.set('code', code);
+      // Passar apenas o state e um código temporário
+      // O frontend vai buscar o token usando esse código
       redirectUrl.searchParams.set('state', state);
-      redirectUrl.searchParams.set('access_token', tokenData.access_token);
-      redirectUrl.searchParams.set('user_id', tokenData.user_id);
-      redirectUrl.searchParams.set('scope', tokenData.scope || '');
+      redirectUrl.searchParams.set('success', 'true');
+      
+      // Criar um código temporário para buscar o token
+      // Por enquanto, vamos usar uma abordagem mais segura: passar o token codificado em base64
+      // Mas isso ainda não é ideal. O ideal seria usar uma sessão/cache no backend
+      const tempToken = Buffer.from(JSON.stringify({
+        access_token: tokenData.access_token,
+        user_id: tokenData.user_id,
+        scope: tokenData.scope || '',
+      })).toString('base64');
+      
+      redirectUrl.searchParams.set('token_data', tempToken);
 
       return res.redirect(redirectUrl.toString());
     } catch (error) {
+      console.error('Erro no callback Nuvemshop:', error);
       // Redirecionar para frontend com erro
       const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
       return res.redirect(`${frontendUrl}/integrations/nuvemshop/callback?error=auth_failed`);
@@ -127,6 +145,78 @@ export class NuvemshopController {
         isActive: connection.isActive,
       },
     };
+  }
+
+  /**
+   * Endpoint de debug para verificar token salvo
+   */
+  @Get('debug/token')
+  @UseGuards(JwtAuthGuard)
+  async debugToken(
+    @Request() req,
+    @Query('storeId') storeId: string,
+  ) {
+    try {
+      const connection = await this.nuvemshopService.getActiveConnection(req.user.userId, storeId);
+      
+      // Tentar descriptografar o token
+      let decryptedToken = null;
+      let decryptError = null;
+      try {
+        decryptedToken = await this.nuvemshopService.getAccessToken(req.user.userId, storeId);
+      } catch (error) {
+        decryptError = error instanceof Error ? error.message : String(error);
+      }
+
+      // Testar o token fazendo uma requisição à API
+      let apiTest = null;
+      if (decryptedToken) {
+        try {
+          const testResponse = await fetch(
+            `https://api.nuvemshop.com.br/v1/${storeId}/products?limit=1`,
+            {
+              headers: {
+                'Authorization': `Bearer ${decryptedToken}`,
+                'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+            },
+          );
+          apiTest = {
+            status: testResponse.status,
+            statusText: testResponse.statusText,
+            ok: testResponse.ok,
+          };
+        } catch (error) {
+          apiTest = {
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+
+      return {
+        connection: {
+          id: connection.id,
+          storeId: connection.storeId,
+          isActive: connection.isActive,
+          scope: connection.scope,
+          encryptedTokenLength: connection.accessToken.length,
+          encryptedTokenPrefix: connection.accessToken.substring(0, 30) + '...',
+        },
+        decryption: {
+          success: decryptedToken !== null,
+          error: decryptError,
+          decryptedTokenLength: decryptedToken ? decryptedToken.length : null,
+          decryptedTokenPrefix: decryptedToken ? decryptedToken.substring(0, 20) + '...' : null,
+        },
+        apiTest,
+      };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**

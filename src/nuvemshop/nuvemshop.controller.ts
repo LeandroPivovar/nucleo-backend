@@ -12,6 +12,7 @@ import {
   Req,
   Res,
   Redirect,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Request as ExpressRequest, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -99,7 +100,40 @@ export class NuvemshopController {
     const { storeId, accessToken, scope } = body;
 
     if (!storeId || !accessToken) {
-      throw new Error('storeId e accessToken são obrigatórios');
+      throw new BadRequestException('storeId e accessToken são obrigatórios');
+    }
+
+    // Validar formato do token (deve ser uma string não vazia)
+    if (typeof accessToken !== 'string' || accessToken.trim().length === 0) {
+      throw new BadRequestException('Token de acesso inválido');
+    }
+
+    // Testar o token antes de salvar
+    try {
+      const testResponse = await fetch(
+        `https://api.nuvemshop.com.br/v1/${storeId}/products?limit=1`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        },
+      );
+
+      if (!testResponse.ok) {
+        const errorData = await testResponse.json().catch(() => ({}));
+        throw new BadRequestException(
+          `Token inválido: ${errorData.message || errorData.error || 'Não foi possível validar o token'}`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      // Se não conseguir testar, ainda salva mas avisa
+      console.warn('Não foi possível validar o token antes de salvar:', error);
     }
 
     // Salvar conexão
@@ -294,6 +328,24 @@ export class NuvemshopController {
     return {
       success: true,
       data,
+    };
+  }
+
+  /**
+   * Testa a conexão e valida o token
+   */
+  @Post('test-connection')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async testConnection(
+    @Request() req,
+    @Body() body: { storeId: string },
+  ) {
+    const isValid = await this.nuvemshopService.testToken(req.user.userId, body.storeId);
+
+    return {
+      success: isValid,
+      message: isValid ? 'Conexão válida' : 'Token inválido. Reconecte a integração.',
     };
   }
 

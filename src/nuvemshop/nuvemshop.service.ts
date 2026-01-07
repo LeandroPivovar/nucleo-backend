@@ -89,21 +89,34 @@ export class NuvemshopService {
    * Descriptografa o token de acesso
    */
   private decryptToken(encryptedToken: string): string {
-    const algorithm = 'aes-256-cbc';
-    const key = crypto
-      .createHash('sha256')
-      .update(this.clientSecret || 'default-secret')
-      .digest();
+    try {
+      const algorithm = 'aes-256-cbc';
+      const key = crypto
+        .createHash('sha256')
+        .update(this.clientSecret || 'default-secret')
+        .digest();
 
-    const parts = encryptedToken.split(':');
-    const iv = Buffer.from(parts[0], 'hex');
-    const encrypted = parts[1];
+      const parts = encryptedToken.split(':');
+      if (parts.length !== 2) {
+        throw new Error('Formato de token criptografado inválido');
+      }
 
-    const decipher = crypto.createDecipheriv(algorithm, key, iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
+      const iv = Buffer.from(parts[0], 'hex');
+      const encrypted = parts[1];
 
-    return decrypted;
+      if (!iv || iv.length !== 16) {
+        throw new Error('IV inválido');
+      }
+
+      const decipher = crypto.createDecipheriv(algorithm, key, iv);
+      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+
+      return decrypted;
+    } catch (error) {
+      console.error('Erro ao descriptografar token:', error);
+      throw new Error('Falha ao descriptografar token. O token pode estar corrompido.');
+    }
   }
 
   /**
@@ -185,7 +198,36 @@ export class NuvemshopService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new UnauthorizedException('Erro ao descriptografar token de acesso');
+      // Se houver erro na descriptografia, pode ser que o token esteja corrompido
+      console.error('Erro ao descriptografar token:', error);
+      throw new UnauthorizedException('Erro ao descriptografar token de acesso. Pode ser necessário reconectar a integração.');
+    }
+  }
+
+  /**
+   * Testa se o token está válido fazendo uma requisição simples
+   */
+  async testToken(userId: number, storeId: string): Promise<boolean> {
+    try {
+      const accessToken = await this.getAccessToken(userId, storeId);
+      
+      // Fazer uma requisição simples para verificar se o token é válido
+      const response = await fetch(
+        `${this.apiBaseUrl}/${storeId}/products?limit=1`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        },
+      );
+
+      return response.ok;
+    } catch (error) {
+      console.error('Erro ao testar token:', error);
+      return false;
     }
   }
 

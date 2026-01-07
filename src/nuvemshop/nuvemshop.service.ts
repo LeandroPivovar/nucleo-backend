@@ -360,12 +360,31 @@ export class NuvemshopService {
         body: JSON.stringify(productData),
       });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new BadRequestException(
-        error.error_description || error.message || 'Falha ao sincronizar produto',
-      );
-    }
+      if (!response.ok) {
+        const errorText = await response.text();
+        let error;
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { message: errorText || 'Falha ao sincronizar produto' };
+        }
+        
+        console.error('Erro ao sincronizar produto na Nuvemshop:', {
+          status: response.status,
+          statusText: response.statusText,
+          error,
+          url,
+          productData: {
+            ...productData,
+            id: productData.id,
+            hasId: !!productData.id,
+          },
+        });
+        
+        throw new BadRequestException(
+          error.error_description || error.message || error.error || `Falha ao sincronizar produto (${response.status})`,
+        );
+      }
 
     return await response.json();
   }

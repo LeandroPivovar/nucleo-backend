@@ -76,7 +76,15 @@ export class ProductsService {
    * Sincroniza o produto com todas as integrações ativas (Nuvemshop e Shopify)
    */
   private async syncToIntegrations(userId: number, product: Product): Promise<void> {
-    const externalIds = product.externalIds || { nuvemshop: {}, shopify: {} };
+    // Tentar ler externalIds, mas se não existir (campo não criado ainda), usar objeto vazio
+    let externalIds: { nuvemshop?: Record<string, number>; shopify?: Record<string, string> } = {};
+    try {
+      externalIds = (product.externalIds as any) || { nuvemshop: {}, shopify: {} };
+    } catch (error) {
+      // Campo externalIds não existe ainda (migration não executada)
+      this.logger.warn(`Campo externalIds não disponível para produto ${product.id}. Execute a migration.`);
+      externalIds = { nuvemshop: {}, shopify: {} };
+    }
     let hasChanges = false;
 
     // Sincronizar com Nuvemshop
@@ -89,16 +97,28 @@ export class ProductsService {
           // Verificar se já temos o ID salvo
           let existingProductId = externalIds.nuvemshop?.[connection.storeId];
 
-          // Se não temos ID, buscar por SKU ou nome para evitar duplicatas
+          this.logger.debug(
+            `Sincronizando produto ${product.id} com Nuvemshop. ID existente: ${existingProductId || 'não encontrado'}, SKU: ${product.sku || 'não informado'}`,
+          );
+
+          // Se não temos ID, buscar por SKU para evitar duplicatas
           if (!existingProductId && product.sku) {
+            this.logger.debug(`Buscando produto por SKU: ${product.sku}`);
             existingProductId = await this.findNuvemshopProductBySku(
               userId,
               connection.storeId,
               product.sku,
             );
+            if (existingProductId) {
+              this.logger.log(`Produto encontrado por SKU na Nuvemshop: ${existingProductId}`);
+            }
           }
 
           const nuvemshopProductData = this.convertToNuvemshopFormat(product, existingProductId);
+          
+          this.logger.debug(
+            `Enviando produto para Nuvemshop: ${existingProductId ? 'PUT (atualizar)' : 'POST (criar)'}, ID: ${existingProductId || 'novo'}`,
+          );
           
           const result = await this.nuvemshopService.syncProduct(
             userId,
@@ -180,8 +200,16 @@ export class ProductsService {
 
     // Salvar os IDs externos atualizados
     if (hasChanges) {
-      product.externalIds = externalIds;
-      await this.productRepository.save(product);
+      try {
+        product.externalIds = externalIds as any;
+        await this.productRepository.save(product);
+        this.logger.log(`IDs externos salvos para produto ${product.id}`);
+      } catch (error) {
+        // Se o campo não existe ainda, apenas logar aviso
+        this.logger.warn(
+          `Não foi possível salvar externalIds para produto ${product.id}. Execute a migration para adicionar o campo.`,
+        );
+      }
     }
   }
 
@@ -238,19 +266,25 @@ export class ProductsService {
     sku: string,
   ): Promise<number | undefined> {
     try {
+      this.logger.debug(`Buscando produto na Nuvemshop por SKU: ${sku} (storeId: ${storeId})`);
       const products = await this.nuvemshopService.getProducts(userId, storeId, { limit: 250 });
+      
+      this.logger.debug(`Total de produtos encontrados na Nuvemshop: ${products.length}`);
       
       for (const product of products) {
         // Verificar se alguma variante tem o SKU correspondente
         if (product.variants && Array.isArray(product.variants)) {
           const matchingVariant = product.variants.find((v: any) => v.sku === sku);
           if (matchingVariant && product.id) {
+            this.logger.log(`Produto encontrado na Nuvemshop por SKU: ${sku} -> Product ID: ${product.id}`);
             return product.id;
           }
         }
       }
+      
+      this.logger.debug(`Nenhum produto encontrado na Nuvemshop com SKU: ${sku}`);
     } catch (error) {
-      this.logger.warn(`Erro ao buscar produto por SKU na Nuvemshop: ${sku}`, error);
+      this.logger.error(`Erro ao buscar produto por SKU na Nuvemshop: ${sku}`, error);
     }
     return undefined;
   }

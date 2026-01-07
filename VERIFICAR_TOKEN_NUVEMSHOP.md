@@ -60,3 +60,4 @@ curl -X POST https://nucleocrm.shop/api/nuvemshop/test-connection \
 2. Teste a sincronização novamente
 3. Se o problema persistir, verifique os logs do backend
 
+

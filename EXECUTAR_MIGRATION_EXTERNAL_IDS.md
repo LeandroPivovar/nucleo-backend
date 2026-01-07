@@ -76,3 +76,4 @@ Após executar a migration, o sistema poderá:
 - Produtos existentes terão `externalIds = NULL` até serem sincronizados
 - A coluna é opcional (nullable), então não quebra produtos existentes
 
+

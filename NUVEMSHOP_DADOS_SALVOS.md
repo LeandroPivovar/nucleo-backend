@@ -129,3 +129,4 @@ WHERE storeId = '7138199';
 4. ⏭️ Buscar carrinhos abandonados
 5. ⏭️ Implementar automações
 
+

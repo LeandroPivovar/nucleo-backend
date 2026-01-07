@@ -86,3 +86,4 @@ Produto X atualizado na Nuvemshop (storeId: 7138199, productId: 316746883)
 3. ✅ Testar edição de produto existente
 4. ✅ Verificar logs para confirmar que está atualizando
 
+

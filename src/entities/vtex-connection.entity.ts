@@ -9,8 +9,8 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-@Entity('nuvemshop_connections')
-export class NuvemshopConnection {
+@Entity('vtex_connections')
+export class VtexConnection {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -22,13 +22,13 @@ export class NuvemshopConnection {
   user: User;
 
   @Column({ length: 255 })
-  storeId: string; // ID da loja (user_id retornado no OAuth)
+  accountName: string; // Nome da conta VTEX (ex: minhaloja)
 
   @Column({ type: 'text' })
-  accessToken: string; // Token criptografado
+  appKey: string; // AppKey criptografado
 
-  @Column({ type: 'text', nullable: true })
-  scope: string; // Escopos autorizados
+  @Column({ type: 'text' })
+  appToken: string; // AppToken criptografado
 
   @Column({ default: true })
   isActive: boolean;
@@ -42,5 +42,4 @@ export class NuvemshopConnection {
   @UpdateDateColumn()
   updatedAt: Date;
 }
-
 

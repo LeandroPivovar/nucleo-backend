@@ -65,3 +65,4 @@ export class SyncProductsDto {
   variants?: VariantDto[];
 }
 
+

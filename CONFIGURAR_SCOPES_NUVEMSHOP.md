@@ -74,3 +74,4 @@ Se ainda aparecer apenas `write_products`, os scopes não foram configurados cor
 4. Verifique os logs do backend para confirmar os scopes recebidos
 5. Entre em contato com o suporte da Nuvemshop se necessário
 
+

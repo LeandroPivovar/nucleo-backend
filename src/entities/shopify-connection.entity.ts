@@ -43,3 +43,4 @@ export class ShopifyConnection {
   updatedAt: Date;
 }
 
+

@@ -142,3 +142,4 @@ pm2 logs nucleo-backend --lines 50
    # Depois reinicie e veja o que aparece
    ```
 
+

@@ -80,3 +80,4 @@ cd /caminho/para/nucleo-crm/backend && npm run migration:run
 
 **Nota:** Substitua `/caminho/para/nucleo-crm/backend` pelo caminho real do seu projeto no servidor.
 
+

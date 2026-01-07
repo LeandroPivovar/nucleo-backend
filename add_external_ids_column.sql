@@ -10,3 +10,4 @@ AFTER `active`;
 -- ou
 -- SHOW COLUMNS FROM products LIKE 'externalIds';
 
+

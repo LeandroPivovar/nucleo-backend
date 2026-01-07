@@ -1,10 +1,10 @@
 import { MigrationInterface, QueryRunner, Table, TableForeignKey } from 'typeorm';
 
-export class CreateShopifyConnectionsTable1700000000015 implements MigrationInterface {
+export class CreateVtexConnectionsTable1700000000017 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({
-        name: 'shopify_connections',
+        name: 'vtex_connections',
         columns: [
           {
             name: 'id',
@@ -18,18 +18,17 @@ export class CreateShopifyConnectionsTable1700000000015 implements MigrationInte
             type: 'int',
           },
           {
-            name: 'shop',
+            name: 'accountName',
             type: 'varchar',
             length: '255',
           },
           {
-            name: 'accessToken',
+            name: 'appKey',
             type: 'text',
           },
           {
-            name: 'scope',
+            name: 'appToken',
             type: 'text',
-            isNullable: true,
           },
           {
             name: 'isActive',
@@ -58,7 +57,7 @@ export class CreateShopifyConnectionsTable1700000000015 implements MigrationInte
     );
 
     await queryRunner.createForeignKey(
-      'shopify_connections',
+      'vtex_connections',
       new TableForeignKey({
         columnNames: ['userId'],
         referencedColumnNames: ['id'],
@@ -69,8 +68,7 @@ export class CreateShopifyConnectionsTable1700000000015 implements MigrationInte
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.dropTable('shopify_connections');
+    await queryRunner.dropTable('vtex_connections');
   }
 }
-
 

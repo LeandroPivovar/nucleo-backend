@@ -12,3 +12,4 @@ import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 })
 export class NuvemshopModule {}
 
+

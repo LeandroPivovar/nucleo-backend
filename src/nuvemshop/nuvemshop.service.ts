@@ -1,0 +1,359 @@
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
+import * as crypto from 'crypto';
+
+@Injectable()
+export class NuvemshopService {
+  private readonly clientId: string;
+  private readonly clientSecret: string;
+  private readonly apiBaseUrl: string = 'https://api.nuvemshop.com.br/v1';
+  private readonly authBaseUrl: string = 'https://www.nuvemshop.com.br/apps';
+  private readonly scopes: string = 'read_products,write_products,read_orders,write_orders,read_checkouts,write_checkouts';
+
+  constructor(
+    @InjectRepository(NuvemshopConnection)
+    private nuvemshopConnectionRepository: Repository<NuvemshopConnection>,
+    private configService: ConfigService,
+  ) {
+    this.clientId = this.configService.get<string>('NUVEMSHOP_CLIENT_ID') || '24731';
+    this.clientSecret =
+      this.configService.get<string>('NUVEMSHOP_CLIENT_SECRET') || 'bff8303f400b05b63945f07dc77de74e142e890eba84face';
+  }
+
+  /**
+   * Gera a URL de autorização OAuth
+   */
+  generateAuthUrl(state: string): string {
+    return `${this.authBaseUrl}/${this.clientId}/authorize?state=${state}`;
+  }
+
+  /**
+   * Troca o código de autorização por um token de acesso permanente
+   */
+  async exchangeCodeForToken(
+    code: string,
+  ): Promise<{ access_token: string; token_type: string; scope: string; user_id: string }> {
+    const response = await fetch(
+      `${this.authBaseUrl}/authorize/token`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          grant_type: 'authorization_code',
+          code: code,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.error_description || error.message || 'Falha ao obter token de acesso',
+      );
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Criptografa o token de acesso antes de salvar
+   */
+  private encryptToken(token: string): string {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto
+      .createHash('sha256')
+      .update(this.clientSecret || 'default-secret')
+      .digest();
+    const iv = crypto.randomBytes(16);
+
+    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    let encrypted = cipher.update(token, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+
+    return iv.toString('hex') + ':' + encrypted;
+  }
+
+  /**
+   * Descriptografa o token de acesso
+   */
+  private decryptToken(encryptedToken: string): string {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto
+      .createHash('sha256')
+      .update(this.clientSecret || 'default-secret')
+      .digest();
+
+    const parts = encryptedToken.split(':');
+    const iv = Buffer.from(parts[0], 'hex');
+    const encrypted = parts[1];
+
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+
+    return decrypted;
+  }
+
+  /**
+   * Cria ou atualiza uma conexão Nuvemshop
+   */
+  async createOrUpdateConnection(
+    userId: number,
+    storeId: string,
+    accessToken: string,
+    scope: string,
+  ): Promise<NuvemshopConnection> {
+    const encryptedToken = this.encryptToken(accessToken);
+
+    let connection = await this.nuvemshopConnectionRepository.findOne({
+      where: { userId, storeId },
+    });
+
+    if (connection) {
+      connection.accessToken = encryptedToken;
+      connection.scope = scope;
+      connection.isActive = true;
+      connection.lastSyncAt = new Date();
+    } else {
+      connection = this.nuvemshopConnectionRepository.create({
+        userId,
+        storeId,
+        accessToken: encryptedToken,
+        scope,
+        isActive: true,
+        lastSyncAt: new Date(),
+      });
+    }
+
+    return await this.nuvemshopConnectionRepository.save(connection);
+  }
+
+  /**
+   * Busca uma conexão ativa do usuário
+   */
+  async getActiveConnection(
+    userId: number,
+    storeId?: string,
+  ): Promise<NuvemshopConnection> {
+    const where: any = { userId, isActive: true };
+    if (storeId) {
+      where.storeId = storeId;
+    }
+
+    const connection = await this.nuvemshopConnectionRepository.findOne({
+      where,
+    });
+
+    if (!connection) {
+      throw new NotFoundException('Conexão Nuvemshop não encontrada');
+    }
+
+    return connection;
+  }
+
+  /**
+   * Obtém o token de acesso descriptografado
+   */
+  async getAccessToken(userId: number, storeId?: string): Promise<string> {
+    const connection = await this.getActiveConnection(userId, storeId);
+    return this.decryptToken(connection.accessToken);
+  }
+
+  /**
+   * Sincroniza um produto (criar ou atualizar)
+   */
+  async syncProduct(
+    userId: number,
+    storeId: string,
+    productData: {
+      name: { pt?: string; en?: string; es?: string };
+      description?: { pt?: string; en?: string; es?: string };
+      variants: Array<{
+        price: string;
+        stock_management: boolean;
+        stock: number;
+        weight: string;
+        sku?: string;
+      }>;
+      images?: Array<{ src: string }>;
+      categories?: number[];
+      id?: number;
+    },
+  ): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const url = productData.id
+      ? `${this.apiBaseUrl}/${storeId}/products/${productData.id}`
+      : `${this.apiBaseUrl}/${storeId}/products`;
+
+    const response = await fetch(url, {
+      method: productData.id ? 'PUT' : 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `bearer ${accessToken}`,
+      },
+      body: JSON.stringify(productData),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.error_description || error.message || 'Falha ao sincronizar produto',
+      );
+    }
+
+    return await response.json();
+  }
+
+  /**
+   * Busca carrinhos abandonados
+   */
+  async getAbandonedCheckouts(
+    userId: number,
+    storeId: string,
+    params?: {
+      limit?: number;
+      since_id?: number;
+    },
+  ): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.since_id) queryParams.append('since_id', params.since_id.toString());
+
+    const url = `${this.apiBaseUrl}/${storeId}/checkouts${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Authentication': `bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.error_description || error.message || 'Falha ao buscar carrinhos abandonados',
+      );
+    }
+
+    const data = await response.json();
+    return data || [];
+  }
+
+  /**
+   * Cria um webhook na Nuvemshop
+   */
+  async createWebhook(
+    userId: number,
+    storeId: string,
+    event: string,
+    url: string,
+  ): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const response = await fetch(
+      `${this.apiBaseUrl}/${storeId}/webhooks`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authentication': `bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          event: event,
+          url: url,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.error_description || error.message || 'Falha ao criar webhook',
+      );
+    }
+
+    const data = await response.json();
+    return data;
+  }
+
+  /**
+   * Lista webhooks existentes
+   */
+  async listWebhooks(userId: number, storeId: string): Promise<any[]> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const response = await fetch(
+      `${this.apiBaseUrl}/${storeId}/webhooks`,
+      {
+        headers: {
+          'Authentication': `bearer ${accessToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.error_description || error.message || 'Falha ao listar webhooks',
+      );
+    }
+
+    const data = await response.json();
+    return data || [];
+  }
+
+  /**
+   * Verifica a assinatura HMAC de um webhook
+   */
+  verifyWebhookSignature(
+    body: string,
+    signature: string,
+  ): boolean {
+    const hmac = crypto
+      .createHmac('sha256', this.clientSecret)
+      .update(body, 'utf8')
+      .digest('hex');
+
+    return crypto.timingSafeEqual(
+      Buffer.from(hmac),
+      Buffer.from(signature),
+    );
+  }
+
+  /**
+   * Busca todas as conexões do usuário
+   */
+  async getConnections(userId: number): Promise<NuvemshopConnection[]> {
+    return await this.nuvemshopConnectionRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Desativa uma conexão
+   */
+  async deactivateConnection(
+    userId: number,
+    storeId: string,
+  ): Promise<void> {
+    const connection = await this.getActiveConnection(userId, storeId);
+    connection.isActive = false;
+    await this.nuvemshopConnectionRepository.save(connection);
+  }
+}
+

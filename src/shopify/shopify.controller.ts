@@ -12,7 +12,7 @@ import {
   Headers,
   Req,
 } from '@nestjs/common';
-import type { RawBodyRequest } from '@nestjs/common';
+import type { Request as ExpressRequest } from 'express';
 import { ShopifyService } from './shopify.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateShopifyConnectionDto } from './dto/create-shopify-connection.dto';
@@ -219,13 +219,13 @@ export class ShopifyController {
   @Post('webhooks/receive')
   @HttpCode(HttpStatus.OK)
   async receiveWebhook(
-    @Req() req: RawBodyRequest<Request>,
+    @Req() req: ExpressRequest & { rawBody?: Buffer },
     @Headers('x-shopify-topic') topic: string,
     @Headers('x-shopify-shop-domain') shopDomain: string,
     @Headers('x-shopify-hmac-sha256') signature: string,
   ) {
     // Verificar assinatura
-    const body = req.rawBody?.toString() || JSON.stringify(req.body);
+    const body = (req as any).rawBody?.toString() || JSON.stringify(req.body);
     const secret = process.env.SHOPIFY_WEBHOOK_SECRET || '';
 
     if (!this.shopifyService.verifyWebhookSignature(body, signature, secret)) {

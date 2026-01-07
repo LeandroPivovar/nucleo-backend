@@ -34,6 +34,205 @@ export class ProductsService {
     return this.productRepository.save(product);
   }
 
+  /**
+   * Cria ou atualiza um produto baseado em SKU ou externalIds
+   * Usado para importação de produtos de integrações
+   */
+  async createOrUpdateFromIntegration(
+    userId: number,
+    productData: CreateProductDto & {
+      externalIds?: {
+        nuvemshop?: Record<string, number>;
+        shopify?: Record<string, string>;
+      };
+    },
+  ): Promise<Product> {
+    // Verificar se produto já existe por SKU
+    if (productData.sku) {
+      const existingBySku = await this.productRepository.findOne({
+        where: { userId, sku: productData.sku },
+      });
+
+      if (existingBySku) {
+        // Atualizar produto existente
+        Object.assign(existingBySku, {
+          name: productData.name,
+          description: productData.description,
+          price: productData.price,
+          stock: productData.stock ?? existingBySku.stock,
+          category: productData.category,
+          active: productData.active ?? existingBySku.active,
+        });
+
+        // Mesclar externalIds se fornecido
+        if (productData.externalIds) {
+          const currentExternalIds = (existingBySku.externalIds as any) || {};
+          existingBySku.externalIds = {
+            ...currentExternalIds,
+            ...productData.externalIds,
+            nuvemshop: {
+              ...currentExternalIds.nuvemshop,
+              ...productData.externalIds.nuvemshop,
+            },
+            shopify: {
+              ...currentExternalIds.shopify,
+              ...productData.externalIds.shopify,
+            },
+          } as any;
+        }
+
+        this.logger.log(`Produto atualizado por SKU: ${productData.sku} (ID: ${existingBySku.id})`);
+        return this.productRepository.save(existingBySku);
+      }
+    }
+
+    // Verificar se produto já existe por externalIds (Nuvemshop)
+    if (productData.externalIds?.nuvemshop) {
+      const storeIds = Object.keys(productData.externalIds.nuvemshop);
+      for (const storeId of storeIds) {
+        const nuvemshopProductId = productData.externalIds.nuvemshop[storeId];
+        
+        // Buscar produtos que tenham este ID externo
+        const allProducts = await this.productRepository.find({ where: { userId } });
+        const existingByExternalId = allProducts.find((p) => {
+          const extIds = (p.externalIds as any) || {};
+          return extIds.nuvemshop?.[storeId] === nuvemshopProductId;
+        });
+
+        if (existingByExternalId) {
+          // Atualizar produto existente
+          Object.assign(existingByExternalId, {
+            name: productData.name,
+            description: productData.description,
+            price: productData.price,
+            stock: productData.stock ?? existingByExternalId.stock,
+            category: productData.category,
+            active: productData.active ?? existingByExternalId.active,
+            sku: productData.sku || existingByExternalId.sku,
+          });
+
+          // Mesclar externalIds
+          const currentExternalIds = (existingByExternalId.externalIds as any) || {};
+          existingByExternalId.externalIds = {
+            ...currentExternalIds,
+            ...productData.externalIds,
+            nuvemshop: {
+              ...currentExternalIds.nuvemshop,
+              ...productData.externalIds.nuvemshop,
+            },
+            shopify: {
+              ...currentExternalIds.shopify,
+              ...productData.externalIds.shopify,
+            },
+          } as any;
+
+          this.logger.log(
+            `Produto atualizado por externalId Nuvemshop: ${nuvemshopProductId} (ID: ${existingByExternalId.id})`,
+          );
+          return this.productRepository.save(existingByExternalId);
+        }
+      }
+    }
+
+    // Verificar se produto já existe por externalIds (Shopify)
+    if (productData.externalIds?.shopify) {
+      const shops = Object.keys(productData.externalIds.shopify);
+      for (const shop of shops) {
+        const shopifyProductId = productData.externalIds.shopify[shop];
+        
+        // Buscar produtos que tenham este ID externo
+        const allProducts = await this.productRepository.find({ where: { userId } });
+        const existingByExternalId = allProducts.find((p) => {
+          const extIds = (p.externalIds as any) || {};
+          return extIds.shopify?.[shop] === shopifyProductId;
+        });
+
+        if (existingByExternalId) {
+          // Atualizar produto existente
+          Object.assign(existingByExternalId, {
+            name: productData.name,
+            description: productData.description,
+            price: productData.price,
+            stock: productData.stock ?? existingByExternalId.stock,
+            category: productData.category,
+            active: productData.active ?? existingByExternalId.active,
+            sku: productData.sku || existingByExternalId.sku,
+          });
+
+          // Mesclar externalIds
+          const currentExternalIds = (existingByExternalId.externalIds as any) || {};
+          existingByExternalId.externalIds = {
+            ...currentExternalIds,
+            ...productData.externalIds,
+            nuvemshop: {
+              ...currentExternalIds.nuvemshop,
+              ...productData.externalIds.nuvemshop,
+            },
+            shopify: {
+              ...currentExternalIds.shopify,
+              ...productData.externalIds.shopify,
+            },
+          } as any;
+
+          this.logger.log(
+            `Produto atualizado por externalId Shopify: ${shopifyProductId} (ID: ${existingByExternalId.id})`,
+          );
+          return this.productRepository.save(existingByExternalId);
+        }
+      }
+    }
+
+    // Se não encontrou por SKU nem por externalIds, verificar por nome
+    if (productData.name) {
+      const existingByName = await this.productRepository.findOne({
+        where: { userId, name: productData.name },
+      });
+
+      if (existingByName) {
+        // Atualizar produto existente
+        Object.assign(existingByName, {
+          description: productData.description,
+          price: productData.price,
+          stock: productData.stock ?? existingByName.stock,
+          category: productData.category,
+          active: productData.active ?? existingByName.active,
+          sku: productData.sku || existingByName.sku,
+        });
+
+        // Mesclar externalIds
+        if (productData.externalIds) {
+          const currentExternalIds = (existingByName.externalIds as any) || {};
+          existingByName.externalIds = {
+            ...currentExternalIds,
+            ...productData.externalIds,
+            nuvemshop: {
+              ...currentExternalIds.nuvemshop,
+              ...productData.externalIds.nuvemshop,
+            },
+            shopify: {
+              ...currentExternalIds.shopify,
+              ...productData.externalIds.shopify,
+            },
+          } as any;
+        }
+
+        this.logger.log(`Produto atualizado por nome: ${productData.name} (ID: ${existingByName.id})`);
+        return this.productRepository.save(existingByName);
+      }
+    }
+
+    // Se não encontrou, criar novo produto
+    const product = this.productRepository.create({
+      ...productData,
+      userId,
+      stock: productData.stock ?? 0,
+      active: productData.active ?? true,
+    });
+
+    this.logger.log(`Novo produto criado: ${productData.name} (SKU: ${productData.sku || 'não informado'})`);
+    return this.productRepository.save(product);
+  }
+
   async findAll(userId: number): Promise<Product[]> {
     return this.productRepository.find({
       where: { userId },

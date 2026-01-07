@@ -28,6 +28,25 @@ export class ProductsController {
     return this.productsService.create(req.user.userId, createProductDto);
   }
 
+  /**
+   * Importa produto de integração (cria ou atualiza se já existir)
+   * Verifica por SKU ou externalIds antes de criar
+   */
+  @Post('import')
+  @HttpCode(HttpStatus.OK)
+  async importProduct(
+    @Request() req,
+    @Body()
+    importData: CreateProductDto & {
+      externalIds?: {
+        nuvemshop?: Record<string, number>;
+        shopify?: Record<string, string>;
+      };
+    },
+  ) {
+    return this.productsService.createOrUpdateFromIntegration(req.user.userId, importData);
+  }
+
   @Get()
   async findAll(@Request() req) {
     return this.productsService.findAll(req.user.userId);

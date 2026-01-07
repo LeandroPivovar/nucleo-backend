@@ -168,7 +168,25 @@ export class NuvemshopService {
    */
   async getAccessToken(userId: number, storeId?: string): Promise<string> {
     const connection = await this.getActiveConnection(userId, storeId);
-    return this.decryptToken(connection.accessToken);
+    
+    if (!connection || !connection.accessToken) {
+      throw new UnauthorizedException('Token de acesso não encontrado na conexão');
+    }
+
+    try {
+      const token = this.decryptToken(connection.accessToken);
+      
+      if (!token || token.trim().length === 0) {
+        throw new UnauthorizedException('Token de acesso inválido ou vazio');
+      }
+
+      return token;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new UnauthorizedException('Erro ao descriptografar token de acesso');
+    }
   }
 
   /**
@@ -202,7 +220,8 @@ export class NuvemshopService {
       method: productData.id ? 'PUT' : 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `bearer ${accessToken}`,
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
       },
       body: JSON.stringify(productData),
     });
@@ -228,29 +247,74 @@ export class NuvemshopService {
       page?: number;
     },
   ): Promise<any[]> {
-    const accessToken = await this.getAccessToken(userId, storeId);
+    try {
+      const accessToken = await this.getAccessToken(userId, storeId);
 
-    const queryParams = new URLSearchParams();
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.page) queryParams.append('page', params.page.toString());
+      if (!accessToken) {
+        throw new UnauthorizedException('Token de acesso não encontrado');
+      }
 
-    const url = `${this.apiBaseUrl}/${storeId}/products${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+      const queryParams = new URLSearchParams();
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+      if (params?.page) queryParams.append('page', params.page.toString());
 
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `bearer ${accessToken}`,
-      },
-    });
+      const url = `${this.apiBaseUrl}/${storeId}/products${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let error;
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { message: errorText || 'Falha ao buscar produtos' };
+        }
+        
+        // Log para debug (remover em produção se necessário)
+        console.error('Erro ao buscar produtos da Nuvemshop:', {
+          status: response.status,
+          statusText: response.statusText,
+          error,
+          url,
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          throw new UnauthorizedException(
+            error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado',
+          );
+        }
+
+        throw new BadRequestException(
+          error.error_description || error.message || error.error || `Falha ao buscar produtos (${response.status})`,
+        );
+      }
+
+      const data = await response.json();
+      // A API da Nuvemshop pode retornar um array direto ou um objeto com propriedade products
+      if (Array.isArray(data)) {
+        return data;
+      } else if (data.products && Array.isArray(data.products)) {
+        return data.products;
+      } else if (data.data && Array.isArray(data.data)) {
+        return data.data;
+      }
+      return [];
+    } catch (error) {
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
+        throw error;
+      }
       throw new BadRequestException(
-        error.error_description || error.message || 'Falha ao buscar produtos',
+        error instanceof Error ? error.message : 'Falha ao buscar produtos da Nuvemshop',
       );
     }
-
-    const data = await response.json();
-    return Array.isArray(data) ? data : [];
   }
 
   /**
@@ -274,7 +338,9 @@ export class NuvemshopService {
 
     const response = await fetch(url, {
       headers: {
-        'Authentication': `bearer ${accessToken}`,
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+        'Content-Type': 'application/json',
       },
     });
 
@@ -306,7 +372,8 @@ export class NuvemshopService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authentication': `bearer ${accessToken}`,
+          'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
         },
         body: JSON.stringify({
           event: event,
@@ -336,7 +403,8 @@ export class NuvemshopService {
       `${this.apiBaseUrl}/${storeId}/webhooks`,
       {
         headers: {
-          'Authentication': `bearer ${accessToken}`,
+          'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
         },
       },
     );

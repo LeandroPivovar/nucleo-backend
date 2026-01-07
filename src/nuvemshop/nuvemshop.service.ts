@@ -30,8 +30,11 @@ export class NuvemshopService {
 
   /**
    * Gera a URL de autorização OAuth
+   * Nota: A Nuvemshop não suporta passar scopes na URL de autorização
+   * Os scopes são configurados no painel do desenvolvedor do app
    */
   generateAuthUrl(state: string): string {
+    // A Nuvemshop gerencia os scopes no painel do app, não na URL
     return `${this.authBaseUrl}/${this.clientId}/authorize?state=${state}`;
   }
 
@@ -164,6 +167,7 @@ export class NuvemshopService {
       userId,
       storeId,
       tokenLength: accessToken.length,
+      tokenComplete: accessToken, // Log completo temporário para debug
       tokenPrefix: accessToken.substring(0, 20) + '...',
       scope,
     });
@@ -204,7 +208,15 @@ export class NuvemshopService {
       console.log('Token salvo e verificado com sucesso:', {
         decryptedLength: testDecrypt.length,
         matches: testDecrypt === accessToken,
+        originalToken: accessToken, // Log completo temporário
+        decryptedToken: testDecrypt, // Log completo temporário
       });
+      
+      // Verificar se o escopo inclui read_products
+      if (scope && !scope.includes('read_products')) {
+        console.warn('AVISO: O token não tem o escopo read_products. Escopo atual:', scope);
+        console.warn('Isso pode causar erros ao tentar buscar produtos da API.');
+      }
     } catch (error) {
       console.error('ERRO: Token não pode ser descriptografado após salvar!', error);
     }
@@ -374,11 +386,30 @@ export class NuvemshopService {
         throw new UnauthorizedException('Token de acesso não encontrado');
       }
 
+      // Log detalhado do token que será usado (sem expor o token completo por segurança)
+      console.log('Preparando requisição getProducts:', {
+        userId,
+        storeId,
+        tokenLength: accessToken.length,
+        tokenPrefix: accessToken.substring(0, 20),
+        tokenSuffix: accessToken.substring(accessToken.length - 10),
+        tokenHasSpaces: accessToken.includes(' '),
+        tokenHasNewlines: accessToken.includes('\n'),
+      });
+
       const queryParams = new URLSearchParams();
       if (params?.limit) queryParams.append('limit', params.limit.toString());
       if (params?.page) queryParams.append('page', params.page.toString());
 
       const url = `${this.apiBaseUrl}/${storeId}/products${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+
+      console.log('URL da requisição:', url);
+      console.log('Headers da requisição:', {
+        'Authorization': `Bearer ${accessToken.substring(0, 20)}...`,
+        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      });
 
       const response = await fetch(url, {
         headers: {

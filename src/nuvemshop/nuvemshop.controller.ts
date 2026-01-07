@@ -149,6 +149,7 @@ export class NuvemshopController {
 
   /**
    * Endpoint de debug para verificar token salvo
+   * ATENÇÃO: Este endpoint expõe o token completo - remover em produção!
    */
   @Get('debug/token')
   @UseGuards(JwtAuthGuard)
@@ -209,6 +210,7 @@ export class NuvemshopController {
           error: decryptError,
           decryptedTokenLength: decryptedToken ? decryptedToken.length : null,
           decryptedTokenPrefix: decryptedToken ? decryptedToken.substring(0, 20) + '...' : null,
+          decryptedTokenComplete: decryptedToken, // ATENÇÃO: Expõe o token completo - remover em produção!
         },
         apiTest,
       };

@@ -47,6 +47,7 @@ export class AddActiveToUsersAndCreateEmailVerifications1700000000005 implements
           {
             name: 'expiresAt',
             type: 'timestamp',
+            isNullable: true,
           },
         ],
       }),

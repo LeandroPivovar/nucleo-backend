@@ -17,10 +17,12 @@ import { EmailConnectionsModule } from './email-connections/email-connections.mo
 import { ShopifyModule } from './shopify/shopify.module';
 import { NuvemshopModule } from './nuvemshop/nuvemshop.module';
 import { VtexModule } from './vtex/vtex.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
 import { EmailConnection } from './entities/email-connection.entity';
 import { ShopifyConnection } from './entities/shopify-connection.entity';
 import { NuvemshopConnection } from './entities/nuvemshop-connection.entity';
 import { VtexConnection } from './entities/vtex-connection.entity';
+import { Campaign } from './entities/campaign.entity';
 import { User } from './entities/user.entity';
 import { Product } from './entities/product.entity';
 import { Sale } from './entities/sale.entity';
@@ -49,7 +51,7 @@ import { EmailVerification } from './entities/email-verification.entity';
         username: configService.get<string>('DB_USERNAME') || 'root',
         password: configService.get<string>('DB_PASSWORD') || '',
         database: configService.get<string>('DB_DATABASE') || 'nucleo_crm',
-        entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, ShopifyConnection, NuvemshopConnection, VtexConnection],
+        entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, ShopifyConnection, NuvemshopConnection, VtexConnection, Campaign],
         synchronize: false, // Usar migrations ao invés de synchronize
         migrations: ['dist/migrations/*.js'],
         migrationsRun: false, // Executar migrations manualmente via npm run migration:run
@@ -70,8 +72,9 @@ import { EmailVerification } from './entities/email-verification.entity';
     ShopifyModule,
     NuvemshopModule,
     VtexModule,
+    CampaignsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

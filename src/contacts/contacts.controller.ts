@@ -24,7 +24,7 @@ import { ImportContactRow } from './dto/import-contacts.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('contacts')
 export class ContactsController {
-  constructor(private readonly contactsService: ContactsService) {}
+  constructor(private readonly contactsService: ContactsService) { }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -35,6 +35,11 @@ export class ContactsController {
   @Get()
   findAll(@Request() req) {
     return this.contactsService.findAll(req.user.userId);
+  }
+
+  @Get('segmentation-stats')
+  getSegmentationStats(@Request() req) {
+    return this.contactsService.getSegmentationStats(req.user.userId);
   }
 
   @Post('import')
@@ -54,7 +59,7 @@ export class ContactsController {
     // Parse CSV
     const csvContent = file.buffer.toString('utf-8');
     const lines = csvContent.split('\n').filter(line => line.trim());
-    
+
     if (lines.length < 2) {
       throw new BadRequestException('CSV deve conter pelo menos uma linha de cabeçalho e uma linha de dados');
     }
@@ -89,7 +94,7 @@ export class ContactsController {
     // Parse header
     const headerLine = lines[0].trim();
     const header = parseCSVLine(headerLine).map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
-    
+
     // Validar cabeçalho (nome é obrigatório)
     if (!header.includes('nome')) {
       throw new BadRequestException('CSV deve conter a coluna "Nome"');

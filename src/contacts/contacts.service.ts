@@ -1,11 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between, LessThan } from 'typeorm';
 import { Contact } from '../entities/contact.entity';
 import { ContactTag } from '../entities/contact-tag.entity';
 import { ContactSegmentation } from '../entities/contact-segmentation.entity';
 import { Tag } from '../entities/tag.entity';
 import { Group } from '../entities/group.entity';
+import { ContactPurchase } from '../entities/contact-purchase.entity';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { ImportContactRow } from './dto/import-contacts.dto';
@@ -23,7 +24,9 @@ export class ContactsService {
     private groupsRepository: Repository<Group>,
     @InjectRepository(ContactSegmentation)
     private contactSegmentationsRepository: Repository<ContactSegmentation>,
-  ) {}
+    @InjectRepository(ContactPurchase)
+    private contactPurchasesRepository: Repository<ContactPurchase>,
+  ) { }
 
   async create(userId: number, createContactDto: CreateContactDto): Promise<Contact> {
     const { tagIds, groupId, segmentationIds, ...contactData } = createContactDto;
@@ -259,6 +262,75 @@ export class ContactsService {
     }
 
     return { created, errors };
+  }
+
+  async getSegmentationStats(userId: number) {
+    const stats: Record<string, number> = {};
+
+    // 1. Total de Contatos
+    stats['total'] = await this.contactsRepository.count({ where: { userId } });
+
+    // 2. Por Estado (UF)
+    const stateStats = await this.contactsRepository
+      .createQueryBuilder('contact')
+      .select('contact.state', 'state')
+      .addSelect('COUNT(*)', 'count')
+      .where('contact.userId = :userId', { userId })
+      .andWhere('contact.state IS NOT NULL')
+      .groupBy('contact.state')
+      .getRawMany();
+
+    stateStats.forEach(s => {
+      stats[`state_${s.state?.toLowerCase()}`] = parseInt(s.count);
+    });
+
+    // 3. Leads (status = 'lead')
+    stats['lead_captured'] = await this.contactsRepository.count({
+      where: { userId, status: 'lead' }
+    });
+
+    // 4. Clientes Inativos (Sem compras há mais de 90 dias)
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+    const inactiveContacts = await this.contactsRepository
+      .createQueryBuilder('contact')
+      .innerJoin('contact_purchases', 'purchase', 'purchase.contactId = contact.id')
+      .where('contact.userId = :userId', { userId })
+      .groupBy('contact.id')
+      .having('MAX(purchase.purchaseDate) < :ninetyDaysAgo', { ninetyDaysAgo })
+      .getRawMany();
+
+    stats['inactive_customers'] = inactiveContacts.length;
+
+    // 5. Clientes por número de compras (Pelo menos 1 compra)
+    const buyers = await this.contactPurchasesRepository
+      .createQueryBuilder('purchase')
+      .innerJoin('contacts', 'contact', 'contact.id = purchase.contactId')
+      .where('contact.userId = :userId', { userId })
+      .select('DISTINCT contact.id')
+      .getRawMany();
+
+    stats['by_purchase_count'] = buyers.length;
+
+    // 6. Ticket Médio Alto (Placeholder: Clientes com média > 500)
+    const highTicket = await this.contactPurchasesRepository
+      .createQueryBuilder('purchase')
+      .innerJoin('contacts', 'contact', 'contact.id = purchase.contactId')
+      .where('contact.userId = :userId', { userId })
+      .groupBy('contact.id')
+      .having('AVG(purchase.value) > :value', { value: 500 })
+      .getRawMany();
+
+    stats['high_ticket'] = highTicket.length;
+
+    // placeholders para campos inexistentes
+    stats['birthday'] = 0;
+    stats['gender_male'] = 0;
+    stats['gender_female'] = 0;
+    stats['active_coupon'] = 0; // Se houver entidade de cupons no futuro, implementar aqui
+
+    return stats;
   }
 }
 

@@ -35,6 +35,7 @@ export class CreatePasswordResetsTable1700000000004 implements MigrationInterfac
           {
             name: 'expiresAt',
             type: 'timestamp',
+            isNullable: true,
           },
         ],
       }),

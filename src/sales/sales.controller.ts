@@ -9,6 +9,8 @@ import {
   HttpStatus,
   ParseIntPipe,
   Param,
+  Query,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
@@ -17,7 +19,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 @Controller('sales')
 @UseGuards(JwtAuthGuard)
 export class SalesController {
-  constructor(private readonly salesService: SalesService) {}
+  constructor(private readonly salesService: SalesService) { }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -36,6 +38,53 @@ export class SalesController {
     @Param('productId', ParseIntPipe) productId: number,
   ) {
     return this.salesService.findByProduct(productId, req.user.userId);
+  }
+  @Get('dashboard/stats')
+  async getDashboardStats(
+    @Request() req,
+    @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+  ) {
+    return this.salesService.getDashboardStats(req.user.userId, period);
+  }
+
+  @Get('dashboard/campaigns')
+  async getSalesByCampaign(
+    @Request() req,
+    @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+  ) {
+    return this.salesService.getSalesByCampaign(req.user.userId, period);
+  }
+
+  @Get('dashboard/channels')
+  async getSalesByChannel(
+    @Request() req,
+    @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+  ) {
+    return this.salesService.getSalesByChannel(req.user.userId, period);
+  }
+
+  @Get('dashboard/products')
+  async getTopProducts(
+    @Request() req,
+    @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+  ) {
+    return this.salesService.getTopProducts(req.user.userId, period);
+  }
+
+  @Get('dashboard/payment-methods')
+  async getPaymentMethods(
+    @Request() req,
+    @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+  ) {
+    return this.salesService.getPaymentMethods(req.user.userId, period);
+  }
+
+  @Get('dashboard/funnel')
+  async getFunnelData(
+    @Request() req,
+    @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+  ) {
+    return this.salesService.getFunnelData(req.user.userId, period);
   }
 }
 

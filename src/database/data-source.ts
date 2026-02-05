@@ -13,6 +13,10 @@ import { ScoreConfig } from '../entities/score-config.entity';
 import { PasswordReset } from '../entities/password-reset.entity';
 import { EmailVerification } from '../entities/email-verification.entity';
 import { EmailConnection } from '../entities/email-connection.entity';
+import { Campaign } from '../entities/campaign.entity';
+import { Plan } from '../entities/plan.entity';
+import { Subscription } from '../entities/subscription.entity';
+import { Invoice } from '../entities/invoice.entity';
 
 config();
 
@@ -23,7 +27,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_DATABASE || 'nucleo_crm',
-  entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection],
+  entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, Campaign, Plan, Subscription, Invoice],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
   logging: true,

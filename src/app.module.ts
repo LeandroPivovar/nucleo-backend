@@ -18,6 +18,7 @@ import { ShopifyModule } from './shopify/shopify.module';
 import { NuvemshopModule } from './nuvemshop/nuvemshop.module';
 import { VtexModule } from './vtex/vtex.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { EmailConnection } from './entities/email-connection.entity';
 import { ShopifyConnection } from './entities/shopify-connection.entity';
 import { NuvemshopConnection } from './entities/nuvemshop-connection.entity';
@@ -35,6 +36,9 @@ import { Tag } from './entities/tag.entity';
 import { ScoreConfig } from './entities/score-config.entity';
 import { PasswordReset } from './entities/password-reset.entity';
 import { EmailVerification } from './entities/email-verification.entity';
+import { Plan } from './entities/plan.entity';
+import { Subscription } from './entities/subscription.entity';
+import { Invoice } from './entities/invoice.entity';
 
 @Module({
   imports: [
@@ -51,7 +55,7 @@ import { EmailVerification } from './entities/email-verification.entity';
         username: configService.get<string>('DB_USERNAME') || 'root',
         password: configService.get<string>('DB_PASSWORD') || '',
         database: configService.get<string>('DB_DATABASE') || 'nucleo_crm',
-        entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, ShopifyConnection, NuvemshopConnection, VtexConnection, Campaign],
+        entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, ShopifyConnection, NuvemshopConnection, VtexConnection, Campaign, Plan, Subscription, Invoice],
         synchronize: false, // Usar migrations ao invés de synchronize
         migrations: ['dist/migrations/*.js'],
         migrationsRun: false, // Executar migrations manualmente via npm run migration:run
@@ -73,6 +77,7 @@ import { EmailVerification } from './entities/email-verification.entity';
     NuvemshopModule,
     VtexModule,
     CampaignsModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

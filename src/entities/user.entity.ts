@@ -29,6 +29,9 @@ export class User {
   @Column({ default: false })
   active: boolean; // Conta ativa (verificada por e-mail)
 
+  @Column({ default: 0 })
+  emailsSentMonth: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

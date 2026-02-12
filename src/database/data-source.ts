@@ -17,6 +17,8 @@ import { Campaign } from '../entities/campaign.entity';
 import { Plan } from '../entities/plan.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { Invoice } from '../entities/invoice.entity';
+import { Pixel } from '../entities/pixel.entity';
+import { PixelEvent } from '../entities/pixel-event.entity';
 
 config();
 
@@ -27,7 +29,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_DATABASE || 'nucleo_crm',
-  entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, Campaign, Plan, Subscription, Invoice],
+  entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, Campaign, Plan, Subscription, Invoice, Pixel, PixelEvent],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
   logging: true,

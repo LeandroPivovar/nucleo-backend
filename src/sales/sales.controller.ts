@@ -80,11 +80,18 @@ export class SalesController {
   }
 
   @Get('dashboard/funnel')
-  async getFunnelData(
+  async getFunnelStats(
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
   ) {
-    return this.salesService.getFunnelData(req.user.userId, period);
+    return this.salesService.getFunnelStats(req.user.userId, period);
+  }
+
+  @Get('dashboard/segmentation')
+  async getSegmentationStats(
+    @Request() req
+  ) {
+    return this.salesService.getSegmentationStats(req.user.userId);
   }
 }
 

@@ -6,9 +6,10 @@ import { Sale } from '../entities/sale.entity';
 import { Product } from '../entities/product.entity';
 import { Campaign } from '../entities/campaign.entity';
 import { Contact } from '../entities/contact.entity';
+import { PixelEvent } from '../entities/pixel-event.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Sale, Product, Campaign, Contact])],
+  imports: [TypeOrmModule.forFeature([Sale, Product, Campaign, Contact, PixelEvent])],
   controllers: [SalesController],
   providers: [SalesService],
   exports: [SalesService],

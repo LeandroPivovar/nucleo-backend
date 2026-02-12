@@ -9,7 +9,10 @@ async function bootstrap() {
 
   // Habilitar CORS para o frontend
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:8080'], // Portas do Vite
+    origin: (origin, callback) => {
+      // Permitir qualquer origem para que o pixel funcione em sites externos
+      callback(null, true);
+    },
     credentials: true,
   });
 

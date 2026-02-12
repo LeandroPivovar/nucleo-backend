@@ -16,4 +16,3 @@ import { ContactPurchase } from '../entities/contact-purchase.entity';
   exports: [ContactsService],
 })
 export class ContactsModule { }
-

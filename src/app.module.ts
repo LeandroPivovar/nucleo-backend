@@ -19,6 +19,7 @@ import { NuvemshopModule } from './nuvemshop/nuvemshop.module';
 import { VtexModule } from './vtex/vtex.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { PixelsModule } from './pixels/pixels.module';
 import { EmailConnection } from './entities/email-connection.entity';
 import { ShopifyConnection } from './entities/shopify-connection.entity';
 import { NuvemshopConnection } from './entities/nuvemshop-connection.entity';
@@ -39,6 +40,8 @@ import { EmailVerification } from './entities/email-verification.entity';
 import { Plan } from './entities/plan.entity';
 import { Subscription } from './entities/subscription.entity';
 import { Invoice } from './entities/invoice.entity';
+import { Pixel } from './entities/pixel.entity';
+import { PixelEvent } from './entities/pixel-event.entity';
 
 @Module({
   imports: [
@@ -55,8 +58,8 @@ import { Invoice } from './entities/invoice.entity';
         username: configService.get<string>('DB_USERNAME') || 'root',
         password: configService.get<string>('DB_PASSWORD') || '',
         database: configService.get<string>('DB_DATABASE') || 'nucleo_crm',
-        entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, ShopifyConnection, NuvemshopConnection, VtexConnection, Campaign, Plan, Subscription, Invoice],
-        synchronize: false, // Usar migrations ao invés de synchronize
+        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        synchronize: false, // Alterar para false em produção
         migrations: ['dist/migrations/*.js'],
         migrationsRun: false, // Executar migrations manualmente via npm run migration:run
       }),
@@ -78,6 +81,7 @@ import { Invoice } from './entities/invoice.entity';
     VtexModule,
     CampaignsModule,
     SubscriptionsModule,
+    PixelsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

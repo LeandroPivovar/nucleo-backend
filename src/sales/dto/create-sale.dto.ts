@@ -20,5 +20,21 @@ export class CreateSaleDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsNumber()
+  unitPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  totalValue?: number;
+
+  @IsOptional()
+  @IsString()
+  channel?: string;
+
+  @IsOptional()
+  @IsNumber()
+  contactId?: number;
 }
 

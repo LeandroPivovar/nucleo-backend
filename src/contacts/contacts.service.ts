@@ -105,6 +105,13 @@ export class ContactsService {
     return contact;
   }
 
+  async findByEmail(userId: number, email: string): Promise<Contact | null> {
+    return this.contactsRepository.findOne({
+      where: { email, userId },
+      relations: ['contactTags', 'contactTags.tag'],
+    });
+  }
+
   async update(
     userId: number,
     id: number,

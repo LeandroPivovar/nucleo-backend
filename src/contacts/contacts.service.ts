@@ -288,7 +288,8 @@ export class ContactsService {
       .getRawMany();
 
     stateStats.forEach(s => {
-      stats[`state_${s.state?.toLowerCase()}`] = parseInt(s.count);
+      const stateKey = s.state ? s.state.toLowerCase() : 'unknown';
+      stats[`state_${stateKey}`] = parseInt(s.count);
     });
 
     // 3. Leads (status = 'lead')
@@ -302,7 +303,7 @@ export class ContactsService {
 
     const inactiveContacts = await this.contactsRepository
       .createQueryBuilder('contact')
-      .innerJoin('contact_purchases', 'purchase', 'purchase.contactId = contact.id')
+      .innerJoin(ContactPurchase, 'purchase', 'purchase.contactId = contact.id')
       .where('contact.userId = :userId', { userId })
       .groupBy('contact.id')
       .having('MAX(purchase.purchaseDate) < :ninetyDaysAgo', { ninetyDaysAgo })
@@ -313,7 +314,7 @@ export class ContactsService {
     // 5. Clientes por número de compras (Pelo menos 1 compra)
     const buyers = await this.contactPurchasesRepository
       .createQueryBuilder('purchase')
-      .innerJoin('contacts', 'contact', 'contact.id = purchase.contactId')
+      .innerJoin('purchase.contact', 'contact')
       .where('contact.userId = :userId', { userId })
       .select('DISTINCT contact.id')
       .getRawMany();
@@ -323,7 +324,7 @@ export class ContactsService {
     // 6. Ticket Médio Alto (Placeholder: Clientes com média > 500)
     const highTicket = await this.contactPurchasesRepository
       .createQueryBuilder('purchase')
-      .innerJoin('contacts', 'contact', 'contact.id = purchase.contactId')
+      .innerJoin('purchase.contact', 'contact')
       .where('contact.userId = :userId', { userId })
       .groupBy('contact.id')
       .having('AVG(purchase.value) > :value', { value: 500 })

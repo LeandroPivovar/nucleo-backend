@@ -18,6 +18,15 @@ export class ZenviaService {
         }
     }
 
+    private formatPhone(phone: string): string {
+        let clean = phone.replace(/\D/g, '');
+        // If it's 10 or 11 digits, assume it's a Brazilian number missing the 55 country code
+        if (clean.length === 10 || clean.length === 11) {
+            clean = '55' + clean;
+        }
+        return clean;
+    }
+
     async sendSms(to: string, content: string): Promise<boolean> {
         if (!this.apiToken || !this.smsFrom) {
             this.logger.error('Missing Zenvia SMS configuration.');
@@ -33,7 +42,7 @@ export class ZenviaService {
                 },
                 body: JSON.stringify({
                     from: this.smsFrom,
-                    to: to.replace(/\D/g, ''), // Ensure numbers like +55 11 99999-9999 become 5511999999999
+                    to: this.formatPhone(to),
                     contents: [
                         {
                             type: 'text',
@@ -72,7 +81,7 @@ export class ZenviaService {
                 },
                 body: JSON.stringify({
                     from: this.whatsappFrom,
-                    to: to.replace(/\D/g, ''),
+                    to: this.formatPhone(to),
                     contents: [
                         {
                             type: 'text',

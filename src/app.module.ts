@@ -42,6 +42,8 @@ import { Subscription } from './entities/subscription.entity';
 import { Invoice } from './entities/invoice.entity';
 import { Pixel } from './entities/pixel.entity';
 import { PixelEvent } from './entities/pixel-event.entity';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ZenviaModule } from './zenvia/zenvia.module';
 
 @Module({
   imports: [
@@ -49,6 +51,7 @@ import { PixelEvent } from './entities/pixel-event.entity';
       isGlobal: true,
       envFilePath: '.env', // Especificar explicitamente o caminho do .env
     }),
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -82,6 +85,7 @@ import { PixelEvent } from './entities/pixel-event.entity';
     CampaignsModule,
     SubscriptionsModule,
     PixelsModule,
+    ZenviaModule
   ],
   controllers: [AppController],
   providers: [AppService],

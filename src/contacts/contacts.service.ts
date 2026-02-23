@@ -305,6 +305,7 @@ export class ContactsService {
       .createQueryBuilder('contact')
       .innerJoin(ContactPurchase, 'purchase', 'purchase.contactId = contact.id')
       .where('contact.userId = :userId', { userId })
+      .select('contact.id')
       .groupBy('contact.id')
       .having('MAX(purchase.purchaseDate) < :ninetyDaysAgo', { ninetyDaysAgo })
       .getRawMany();
@@ -326,6 +327,7 @@ export class ContactsService {
       .createQueryBuilder('purchase')
       .innerJoin('purchase.contact', 'contact')
       .where('contact.userId = :userId', { userId })
+      .select('contact.id')
       .groupBy('contact.id')
       .having('AVG(purchase.value) > :value', { value: 500 })
       .getRawMany();

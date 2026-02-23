@@ -78,9 +78,9 @@ export class CampaignSchedulerService {
                     const messageContent = campaign.config?.email?.content || 'Olá! Temos uma novidade para você.';
 
                     if (campaign.channel === 'whatsapp') {
-                        sent = await this.zenviaService.sendWhatsapp(contact.phone, messageContent);
+                        sent = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, messageContent);
                     } else if (campaign.channel === 'sms') {
-                        sent = await this.zenviaService.sendSms(contact.phone, messageContent);
+                        sent = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, messageContent);
                     }
                 } else if (campaign.channel === 'email') {
                     if (!contact.email) {

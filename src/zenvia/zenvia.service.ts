@@ -27,13 +27,75 @@ export class ZenviaService {
         return clean;
     }
 
-    async sendSms(to: string, content: string): Promise<boolean> {
+    async checkAndCreateContact(name: string, phone: string): Promise<boolean> {
+        if (!this.apiToken) return false;
+
+        try {
+            const formattedPhone = this.formatPhone(phone);
+            this.logger.debug(`Checking if contact ${formattedPhone} exists in Zenvia...`);
+
+            // 1. Check if exists
+            const getRes = await fetch(`https://api.zenvia.com/v2/contacts?channels.mobile=${formattedPhone}`, {
+                method: 'GET',
+                headers: {
+                    'X-API-TOKEN': this.apiToken,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (getRes.ok) {
+                const data = await getRes.json();
+                // Depending on Zenvia list format (array or paginated list)
+                const items = Array.isArray(data) ? data : data.content || [];
+                if (items.length > 0) {
+                    this.logger.debug(`Contact ${formattedPhone} already exists in Zenvia.`);
+                    return true;
+                }
+            }
+
+            // 2. Create if not exists
+            this.logger.debug(`Creating contact ${name} (${formattedPhone}) in Zenvia...`);
+            const postRes = await fetch('https://api.zenvia.com/v2/contacts', {
+                method: 'POST',
+                headers: {
+                    'X-API-TOKEN': this.apiToken,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    firstName: name || "Contato CRM",
+                    channels: {
+                        mobile: formattedPhone,
+                        whatsapp: formattedPhone,
+                        sms: formattedPhone
+                    }
+                })
+            });
+
+            if (!postRes.ok) {
+                const err = await postRes.text();
+                this.logger.warn(`Failed to create contact in Zenvia: ${err}`);
+                return false;
+            }
+
+            this.logger.log(`Successfully created contact ${formattedPhone} in Zenvia.`);
+            return true;
+
+        } catch (error: any) {
+            this.logger.error(`Error in Zenvia check/create contact: ${error.message}`);
+            return false;
+        }
+    }
+
+    async sendSms(contactName: string, to: string, content: string): Promise<boolean> {
         if (!this.apiToken || !this.smsFrom) {
             this.logger.error('Missing Zenvia SMS configuration.');
             return false;
         }
 
         try {
+            // Guarantee contact exists before sending
+            await this.checkAndCreateContact(contactName, to);
+
             const response = await fetch('https://api.zenvia.com/v2/channels/sms/messages', {
                 method: 'POST',
                 headers: {
@@ -66,13 +128,16 @@ export class ZenviaService {
         }
     }
 
-    async sendWhatsapp(to: string, content: string): Promise<boolean> {
+    async sendWhatsapp(contactName: string, to: string, content: string): Promise<boolean> {
         if (!this.apiToken || !this.whatsappFrom) {
             this.logger.error('Missing Zenvia Whatsapp configuration.');
             return false;
         }
 
         try {
+            // Guarantee contact exists before sending
+            await this.checkAndCreateContact(contactName, to);
+
             const response = await fetch('https://api.zenvia.com/v2/channels/whatsapp/messages', {
                 method: 'POST',
                 headers: {

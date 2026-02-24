@@ -96,22 +96,26 @@ export class ZenviaService {
             // Guarantee contact exists before sending
             await this.checkAndCreateContact(contactName, to);
 
+            const payload = {
+                from: this.smsFrom,
+                to: this.formatPhone(to),
+                contents: [
+                    {
+                        type: 'text',
+                        text: content,
+                    }
+                ]
+            };
+
+            this.logger.debug(`Zenvia SMS Request Payload: ${JSON.stringify(payload)}`);
+
             const response = await fetch('https://api.zenvia.com/v2/channels/sms/messages', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-API-TOKEN': this.apiToken,
                 },
-                body: JSON.stringify({
-                    from: this.smsFrom,
-                    to: this.formatPhone(to),
-                    contents: [
-                        {
-                            type: 'text',
-                            text: content,
-                        }
-                    ]
-                })
+                body: JSON.stringify(payload)
             });
 
             if (!response.ok) {
@@ -120,6 +124,8 @@ export class ZenviaService {
                 return false;
             }
 
+            const successPayload = await response.text();
+            this.logger.log(`Zenvia SMS Success Response: ${response.status} - ${successPayload}`);
             this.logger.log(`SMS sent successfully to ${to}`);
             return true;
         } catch (error: any) {
@@ -138,22 +144,26 @@ export class ZenviaService {
             // Guarantee contact exists before sending
             await this.checkAndCreateContact(contactName, to);
 
+            const payload = {
+                from: this.whatsappFrom,
+                to: this.formatPhone(to),
+                contents: [
+                    {
+                        type: 'text',
+                        text: content,
+                    }
+                ]
+            };
+
+            this.logger.debug(`Zenvia WhatsApp Request Payload: ${JSON.stringify(payload)}`);
+
             const response = await fetch('https://api.zenvia.com/v2/channels/whatsapp/messages', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-API-TOKEN': this.apiToken,
                 },
-                body: JSON.stringify({
-                    from: this.whatsappFrom,
-                    to: this.formatPhone(to),
-                    contents: [
-                        {
-                            type: 'text',
-                            text: content,
-                        }
-                    ]
-                })
+                body: JSON.stringify(payload)
             });
 
             if (!response.ok) {
@@ -162,6 +172,8 @@ export class ZenviaService {
                 return false;
             }
 
+            const successPayload = await response.text();
+            this.logger.log(`Zenvia WhatsApp Success Response: ${response.status} - ${successPayload}`);
             this.logger.log(`WhatsApp message sent successfully to ${to}`);
             return true;
         } catch (error: any) {

@@ -22,7 +22,8 @@ export class Plan {
         contacts: number;
         emails: number;
         whatsapp: boolean;
-        sms: boolean;
+        sms: number;
+        advancedCampaigns?: number; // -1 for unlimited
     };
 
     @Column({ default: true })

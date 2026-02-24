@@ -31,7 +31,7 @@ export class AuthService {
     private emailVerificationRepository: Repository<EmailVerification>,
     private jwtService: JwtService,
     private emailHelper: EmailHelper,
-  ) {}
+  ) { }
 
   /**
    * Gera um token único para verificação de e-mail
@@ -55,13 +55,13 @@ export class AuthService {
     // Hash da senha
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Criar usuário (inativo por padrão)
+    // Criar usuário (ativo por padrão para não exigir verificação por e-mail)
     const user = this.userRepository.create({
       email,
       password: hashedPassword,
       firstName,
       lastName,
-      active: false, // Conta inativa até verificar e-mail
+      active: true, // Conta ativa automaticamente
     });
 
     const savedUser = await this.userRepository.save(user);
@@ -81,7 +81,8 @@ export class AuthService {
 
     await this.emailVerificationRepository.save(emailVerification);
 
-    // Enviar e-mail de verificação
+    // Enviar e-mail de verificação (Desabilitado temporariamente)
+    /*
     try {
       await this.emailHelper.sendEmailVerification(
         savedUser.email,
@@ -93,13 +94,14 @@ export class AuthService {
       await this.emailVerificationRepository.remove(emailVerification);
       throw new BadRequestException('Erro ao enviar e-mail de verificação. Tente novamente mais tarde.');
     }
+    */
 
     // Remover senha do retorno
     const { password: _, ...userWithoutPassword } = savedUser;
 
-    // NÃO gerar token JWT - usuário precisa verificar e-mail primeiro
+    // NÃO gerar token JWT - usuário fará o login
     return {
-      message: 'Conta criada com sucesso! Verifique seu e-mail para ativar sua conta.',
+      message: 'Conta criada com sucesso! Você já pode fazer o seu login.',
       user: userWithoutPassword,
     };
   }
@@ -279,10 +281,10 @@ export class AuthService {
     } catch (error) {
       // Se falhar ao enviar e-mail, remover o código criado
       await this.passwordResetRepository.remove(passwordReset);
-      
+
       // Log do erro para debug
       console.error('Erro ao enviar e-mail de recuperação:', error);
-      
+
       // Retornar mensagem mais específica se possível
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       throw new BadRequestException(

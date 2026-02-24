@@ -125,10 +125,12 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    // Verificar se a conta está ativa
+    // Verificar se a conta está ativa (Desabilitado temporariamente)
+    /*
     if (!user.active) {
       throw new UnauthorizedException('Conta não verificada. Verifique seu e-mail para ativar sua conta.');
     }
+    */
 
     // Remover senha do retorno
     const { password: _, ...userWithoutPassword } = user;

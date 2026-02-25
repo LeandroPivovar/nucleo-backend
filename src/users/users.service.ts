@@ -3,11 +3,14 @@ import {
   NotFoundException,
   ConflictException,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
+import { Plan } from '../entities/plan.entity';
+import { Subscription } from '../entities/subscription.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
@@ -16,7 +19,11 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
-  ) {}
+    @InjectRepository(Plan)
+    private planRepository: Repository<Plan>,
+    @InjectRepository(Subscription)
+    private subscriptionRepository: Repository<Subscription>,
+  ) { }
 
   async findOne(id: number): Promise<User> {
     const user = await this.userRepository.findOne({
@@ -87,6 +94,75 @@ export class UsersService {
     // Atualizar senha
     user.password = hashedNewPassword;
     await this.userRepository.save(user);
+  }
+
+  // --- ADMIN METHODS ---
+
+  async findAllAdmin(): Promise<any[]> {
+    const users = await this.userRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+
+    // We can also fetch active subscriptions for all users to show their current plan
+    const subscriptions = await this.subscriptionRepository.find({
+      where: { status: 'active' },
+      relations: ['plan'],
+    });
+
+    const subMap = new Map();
+    subscriptions.forEach(sub => subMap.set(sub.userId, sub.plan));
+
+    return users.map(u => {
+      const { password, ...safeUser } = u;
+      return {
+        ...safeUser,
+        currentPlan: subMap.get(u.id) || null
+      };
+    });
+  }
+
+  async updateAdmin(id: number, adminData: Partial<User>): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    if (adminData.email && adminData.email !== user.email) {
+      const existing = await this.userRepository.findOne({ where: { email: adminData.email } });
+      if (existing) throw new ConflictException('E-mail já está em uso.');
+    }
+
+    if (adminData.password) {
+      adminData.password = await bcrypt.hash(adminData.password, 10);
+    }
+
+    Object.assign(user, adminData);
+    const updated = await this.userRepository.save(user);
+    const { password: _, ...safeUser } = updated;
+    return safeUser as User;
+  }
+
+  async assignPlan(userId: number, planId: number): Promise<Subscription> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    const plan = await this.planRepository.findOne({ where: { id: planId } });
+    if (!plan) throw new NotFoundException('Plano não encontrado');
+
+    // Inactivate old subscriptions
+    await this.subscriptionRepository.update(
+      { userId, status: 'active' },
+      { status: 'canceled' }
+    );
+
+    // Creates new subscription
+    const newSubscription = this.subscriptionRepository.create({
+      userId,
+      planId,
+      status: 'active',
+      currentPeriodStart: new Date(),
+      currentPeriodEnd: new Date(new Date().setMonth(new Date().getMonth() + 1)), // 1 month
+    });
+
+    return this.subscriptionRepository.save(newSubscription);
   }
 }
 

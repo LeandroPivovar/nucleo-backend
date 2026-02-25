@@ -109,4 +109,20 @@ export class SubscriptionsService {
 
         return { success: true, message: 'Checkout realizado com sucesso', subscription: savedSubscription };
     }
+
+    async cancelSubscription(userId: number) {
+        const subscription = await this.subscriptionRepository.findOne({
+            where: { userId, status: 'active' },
+            order: { createdAt: 'DESC' },
+        });
+
+        if (!subscription) {
+            return { success: false, message: 'Nenhuma assinatura ativa encontrada.' };
+        }
+
+        subscription.status = 'canceled';
+        await this.subscriptionRepository.save(subscription);
+
+        return { success: true, message: 'Assinatura cancelada com sucesso. Seus benefícios ficam ativos por 30 dias.' };
+    }
 }

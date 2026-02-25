@@ -31,4 +31,9 @@ export class SubscriptionsController {
     checkout(@Request() req, @Body() body: any) {
         return this.subscriptionsService.checkout(req.user.userId, body);
     }
+
+    @Post('cancel')
+    cancelSubscription(@Request() req) {
+        return this.subscriptionsService.cancelSubscription(req.user.userId);
+    }
 }

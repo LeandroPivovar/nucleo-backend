@@ -140,18 +140,22 @@ export class UsersService {
     return safeUser as User;
   }
 
-  async assignPlan(userId: number, planId: number): Promise<Subscription> {
+  async assignPlan(userId: number, planId: number | null): Promise<Subscription | { success: boolean; message: string }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    const plan = await this.planRepository.findOne({ where: { id: planId } });
-    if (!plan) throw new NotFoundException('Plano não encontrado');
-
-    // Inactivate old subscriptions
+    // Inactivate old subscriptions regardless of fetching a new plan
     await this.subscriptionRepository.update(
       { userId, status: 'active' },
       { status: 'canceled' }
     );
+
+    if (!planId) {
+      return { success: true, message: 'Plano removido com sucesso, conta rebaixada para o modo gratuito.' };
+    }
+
+    const plan = await this.planRepository.findOne({ where: { id: planId } });
+    if (!plan) throw new NotFoundException('Plano não encontrado');
 
     // Creates new subscription
     const newSubscription = this.subscriptionRepository.create({

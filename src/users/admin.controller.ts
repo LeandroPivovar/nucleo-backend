@@ -30,7 +30,7 @@ export class AdminController {
     @Post(':id/plan')
     async assignPlan(
         @Param('id', ParseIntPipe) id: number,
-        @Body('planId', ParseIntPipe) planId: number
+        @Body('planId') planId: number | null
     ) {
         return this.usersService.assignPlan(id, planId);
     }

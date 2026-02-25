@@ -44,6 +44,7 @@ import { Pixel } from './entities/pixel.entity';
 import { PixelEvent } from './entities/pixel-event.entity';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ZenviaModule } from './zenvia/zenvia.module';
+import { UserUsage } from './entities/user-usage.entity';
 
 @Module({
   imports: [

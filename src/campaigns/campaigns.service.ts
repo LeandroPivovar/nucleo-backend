@@ -1,13 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, In } from 'typeorm';
 import { Campaign } from '../entities/campaign.entity';
+import { UserUsage } from '../entities/user-usage.entity';
+import { Contact } from '../entities/contact.entity';
 
 @Injectable()
 export class CampaignsService {
     constructor(
         @InjectRepository(Campaign)
         private campaignsRepository: Repository<Campaign>,
+        @InjectRepository(UserUsage)
+        private userUsageRepository: Repository<UserUsage>,
+        @InjectRepository(Contact)
+        private contactsRepository: Repository<Contact>,
     ) { }
 
     async findAll(userId: number): Promise<Campaign[]> {
@@ -34,7 +40,25 @@ export class CampaignsService {
             ...campaignData,
             userId,
         });
-        return this.campaignsRepository.save(campaign);
+        const savedCampaign = await this.campaignsRepository.save(campaign);
+
+        // Track usage limit
+        const currentMonthYear = new Date().toISOString().slice(0, 7);
+        let usage = await this.userUsageRepository.findOne({
+            where: { userId, monthYear: currentMonthYear }
+        });
+
+        if (!usage) {
+            usage = this.userUsageRepository.create({
+                userId,
+                monthYear: currentMonthYear,
+            });
+        }
+
+        usage.campaignsCreated += 1;
+        await this.userUsageRepository.save(usage);
+
+        return savedCampaign;
     }
 
     async update(id: number, userId: number, campaignData: Partial<Campaign>): Promise<Campaign> {
@@ -175,9 +199,88 @@ export class CampaignsService {
             clicks: camp.clicksCount || 0
         }));
 
+        // Recent Activities
+        const recentActivity: any[] = [];
+
+        // 1. New Campaigns Created
+        const newCampaigns = await this.campaignsRepository.find({
+            where: { userId },
+            order: { createdAt: 'DESC' },
+            take: 1
+        });
+        newCampaigns.forEach(c => {
+            recentActivity.push({
+                title: 'Nova campanha criada',
+                subtitle: `${c.name}`,
+                timestamp: c.createdAt,
+                type: 'campaign_created'
+            });
+        });
+
+        // 2. Finished Campaigns
+        const finishedCampaigns = await this.campaignsRepository.find({
+            where: { userId, status: 'finalizada' },
+            order: { updatedAt: 'DESC' },
+            take: 1
+        });
+        finishedCampaigns.forEach(c => {
+            recentActivity.push({
+                title: 'Campanha finalizada',
+                subtitle: `${c.name}`,
+                timestamp: c.updatedAt,
+                type: 'campaign_finished'
+            });
+        });
+
+        // 3. Imported Contacts
+        const recentContacts = await this.contactsRepository.find({
+            where: { userId },
+            order: { createdAt: 'DESC' },
+            take: 5
+        });
+
+        if (recentContacts.length > 0) {
+            recentActivity.push({
+                title: 'Novos contatos adicionados',
+                subtitle: `${recentContacts.length} contatos recentes na plataforma`,
+                timestamp: recentContacts[0].createdAt,
+                type: 'contacts_added'
+            });
+        }
+
+        recentActivity.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+        // Channel Performance (last 30 days)
+        const date30DaysAgo = new Date();
+        date30DaysAgo.setDate(date30DaysAgo.getDate() - 30);
+
+        const recentMonthlyCampaigns = await this.campaignsRepository.find({
+            where: { userId, createdAt: Between(date30DaysAgo, new Date()) }
+        });
+
+        const channelPerformanceMap: Record<string, any> = {
+            whatsapp: { channel: 'whatsapp', envios: 0, aberturas: 0 },
+            email: { channel: 'email', envios: 0, aberturas: 0 },
+            sms: { channel: 'sms', envios: 0, aberturas: 0 }
+        };
+
+        recentMonthlyCampaigns.forEach(c => {
+            if (channelPerformanceMap[c.channel]) {
+                channelPerformanceMap[c.channel].envios += c.sentCount || 0;
+                channelPerformanceMap[c.channel].aberturas += c.opensCount || 0;
+            }
+        });
+
+        const channelPerformance = Object.values(channelPerformanceMap).map(p => ({
+            ...p,
+            taxaAbertura: p.envios > 0 ? (p.aberturas / p.envios) * 100 : 0
+        }));
+
         return {
             chartData,
-            recentCampaigns
+            recentCampaigns,
+            recentActivity,
+            channelPerformance
         };
     }
 }

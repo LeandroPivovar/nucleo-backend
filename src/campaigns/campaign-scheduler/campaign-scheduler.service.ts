@@ -6,6 +6,7 @@ import { Campaign } from '../../entities/campaign.entity';
 import { ZenviaService } from '../../zenvia/zenvia.service';
 import { ContactsService } from '../../contacts/contacts.service';
 import { EmailService } from '../../email/email.service';
+import { UserUsage } from '../../entities/user-usage.entity';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -14,6 +15,8 @@ export class CampaignSchedulerService {
     constructor(
         @InjectRepository(Campaign)
         private campaignsRepository: Repository<Campaign>,
+        @InjectRepository(UserUsage)
+        private userUsageRepository: Repository<UserUsage>,
         private zenviaService: ZenviaService,
         private contactsService: ContactsService,
         private emailService: EmailService
@@ -118,6 +121,25 @@ export class CampaignSchedulerService {
             campaign.status = 'finalizada'; // Mark as done for simple dispatch
 
             await this.campaignsRepository.save(campaign);
+
+            // Increment Sender Usage
+            const currentMonthYear = new Date().toISOString().slice(0, 7);
+            let usage = await this.userUsageRepository.findOne({
+                where: { userId: campaign.userId, monthYear: currentMonthYear }
+            });
+            if (!usage) {
+                usage = this.userUsageRepository.create({
+                    userId: campaign.userId,
+                    monthYear: currentMonthYear,
+                });
+            }
+
+            if (campaign.channel === 'email') usage.emailsSent += successCount;
+            else if (campaign.channel === 'sms') usage.smsSent += successCount;
+            else if (campaign.channel === 'whatsapp') usage.whatsappSent += successCount;
+
+            await this.userUsageRepository.save(usage);
+
             this.logger.log(`Campaign [${campaign.id}] finished. Successfully sent: ${successCount}/${targetContacts.length}.`);
 
         } catch (error: any) {

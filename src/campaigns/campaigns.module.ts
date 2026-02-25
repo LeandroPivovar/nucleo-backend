@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CampaignsService } from './campaigns.service';
 import { CampaignsController } from './campaigns.controller';
 import { Campaign } from '../entities/campaign.entity';
+import { Contact } from '../entities/contact.entity';
+import { UserUsage } from '../entities/user-usage.entity';
 import { CampaignSchedulerService } from './campaign-scheduler/campaign-scheduler.service';
 
 import { ZenviaModule } from '../zenvia/zenvia.module';
@@ -11,7 +13,7 @@ import { EmailModule } from '../email/email.module';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Campaign]),
+        TypeOrmModule.forFeature([Campaign, Contact, UserUsage]),
         ZenviaModule,
         ContactsModule,
         EmailModule

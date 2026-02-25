@@ -8,6 +8,7 @@ import {
     Delete,
     UseGuards,
     Request,
+    Query,
 } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -20,6 +21,11 @@ export class CampaignsController {
     @Get()
     findAll(@Request() req) {
         return this.campaignsService.findAll(req.user.userId);
+    }
+
+    @Get('dashboard/performance')
+    getDashboardPerformance(@Request() req, @Query('period') period?: string) {
+        return this.campaignsService.getDashboardPerformance(req.user.userId, period || 'semanal');
     }
 
     @Get(':id')

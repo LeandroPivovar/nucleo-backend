@@ -168,5 +168,16 @@ export class UsersService {
 
     return this.subscriptionRepository.save(newSubscription);
   }
-}
 
+  async setSubscriptionExpiry(userId: number, expiryDate: string) {
+    const subscription = await this.subscriptionRepository.findOne({
+      where: { userId, status: 'active' },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!subscription) throw new NotFoundException('Nenhuma assinatura ativa encontrada para este usuário');
+
+    subscription.currentPeriodEnd = new Date(expiryDate);
+    return this.subscriptionRepository.save(subscription);
+  }
+}

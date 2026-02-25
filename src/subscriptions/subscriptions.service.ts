@@ -30,15 +30,19 @@ export class SubscriptionsService {
         const subscription = await this.subscriptionRepository.findOne({
             where: { userId, status: 'active' },
             relations: ['plan'],
-            order: { createdAt: 'DESC' }, // Get most recent
+            order: { createdAt: 'DESC' },
         });
 
-        if (!subscription) {
-            // If no active subscription, try to return the free plan or null
-            return null;
+        if (!subscription) return null;
+
+        // Se a assinatura estiver vencida, tratar como sem plano
+        const now = new Date();
+        if (new Date(subscription.currentPeriodEnd) < now) {
+            // Retorna com flag de expirado para o frontend distinguir
+            return { ...subscription, isExpired: true, _treatAsNoPlan: true };
         }
 
-        return subscription;
+        return { ...subscription, isExpired: false };
     }
 
     async getInvoices(userId: number) {

@@ -34,4 +34,12 @@ export class AdminController {
     ) {
         return this.usersService.assignPlan(id, planId);
     }
+
+    @Patch(':id/subscription-expiry')
+    async setSubscriptionExpiry(
+        @Param('id', ParseIntPipe) id: number,
+        @Body('expiryDate') expiryDate: string
+    ) {
+        return this.usersService.setSubscriptionExpiry(id, expiryDate);
+    }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Request, UseGuards } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -25,5 +25,10 @@ export class SubscriptionsController {
     @Get('dashboard/stats')
     getDashboardStats(@Request() req) {
         return this.subscriptionsService.getDashboardStats(req.user.userId);
+    }
+
+    @Post('checkout')
+    checkout(@Request() req, @Body() body: any) {
+        return this.subscriptionsService.checkout(req.user.userId, body);
     }
 }

@@ -23,6 +23,12 @@ export class User {
   @Column({ length: 20, nullable: true })
   phone: string;
 
+  @Column({ length: 20, nullable: true })
+  document: string; // CPF ou CNPJ
+
+  @Column({ length: 255, nullable: true })
+  address: string;
+
   @Column({ length: 255 })
   password: string;
 

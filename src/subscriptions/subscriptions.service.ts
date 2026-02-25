@@ -62,4 +62,51 @@ export class SubscriptionsService {
             price: subscription?.plan?.price || 0,
         };
     }
+
+    async checkout(userId: number, data: any) {
+        const { planId, document, address, phone } = data;
+
+        const user = await this.userRepository.findOne({ where: { id: userId } });
+        if (!user) {
+            throw new NotFoundException('Usuário não encontrado');
+        }
+
+        const plan = await this.planRepository.findOne({ where: { id: planId } });
+        if (!plan) {
+            throw new NotFoundException('Plano não encontrado');
+        }
+
+        // 1. Atualizar dados do cliente (address e document)
+        if (document) user.document = document;
+        if (address) user.address = address;
+        if (phone) user.phone = phone;
+        await this.userRepository.save(user);
+
+        // 2. Cancelar as assinaturas antigas ativas
+        await this.subscriptionRepository.update(
+            { userId, status: 'active' },
+            { status: 'canceled' }
+        );
+
+        // 3. Criar a nova assinatura ativa
+        const newSubscription = this.subscriptionRepository.create({
+            userId,
+            planId,
+            status: 'active',
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date(new Date().setMonth(new Date().getMonth() + (plan.interval === 'yearly' ? 12 : 1))),
+        });
+        const savedSubscription = await this.subscriptionRepository.save(newSubscription);
+
+        // 4. Gerar Registro de Fatura
+        const newInvoice = this.invoiceRepository.create({
+            subscriptionId: savedSubscription.id,
+            userId,
+            amount: plan.price,
+            status: 'paid', // Fictício p/ checkout auto-aprovado
+        });
+        await this.invoiceRepository.save(newInvoice);
+
+        return { success: true, message: 'Checkout realizado com sucesso', subscription: savedSubscription };
+    }
 }

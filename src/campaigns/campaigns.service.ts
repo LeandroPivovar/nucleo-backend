@@ -62,12 +62,11 @@ export class CampaignsService {
 
         // Immediate send if status is 'ativa'
         if (savedCampaign.status === 'ativa') {
-            // We don't await this as we want it to run in background or at least not block the response
-            // though for high reliability it might be better but here we follow the "submit now" UX.
-            // Using setTimeout or just calling it background-style:
-            this.campaignSchedulerService.processCampaign(savedCampaign).catch(err => {
+            try {
+                await this.campaignSchedulerService.processCampaign(savedCampaign);
+            } catch (err) {
                 console.error(`Failed to immediately process campaign ${savedCampaign.id}:`, err);
-            });
+            }
         }
 
         return savedCampaign;

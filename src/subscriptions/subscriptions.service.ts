@@ -58,18 +58,27 @@ export class SubscriptionsService {
     async getDashboardStats(userId: number) {
         const subscription = await this.getCurrentSubscription(userId);
 
-        // Mês atual no formato YYYY-MM
-        const now = new Date();
-        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        // Usa o mesmo formato que campaigns.service usa ao salvar: toISOString YYYY-MM (UTC)
+        const monthYear = new Date().toISOString().slice(0, 7);
 
         const usage = await this.userUsageRepository.findOne({
             where: { userId, monthYear },
         });
 
+        // Fallback: busca o registro mais recente do userId caso o monthYear não bata
+        const fallbackUsage = !usage
+            ? await this.userUsageRepository.findOne({
+                where: { userId },
+                order: { createdAt: 'DESC' },
+            })
+            : null;
+
+        const activeUsage = usage || fallbackUsage;
+
         return {
-            smsSent: usage?.smsSent || 0,
-            emailsSent: usage?.emailsSent || 0,
-            campaignsCreated: usage?.campaignsCreated || 0,
+            smsSent: activeUsage?.smsSent || 0,
+            emailsSent: activeUsage?.emailsSent || 0,
+            campaignsCreated: activeUsage?.campaignsCreated || 0,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,
         };

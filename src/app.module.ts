@@ -47,6 +47,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ZenviaModule } from './zenvia/zenvia.module';
 import { UserUsage } from './entities/user-usage.entity';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { SystemSettingsModule } from './system-settings/system-settings.module';
 
 @Module({
   imports: [
@@ -90,7 +91,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     PixelsModule,
     ZenviaModule,
     ReferralsModule,
-    WebhooksModule
+    WebhooksModule,
+    SystemSettingsModule
   ],
   controllers: [AppController],
   providers: [AppService],

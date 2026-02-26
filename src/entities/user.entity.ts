@@ -47,6 +47,9 @@ export class User {
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 3.00 })
   referralPercentage: number; // Porcentagem de comissão (ex: 3.00 para 3%)
 
+  @Column({ length: 50, nullable: true })
+  asaasCustomerId: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

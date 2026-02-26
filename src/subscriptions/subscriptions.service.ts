@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subscription } from '../entities/subscription.entity';
@@ -10,8 +10,13 @@ import { UserUsage } from '../entities/user-usage.entity';
 import { Campaign } from '../entities/campaign.entity';
 import { ReferralCommission } from '../entities/referral-commission.entity';
 
+import { AsaasService } from './asaas.service';
+import { SystemSetting } from '../entities/system-setting.entity';
+
 @Injectable()
 export class SubscriptionsService {
+    private readonly logger = new Logger('SubscriptionsService');
+
     constructor(
         @InjectRepository(Subscription)
         private subscriptionRepository: Repository<Subscription>,
@@ -29,6 +34,7 @@ export class SubscriptionsService {
         private campaignRepository: Repository<Campaign>,
         @InjectRepository(ReferralCommission)
         private referralCommissionRepository: Repository<ReferralCommission>,
+        private asaasService: AsaasService,
     ) { }
 
     async getPlans(): Promise<Plan[]> {
@@ -90,17 +96,13 @@ export class SubscriptionsService {
     }
 
     async checkout(userId: number, data: any) {
-        const { planId, document, address, phone } = data;
+        const { planId, document, address, phone, billingType } = data;
 
         const user = await this.userRepository.findOne({ where: { id: userId } });
-        if (!user) {
-            throw new NotFoundException('Usuário não encontrado');
-        }
+        if (!user) throw new NotFoundException('Usuário não encontrado');
 
         const plan = await this.planRepository.findOne({ where: { id: planId } });
-        if (!plan) {
-            throw new NotFoundException('Plano não encontrado');
-        }
+        if (!plan) throw new NotFoundException('Plano não encontrado');
 
         // 1. Atualizar dados do cliente (address e document)
         if (document) user.document = document;
@@ -108,50 +110,140 @@ export class SubscriptionsService {
         if (phone) user.phone = phone;
         await this.userRepository.save(user);
 
-        // 2. Cancelar as assinaturas antigas ativas
-        await this.subscriptionRepository.update(
-            { userId, status: 'active' },
-            { status: 'canceled' }
-        );
-
-        // 3. Criar a nova assinatura ativa
-        const newSubscription = this.subscriptionRepository.create({
-            userId,
-            planId,
-            status: 'active',
-            currentPeriodStart: new Date(),
-            currentPeriodEnd: new Date(new Date().setMonth(new Date().getMonth() + (plan.interval === 'yearly' ? 12 : 1))),
-        });
-        const savedSubscription = await this.subscriptionRepository.save(newSubscription);
-
-        // 4. Gerar Registro de Fatura
-        const newInvoice = this.invoiceRepository.create({
-            subscriptionId: savedSubscription.id,
-            userId,
-            amount: plan.price,
-            status: 'paid', // Fictício p/ checkout auto-aprovado
-        });
-        await this.invoiceRepository.save(newInvoice);
-
-        // 5. Lógica de Comissão de Indicação
-        if (user.referredById && plan.price > 0) {
-            const referrer = await this.userRepository.findOne({ where: { id: user.referredById } });
-            if (referrer) {
-                const commissionPercentage = Number(referrer.referralPercentage) || 3.00;
-                const commissionAmount = (Number(plan.price) * commissionPercentage) / 100;
-
-                const referralCommission = this.referralCommissionRepository.create({
-                    referrerId: referrer.id,
-                    referredId: user.id,
-                    subscriptionId: savedSubscription.id,
-                    amount: commissionAmount,
-                    percentage: commissionPercentage,
+        try {
+            // 2. Garantir que o cliente exista no Asaas
+            let asaasCustomerId = (user as any).asaasCustomerId;
+            if (!asaasCustomerId) {
+                const asaasCustomer = await this.asaasService.createCustomer({
+                    name: `${user.firstName} ${user.lastName}`,
+                    email: user.email,
+                    phone: user.phone,
+                    cpfCnpj: user.document,
                 });
-                await this.referralCommissionRepository.save(referralCommission);
+                asaasCustomerId = asaasCustomer.id;
+                (user as any).asaasCustomerId = asaasCustomerId;
+                await this.userRepository.save(user);
+            }
+
+            // 3. Criar a assinatura no Asaas
+            const nextDueDate = new Date();
+            nextDueDate.setDate(nextDueDate.getDate() + 1);
+
+            const asaasSub = await this.asaasService.createSubscription({
+                customer: asaasCustomerId,
+                billingType: billingType || 'BOLETO',
+                nextDueDate: nextDueDate.toISOString().split('T')[0],
+                value: Number(plan.price),
+                cycle: plan.interval === 'yearly' ? 'YEARLY' : 'MONTHLY',
+                description: `Assinatura Plano ${plan.name}`,
+            });
+
+            // 4. Cancelar as assinaturas antigas ativas
+            await this.subscriptionRepository.update(
+                { userId, status: 'active' },
+                { status: 'canceled' }
+            );
+
+            // 5. Criar a nova assinatura local (pendente até webhook confirmar)
+            const newSubscription = this.subscriptionRepository.create({
+                userId,
+                planId,
+                status: 'pending',
+                asaasSubscriptionId: asaasSub.id,
+                currentPeriodStart: new Date(),
+                currentPeriodEnd: new Date(new Date().setMonth(new Date().getMonth() + (plan.interval === 'yearly' ? 12 : 1))),
+            });
+            const savedSubscription = await this.subscriptionRepository.save(newSubscription);
+
+            return {
+                success: true,
+                message: 'Assinatura criada no Asaas com sucesso',
+                subscription: savedSubscription,
+                asaas: {
+                    id: asaasSub.id,
+                    invoiceUrl: asaasSub.invoiceUrl,
+                    invoiceCustomizationUrl: asaasSub.invoiceCustomizationUrl
+                }
+            };
+        } catch (error: any) {
+            this.logger.error(`Checkout error: ${error.message}`);
+            throw new Error(`Falha no checkout Asaas: ${error.message}`);
+        }
+    }
+
+    async handleAsaasWebhook(payload: any, token: string) {
+        const secretSetting = await this.userRepository.manager.getRepository(SystemSetting).findOne({
+            where: { key: 'ASAAS_WEBHOOK_TOKEN' }
+        });
+
+        if (secretSetting && secretSetting.value && token !== secretSetting.value) {
+            this.logger.warn('Asaas Webhook: Invalid token received');
+            throw new UnauthorizedException('Invalid Asaas access token');
+        }
+
+        const { event, payment } = payload;
+        this.logger.log(`Asaas Webhook: ${event} for payment ${payment?.id}`);
+
+        if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
+            const asaasSubscriptionId = payment.subscription;
+            if (asaasSubscriptionId) {
+                const subscription = await this.subscriptionRepository.findOne({
+                    where: { asaasSubscriptionId },
+                    relations: ['user', 'plan']
+                });
+
+                if (subscription) {
+                    subscription.status = 'active';
+                    subscription.currentPeriodStart = new Date();
+                    await this.subscriptionRepository.save(subscription);
+
+                    // Criar fatura paga localmente
+                    const newInvoice = this.invoiceRepository.create({
+                        subscriptionId: subscription.id,
+                        userId: subscription.userId,
+                        amount: payment.value,
+                        status: 'paid',
+                    });
+                    await this.invoiceRepository.save(newInvoice);
+
+                    // Lógica de Comissão de Indicação
+                    const user = subscription.user;
+                    const plan = subscription.plan;
+                    if (user.referredById && plan.price > 0) {
+                        const referrer = await this.userRepository.findOne({ where: { id: user.referredById } });
+                        if (referrer) {
+                            const commissionPercentage = Number(referrer.referralPercentage) || 3.00;
+                            const commissionAmount = (Number(plan.price) * commissionPercentage) / 100;
+
+                            const referralCommission = this.referralCommissionRepository.create({
+                                referrerId: referrer.id,
+                                referredId: user.id,
+                                subscriptionId: subscription.id,
+                                amount: commissionAmount,
+                                percentage: commissionPercentage,
+                            });
+                            await this.referralCommissionRepository.save(referralCommission);
+                        }
+                    }
+
+                    this.logger.log(`Assinatura ${subscription.id} ativada via pagamento Asaas.`);
+                }
+            }
+        } else if (event === 'PAYMENT_OVERDUE') {
+            const asaasSubscriptionId = payment.subscription;
+            if (asaasSubscriptionId) {
+                const subscription = await this.subscriptionRepository.findOne({
+                    where: { asaasSubscriptionId }
+                });
+                if (subscription && subscription.status !== 'canceled') {
+                    subscription.status = 'past_due';
+                    await this.subscriptionRepository.save(subscription);
+                    this.logger.warn(`Assinatura ${subscription.id} marcada como em atraso.`);
+                }
             }
         }
 
-        return { success: true, message: 'Checkout realizado com sucesso', subscription: savedSubscription };
+        return { success: true };
     }
 
     async cancelSubscription(userId: number) {

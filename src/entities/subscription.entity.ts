@@ -37,6 +37,9 @@ export class Subscription {
     @Column({ nullable: true })
     stripeSubscriptionId: string; // For future Stripe integration
 
+    @Column({ length: 50, nullable: true })
+    asaasSubscriptionId: string;
+
     @OneToMany(() => Invoice, invoice => invoice.subscription)
     invoices: Invoice[];
 

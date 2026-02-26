@@ -64,44 +64,25 @@ export class SubscriptionsService {
     async getDashboardStats(userId: number) {
         const subscription = await this.getCurrentSubscription(userId);
 
-        // Primeiro e último dia do mês atual
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        const currentMonthYear = new Date().toISOString().slice(0, 7);
+        const usage = await this.userUsageRepository.findOne({
+            where: { userId, monthYear: currentMonthYear }
+        });
 
-        // Agrega diretamente da tabela campaigns — mesma fonte da tela de Campanhas
-        const campaigns = await this.campaignRepository
-            .createQueryBuilder('c')
-            .select([
-                'c.channel AS channel',
-                'COALESCE(SUM(c.sentCount), 0) AS sentTotal',
-                'COUNT(c.id) AS campaignCount'
-            ])
-            .where('c.userId = :userId', { userId })
-            .andWhere('c.createdAt >= :start', { start: startOfMonth })
-            .andWhere('c.createdAt <= :end', { end: endOfMonth })
-            .groupBy('c.channel')
-            .getRawMany();
-
-        const totalCampaigns = await this.campaignRepository
-            .createQueryBuilder('c')
-            .where('c.userId = :userId', { userId })
-            .andWhere('c.createdAt >= :start', { start: startOfMonth })
-            .andWhere('c.createdAt <= :end', { end: endOfMonth })
-            .getCount();
-
-        const smsSent = campaigns.find(r => r.channel === 'sms')?.sentTotal || 0;
-        const emailsSent = campaigns.find(r => ['email', 'e-mail'].includes(r.channel))?.sentTotal || 0;
-        const whatsappSent = campaigns.find(r => r.channel === 'whatsapp')?.sentTotal || 0;
+        // Use recorded usage if exists, otherwise fallback to 0
+        const smsSent = usage?.smsSent ?? 0;
+        const emailsSent = usage?.emailsSent ?? 0;
+        const whatsappSent = usage?.whatsappSent ?? 0;
+        const totalCampaigns = usage?.campaignsCreated ?? 0;
 
         return {
             smsSent: Number(smsSent),
             emailsSent: Number(emailsSent),
             whatsappSent: Number(whatsappSent),
-            campaignsCreated: totalCampaigns,
+            campaignsCreated: Number(totalCampaigns),
             smsLimit: subscription?.plan?.limits?.sms ?? null,
             emailsLimit: subscription?.plan?.limits?.emails ?? null,
-            whatsappLimit: subscription?.plan?.limits?.whatsapp ? -1 : 0, // -1 means unlimited if true, until we have a real count limit
+            whatsappLimit: subscription?.plan?.limits?.whatsapp ? -1 : 0, // -1 means unlimited if true
             campaignsLimit: subscription?.plan?.limits?.advancedCampaigns ?? null,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,

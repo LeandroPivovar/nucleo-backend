@@ -308,58 +308,67 @@ export class SalesService {
     ];
   }
 
-  async getSegmentationStats(userId: number) {
-    // 1. Abandono de Carrinho: Cart in last 24h, No Purchase 
-    // Implementation: Find IPs/Users who did AddToCart in last 24h AND did NOT do Purchase in last 24h
-    // This is complex with just pixel data. Simplified: Count AddToCart events in last 24h.
-    // Better: Recent AddToCarts.
-    const oneDayAgo = new Date();
-    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+  async getSegmentationStats(userId: number, filters: { campaignId?: number; productId?: number } = {}) {
+    const rawQb = this.contactRepository.createQueryBuilder('contact')
+      .select([
+        'COUNT(DISTINCT contact.id) AS totalLeads',
+        'COUNT(DISTINCT CASE WHEN sale.status = "completed" THEN contact.id END) AS totalBuyers',
+        'COUNT(DISTINCT CASE WHEN cart_event.event = "AddToCart" THEN contact.id END) AS totalCart',
+        'COUNT(DISTINCT CASE WHEN cart_event.event = "AddToCart" AND (sale.id IS NULL OR sale.status != "completed") THEN contact.id END) AS totalCartNoPurchase'
+      ])
+      .leftJoin(Sale, 'sale', 'sale.contactId = contact.id')
+      .leftJoin(PixelEvent, 'cart_event', 'contact.email IS NOT NULL AND (cart_event.data->>"$.email" = contact.email OR cart_event.data->>"$.customer_email" = contact.email) AND cart_event.event = "AddToCart"')
+      .where('contact.userId = :userId', { userId });
 
-    const abandonedCartCount = await this.pixelEventRepository.createQueryBuilder('event')
-      .leftJoin('event.pixel', 'pixel')
-      .where('pixel.userId = :userId', { userId })
-      .andWhere('event.event = :event', { event: 'AddToCart' })
-      .andWhere('event.createdAt >= :date', { date: oneDayAgo })
-      .getCount();
+    if (filters.campaignId) {
+      rawQb.andWhere('(sale.campaignId = :campaignId OR cart_event.data->>"$.campaignId" = :campaignIdString)', {
+        campaignId: filters.campaignId,
+        campaignIdString: filters.campaignId.toString()
+      });
+    }
 
-    // 2. Compraram Recentemente: Sales in last 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    if (filters.productId) {
+      rawQb.andWhere('(sale.productId = :productId OR cart_event.data->>"$.productId" = :productIdString)', {
+        productId: filters.productId,
+        productIdString: filters.productId.toString()
+      });
+    }
 
-    const recentBuyersCount = await this.saleRepository.count({
-      where: {
-        userId,
-        createdAt: Between(sevenDaysAgo, new Date()),
-        status: 'completed'
-      }
-    });
+    const statsResult = await rawQb.getRawOne();
 
-    // 3. Sem Compras (Inativos): Contacts created > 60 days ago with 0 sales
-    // This is hard to query efficiently without join. 
-    // Approximation: Contacts created > 60 days ago.
-    const sixtyDaysAgo = new Date();
-    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    // For Loyalty, we need a separate count or a more complex query because it depends on count per contact
+    const loyalQb = this.contactRepository.createQueryBuilder('contact')
+      .select('contact.id')
+      .innerJoin(Sale, 'sale', 'sale.contactId = contact.id AND sale.status = "completed" AND sale.userId = :userId', { userId })
+      .groupBy('contact.id')
+      .having('COUNT(sale.id) > 1');
 
-    const inactiveContactsCount = await this.contactRepository.count({
-      where: {
-        userId,
-        createdAt: (sixtyDaysAgo) as any // Less than 60 days ago? No, created BEFORE 60 days ago. 
-        // older than 60 days: createdAt < sixtyDaysAgo. 
-        // typeorm LessThan is needed or QueryBuilder
-      }
-    });
+    if (filters.campaignId) {
+      loyalQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    }
+    if (filters.productId) {
+      loyalQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+    }
 
-    // Correct query for inactive:
-    const inactiveResult = await this.contactRepository.createQueryBuilder('contact')
-      .where('contact.userId = :userId', { userId })
-      .andWhere('contact.createdAt < :date', { date: sixtyDaysAgo })
-      .getCount();
+    const loyalCount = (await loyalQb.getRawMany()).length;
+
+    const totalLeads = parseInt(statsResult.totalLeads || '0');
+    const totalBuyers = parseInt(statsResult.totalBuyers || '0');
+    const totalCart = parseInt(statsResult.totalCart || '0');
+    const totalCartNoPurchase = parseInt(statsResult.totalCartNoPurchase || '0');
+
+    const conversionRate = totalLeads > 0 ? (totalBuyers / totalLeads) * 100 : 0;
+    const loyaltyRate = totalBuyers > 0 ? (loyalCount / totalBuyers) * 100 : 0;
+    const abandonmentRate = totalCart > 0 ? (totalCartNoPurchase / totalCart) * 100 : 0;
 
     return {
-      abandonedCart: abandonedCartCount, // Placeholder logic
-      recentBuyers: recentBuyersCount,
-      inactive: inactiveResult
+      conversionRate: Math.round(conversionRate),
+      loyaltyRate: Math.round(loyaltyRate),
+      abandonmentRate: Math.round(abandonmentRate),
+      // Keep legacy fields for a bit to avoid breakage if used elsewhere
+      abandonedCart: totalCartNoPurchase,
+      recentBuyers: totalBuyers,
+      inactive: 0
     };
   }
 

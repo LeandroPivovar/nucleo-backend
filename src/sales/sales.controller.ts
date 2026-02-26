@@ -89,9 +89,11 @@ export class SalesController {
 
   @Get('dashboard/segmentation')
   async getSegmentationStats(
-    @Request() req
+    @Request() req,
+    @Query('campaignId') campaignId?: number,
+    @Query('productId') productId?: number,
   ) {
-    return this.salesService.getSegmentationStats(req.user.userId);
+    return this.salesService.getSegmentationStats(req.user.userId, { campaignId, productId });
   }
 
   @Get('dashboard/heatmap')

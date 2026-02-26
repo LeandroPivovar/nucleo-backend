@@ -150,12 +150,21 @@ export class SalesService {
 
       const campaignResult = await campaignQb.getRawOne();
 
+      // Lead/Response events
+      const responseCount = await this.pixelEventRepository.createQueryBuilder('event')
+        .leftJoin('event.pixel', 'pixel')
+        .where('pixel.userId = :userId', { userId })
+        .andWhere('event.event IN (:...events)', { events: ['Lead', 'Contact', 'SubmitForm'] })
+        .andWhere('event.createdAt BETWEEN :start AND :end', { start, end })
+        .getCount();
+
       return {
         faturamento: parseFloat(salesResult.faturamento || '0'),
         vendas: parseInt(salesResult.vendas || '0'),
         envios: parseInt(campaignResult.envios || '0'),
         aberturas: parseInt(campaignResult.aberturas || '0'),
         cliques: parseInt(campaignResult.cliques || '0'),
+        respostas: responseCount,
       };
     };
 
@@ -176,6 +185,9 @@ export class SalesService {
     // CTR calculation (Clicks / Envios or Clicks / Opens?) Usually Clicks / Envios (or delivery)
     const ctr = current.envios > 0 ? (current.cliques / current.envios) * 100 : 0;
 
+    const responseRate = current.envios > 0 ? (current.respostas / current.envios) * 100 : 0;
+    const prevResponseRate = previous.envios > 0 ? (previous.respostas / previous.envios) * 100 : 0;
+
     return {
       faturamento: current.faturamento,
       vendas: current.vendas,
@@ -184,7 +196,8 @@ export class SalesService {
       cliques: current.cliques,
       openRate,
       ctr,
-      respostas: 0, // Placeholder
+      respostas: current.respostas,
+      responseRate,
       ticketMedio: ticketMedio,
       trends: {
         faturamento: calculateTrend(current.faturamento, previous.faturamento),
@@ -193,7 +206,9 @@ export class SalesService {
         aberturas: calculateTrend(current.aberturas, previous.aberturas),
         cliques: calculateTrend(current.cliques, previous.cliques),
         openRate: calculateTrend(openRate, prevOpenRate),
-        ticketMedio: calculateTrend(ticketMedio, prevTicketMedio)
+        ticketMedio: calculateTrend(ticketMedio, prevTicketMedio),
+        respostas: calculateTrend(current.respostas, previous.respostas),
+        responseRate: calculateTrend(responseRate, prevResponseRate)
       }
     };
   }
@@ -309,8 +324,24 @@ export class SalesService {
   }
 
   async getSegmentationStats(userId: number, filters: { campaignId?: number; productId?: number } = {}) {
-    // 1. Total Leads (Base)
-    const totalLeads = await this.contactRepository.count({ where: { userId } });
+    // 1. Total Leads (Base) - Filtered if needed
+    const baseLeadsQb = this.contactRepository.createQueryBuilder('contact')
+      .where('contact.userId = :userId', { userId });
+
+    if (filters.campaignId || filters.productId) {
+      // In this CRM, a lead is associated with a campaign/product via events or direct field
+      // Let's check for any event associated with the contact
+      baseLeadsQb.innerJoin(PixelEvent, 'event', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)');
+
+      if (filters.campaignId) {
+        baseLeadsQb.andWhere('event.data->>"$.campaignId" = :campId', { campId: filters.campaignId.toString() });
+      }
+      if (filters.productId) {
+        baseLeadsQb.andWhere('event.data->>"$.productId" = :prodId', { prodId: filters.productId.toString() });
+      }
+    }
+
+    const totalLeads = await baseLeadsQb.select('COUNT(DISTINCT contact.id)', 'count').getRawOne().then(res => parseInt(res.count || '0'));
 
     // 2. Total Buyers
     const buyersQb = this.saleRepository.createQueryBuilder('sale')
@@ -359,7 +390,27 @@ export class SalesService {
 
     const totalCartNoPurchase = parseInt((await abandonedQb.getRawOne()).count || '0');
 
-    // 5. Loyalty (2+ Sales)
+    // 5. Inactive Clients (No sales in last 90 days)
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+    const inactiveQb = this.contactRepository.createQueryBuilder('contact')
+      .where('contact.userId = :userId', { userId })
+      // No sale in the last 90 days
+      .andWhere((qb) => {
+        const subQuery = qb.subQuery()
+          .select('sale.contactId')
+          .from(Sale, 'sale')
+          .where('sale.userId = :userId')
+          .andWhere('sale.status = "completed"')
+          .andWhere('sale.createdAt >= :date', { date: ninetyDaysAgo })
+          .getQuery();
+        return 'contact.id NOT IN ' + subQuery;
+      });
+
+    const inactiveCount = await inactiveQb.getCount();
+
+    // 6. Loyalty (2+ Sales)
     const loyalQb = this.contactRepository.createQueryBuilder('contact')
       .select('contact.id')
       .innerJoin(Sale, 'sale', 'sale.contactId = contact.id AND sale.status = "completed" AND sale.userId = :userId', { userId })
@@ -381,7 +432,7 @@ export class SalesService {
       abandonmentRate: Math.round(abandonmentRate),
       abandonedCart: totalCartNoPurchase,
       recentBuyers: totalBuyers,
-      inactive: 0
+      inactive: inactiveCount
     };
   }
 

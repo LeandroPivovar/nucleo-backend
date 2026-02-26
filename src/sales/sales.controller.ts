@@ -93,5 +93,14 @@ export class SalesController {
   ) {
     return this.salesService.getSegmentationStats(req.user.userId);
   }
+
+  @Get('dashboard/heatmap')
+  async getDashboardHeatmap(
+    @Request() req,
+    @Query('campaignId') campaignId?: number,
+    @Query('productId') productId?: number,
+  ) {
+    return this.salesService.getDashboardHeatmap(req.user.userId, { campaignId, productId });
+  }
 }
 

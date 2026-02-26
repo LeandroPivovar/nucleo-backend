@@ -535,5 +535,65 @@ export class SalesService {
       }
     ];
   }
+
+  async getDashboardHeatmap(userId: number, filters: { campaignId?: number; productId?: number }) {
+    const rawQb = this.contactRepository.createQueryBuilder('contact')
+      .select([
+        'contact.id AS id',
+        'contact.createdAt AS createdAt',
+        'contact.updatedAt AS updatedAt',
+        'COUNT(DISTINCT CASE WHEN sale.status = "completed" THEN sale.id END) AS saleCount',
+        'COUNT(DISTINCT CASE WHEN event.event IN ("PageView", "ViewContent") THEN event.id END) AS engagementCount',
+        'COUNT(DISTINCT CASE WHEN event.event = "AddToCart" THEN event.id END) AS cartCount'
+      ])
+      .leftJoin(Sale, 'sale', 'sale.contactId = contact.id')
+      .leftJoin(PixelEvent, 'event', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
+      .where('contact.userId = :userId', { userId })
+      .groupBy('contact.id');
+
+    if (filters.campaignId) {
+      rawQb.andWhere('(sale.campaignId = :campaignId OR event.data->>"$.campaignId" = :campaignIdString)', {
+        campaignId: filters.campaignId,
+        campaignIdString: filters.campaignId.toString()
+      });
+    }
+
+    if (filters.productId) {
+      rawQb.andWhere('(sale.productId = :productId OR event.data->>"$.productId" = :productIdString)', {
+        productId: filters.productId,
+        productIdString: filters.productId.toString()
+      });
+    }
+
+    const contacts = await rawQb.getRawMany();
+
+    const now = new Date();
+    const ago7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const ago30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const ago60d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+    const segments = [
+      { name: 'Novos Leads', filter: (c) => new Date(c.createdAt) >= ago7d && parseInt(c.saleCount || '0') == 0 },
+      { name: 'Engajados', filter: (c) => parseInt(c.engagementCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.updatedAt) >= ago30d },
+      { name: 'Carrinho Ativo', filter: (c) => parseInt(c.cartCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.updatedAt) >= ago7d },
+      { name: 'Compradores', filter: (c) => parseInt(c.saleCount || '0') == 1 },
+      { name: 'Clientes Fiéis', filter: (c) => parseInt(c.saleCount || '0') > 1 },
+      { name: 'Inativos 30d', filter: (c) => new Date(c.updatedAt) < ago30d && new Date(c.updatedAt) >= ago60d },
+      { name: 'Inativos 60d', filter: (c) => new Date(c.updatedAt) < ago60d },
+      { name: 'Recuperados', filter: (c) => parseInt(c.saleCount || '0') > 0 && new Date(c.updatedAt) >= ago7d && new Date(c.createdAt) < ago30d }
+    ];
+
+    return segments.map(seg => {
+      const segContacts = contacts.filter(seg.filter);
+      return {
+        name: seg.name,
+        leads: segContacts.length,
+        engaged: segContacts.filter(c => parseInt(c.engagementCount || '0') > 0).length,
+        cart: segContacts.filter(c => parseInt(c.cartCount || '0') > 0).length,
+        purchase: segContacts.filter(c => parseInt(c.saleCount || '0') > 0).length,
+        loyal: segContacts.filter(c => parseInt(c.saleCount || '0') > 1).length
+      };
+    });
+  }
 }
 

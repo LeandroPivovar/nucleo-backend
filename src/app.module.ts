@@ -46,6 +46,7 @@ import { PixelEvent } from './entities/pixel-event.entity';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ZenviaModule } from './zenvia/zenvia.module';
 import { UserUsage } from './entities/user-usage.entity';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -88,7 +89,8 @@ import { UserUsage } from './entities/user-usage.entity';
     SubscriptionsModule,
     PixelsModule,
     ZenviaModule,
-    ReferralsModule
+    ReferralsModule,
+    WebhooksModule
   ],
   controllers: [AppController],
   providers: [AppService],

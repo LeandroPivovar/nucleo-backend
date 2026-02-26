@@ -322,7 +322,7 @@ export class ContactsService {
 
     stats['by_purchase_count'] = buyers.length;
 
-    // 6. Ticket Médio Alto (Placeholder: Clientes com média > 500)
+    // 6. Ticket Médio Alto (Clientes com média > 500)
     const highTicket = await this.contactPurchasesRepository
       .createQueryBuilder('purchase')
       .innerJoin('purchase.contact', 'contact')
@@ -334,11 +334,32 @@ export class ContactsService {
 
     stats['high_ticket'] = highTicket.length;
 
-    // placeholders para campos inexistentes
-    stats['birthday'] = 0;
-    stats['gender_male'] = 0;
-    stats['gender_female'] = 0;
-    stats['active_coupon'] = 0; // Se houver entidade de cupons no futuro, implementar aqui
+    // 7. Contagem manual das segmentações persistidas
+    // Isso cobre casos como 'birthday', 'gender_male', 'active_coupon' etc que podem ter sido atribuídos manualmente
+    const manualStats = await this.contactSegmentationsRepository
+      .createQueryBuilder('seg')
+      .innerJoin('seg.contact', 'contact')
+      .select('seg.segmentationId', 'id')
+      .addSelect('COUNT(*)', 'count')
+      .where('contact.userId = :userId', { userId })
+      .groupBy('seg.segmentationId')
+      .getRawMany();
+
+    manualStats.forEach(s => {
+      // Se já foi calculado dinamicamente acima e tem valor, não sobrescreve a menos que o valor dinâmico seja 0
+      if (!stats[s.id] || stats[s.id] === 0) {
+        stats[s.id] = parseInt(s.count);
+      }
+    });
+
+    // 8. Garantir que chaves comuns do frontend existam pelo menos com 0
+    const commonKeys = [
+      'birthday', 'gender_male', 'gender_female',
+      'active_coupon', 'cart_recovered_customer', 'no_purchase_x_days'
+    ];
+    commonKeys.forEach(key => {
+      if (stats[key] === undefined) stats[key] = 0;
+    });
 
     return stats;
   }

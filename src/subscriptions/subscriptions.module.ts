@@ -8,9 +8,10 @@ import { Invoice } from '../entities/invoice.entity';
 import { User } from '../entities/user.entity';
 import { Contact } from '../entities/contact.entity';
 import { UserUsage } from '../entities/user-usage.entity';
+import { Campaign } from '../entities/campaign.entity';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Subscription, Plan, Invoice, User, Contact, UserUsage])],
+    imports: [TypeOrmModule.forFeature([Subscription, Plan, Invoice, User, Contact, UserUsage, Campaign])],
     controllers: [SubscriptionsController],
     providers: [SubscriptionsService],
     exports: [SubscriptionsService],

@@ -7,6 +7,7 @@ import { Invoice } from '../entities/invoice.entity';
 import { User } from '../entities/user.entity';
 import { Contact } from '../entities/contact.entity';
 import { UserUsage } from '../entities/user-usage.entity';
+import { Campaign } from '../entities/campaign.entity';
 
 @Injectable()
 export class SubscriptionsService {
@@ -23,6 +24,8 @@ export class SubscriptionsService {
         private contactRepository: Repository<Contact>,
         @InjectRepository(UserUsage)
         private userUsageRepository: Repository<UserUsage>,
+        @InjectRepository(Campaign)
+        private campaignRepository: Repository<Campaign>,
     ) { }
 
     async getPlans(): Promise<Plan[]> {
@@ -58,27 +61,39 @@ export class SubscriptionsService {
     async getDashboardStats(userId: number) {
         const subscription = await this.getCurrentSubscription(userId);
 
-        // Usa o mesmo formato que campaigns.service usa ao salvar: toISOString YYYY-MM (UTC)
-        const monthYear = new Date().toISOString().slice(0, 7);
+        // Primeiro e último dia do mês atual
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-        const usage = await this.userUsageRepository.findOne({
-            where: { userId, monthYear },
-        });
+        // Agrega diretamente da tabela campaigns — mesma fonte da tela de Campanhas
+        const campaigns = await this.campaignRepository
+            .createQueryBuilder('c')
+            .select([
+                'c.channel AS channel',
+                'COALESCE(SUM(c.sentCount), 0) AS sentTotal',
+                'COUNT(c.id) AS campaignCount'
+            ])
+            .where('c.userId = :userId', { userId })
+            .andWhere('c.createdAt >= :start', { start: startOfMonth })
+            .andWhere('c.createdAt <= :end', { end: endOfMonth })
+            .groupBy('c.channel')
+            .getRawMany();
 
-        // Fallback: busca o registro mais recente do userId caso o monthYear não bata
-        const fallbackUsage = !usage
-            ? await this.userUsageRepository.findOne({
-                where: { userId },
-                order: { createdAt: 'DESC' },
-            })
-            : null;
+        const totalCampaigns = await this.campaignRepository
+            .createQueryBuilder('c')
+            .where('c.userId = :userId', { userId })
+            .andWhere('c.createdAt >= :start', { start: startOfMonth })
+            .andWhere('c.createdAt <= :end', { end: endOfMonth })
+            .getCount();
 
-        const activeUsage = usage || fallbackUsage;
+        const smsSent = campaigns.find(r => r.channel === 'sms')?.sentTotal || 0;
+        const emailsSent = campaigns.find(r => ['email', 'e-mail'].includes(r.channel))?.sentTotal || 0;
 
         return {
-            smsSent: activeUsage?.smsSent || 0,
-            emailsSent: activeUsage?.emailsSent || 0,
-            campaignsCreated: activeUsage?.campaignsCreated || 0,
+            smsSent: Number(smsSent),
+            emailsSent: Number(emailsSent),
+            campaignsCreated: totalCampaigns,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,
         };

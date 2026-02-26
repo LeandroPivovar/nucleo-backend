@@ -4,6 +4,7 @@ import { Repository, Between, In } from 'typeorm';
 import { Campaign } from '../entities/campaign.entity';
 import { UserUsage } from '../entities/user-usage.entity';
 import { Contact } from '../entities/contact.entity';
+import { CampaignSchedulerService } from './campaign-scheduler/campaign-scheduler.service';
 
 @Injectable()
 export class CampaignsService {
@@ -14,6 +15,7 @@ export class CampaignsService {
         private userUsageRepository: Repository<UserUsage>,
         @InjectRepository(Contact)
         private contactsRepository: Repository<Contact>,
+        private campaignSchedulerService: CampaignSchedulerService
     ) { }
 
     async findAll(userId: number): Promise<Campaign[]> {
@@ -57,6 +59,16 @@ export class CampaignsService {
 
         usage.campaignsCreated += 1;
         await this.userUsageRepository.save(usage);
+
+        // Immediate send if status is 'ativa'
+        if (savedCampaign.status === 'ativa') {
+            // We don't await this as we want it to run in background or at least not block the response
+            // though for high reliability it might be better but here we follow the "submit now" UX.
+            // Using setTimeout or just calling it background-style:
+            this.campaignSchedulerService.processCampaign(savedCampaign).catch(err => {
+                console.error(`Failed to immediately process campaign ${savedCampaign.id}:`, err);
+            });
+        }
 
         return savedCampaign;
     }

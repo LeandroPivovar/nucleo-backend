@@ -92,13 +92,16 @@ export class SubscriptionsService {
 
         const smsSent = campaigns.find(r => r.channel === 'sms')?.sentTotal || 0;
         const emailsSent = campaigns.find(r => ['email', 'e-mail'].includes(r.channel))?.sentTotal || 0;
+        const whatsappSent = campaigns.find(r => r.channel === 'whatsapp')?.sentTotal || 0;
 
         return {
             smsSent: Number(smsSent),
             emailsSent: Number(emailsSent),
+            whatsappSent: Number(whatsappSent),
             campaignsCreated: totalCampaigns,
             smsLimit: subscription?.plan?.limits?.sms ?? null,
             emailsLimit: subscription?.plan?.limits?.emails ?? null,
+            whatsappLimit: subscription?.plan?.limits?.whatsapp ? -1 : 0, // -1 means unlimited if true, until we have a real count limit
             campaignsLimit: subscription?.plan?.limits?.advancedCampaigns ?? null,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,

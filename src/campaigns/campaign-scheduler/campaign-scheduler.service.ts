@@ -45,7 +45,7 @@ export class CampaignSchedulerService {
         }
     }
 
-    private async processCampaign(campaign: Campaign) {
+    async processCampaign(campaign: Campaign) {
         this.logger.log(`Processing campaign [ID: ${campaign.id}] - Channel: ${campaign.channel}`);
 
         // Update status to 'ativa' while processing
@@ -55,15 +55,45 @@ export class CampaignSchedulerService {
         try {
             // Load target contacts based on config
             const groups = campaign.config?.groups || [];
+            const segmentations = campaign.config?.segmentations || [];
 
-            // In a real scenario, you'd fetch contacts uniquely matching these `groups` or `segmentations`.
-            // For this quick implementation, we will fetch contacts by userId since we need to know who to send to.
+            // Fetch all contacts for the user with their segmentations
             const allContacts = await this.contactsService.findAll(campaign.userId);
 
-            // Basic filtering if groups are specified
-            const targetContacts = groups.length > 0
-                ? allContacts.filter(c => c.group && groups.includes(c.group.name))
-                : allContacts;
+            // Logic compatible with frontend filtering
+            const targetContacts = allContacts.filter(contact => {
+                // If groups are specified, check if contact belongs to one
+                if (groups.length > 0 && contact.group && groups.includes(contact.group.name)) {
+                    return true;
+                }
+
+                // If segmentations are specified
+                if (segmentations.length > 0) {
+                    // Direct matches
+                    const hasSegmentation = contact.contactSegmentations?.some(cs =>
+                        segmentations.includes(cs.segmentationId)
+                    );
+                    if (hasSegmentation) return true;
+
+                    // Dynamic logic
+                    for (const segId of segmentations) {
+                        if (segId === 'by_state' || segId.startsWith('state_')) {
+                            if (contact.state) return true;
+                        }
+
+                        if (segId === 'lead_captured') {
+                            if (contact.status?.toLowerCase() === 'lead') return true;
+                        }
+
+                        if (segId === 'by_purchase_count' || segId === 'inactive_customers' || segId === 'high_ticket') {
+                            const status = contact.status?.toLowerCase();
+                            if (status === 'customer' || status === 'cliente') return true;
+                        }
+                    }
+                }
+
+                return false;
+            });
 
             this.logger.log(`Campaign [${campaign.id}] has ${targetContacts.length} target contacts.`);
 

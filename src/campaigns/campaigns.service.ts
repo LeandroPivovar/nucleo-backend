@@ -57,7 +57,7 @@ export class CampaignsService {
             });
         }
 
-        usage.campaignsCreated += 1;
+        usage.campaignsCreated = (Number(usage.campaignsCreated) || 0) + 1;
         await this.userUsageRepository.save(usage);
 
         // Immediate send if status is 'ativa'

@@ -25,16 +25,16 @@ export class UserUsage {
     monthYear: string;
 
     @Column({ type: 'int', default: 0 })
-    emailsSent: number;
+    emailsSent: number = 0;
 
     @Column({ type: 'int', default: 0 })
-    smsSent: number;
+    smsSent: number = 0;
 
     @Column({ type: 'int', default: 0 })
-    whatsappSent: number;
+    whatsappSent: number = 0;
 
     @Column({ type: 'int', default: 0 })
-    campaignsCreated: number;
+    campaignsCreated: number = 0;
 
     @CreateDateColumn()
     createdAt: Date;

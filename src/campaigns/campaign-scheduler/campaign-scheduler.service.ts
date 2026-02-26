@@ -164,9 +164,9 @@ export class CampaignSchedulerService {
                 });
             }
 
-            if (campaign.channel === 'email') usage.emailsSent += successCount;
-            else if (campaign.channel === 'sms') usage.smsSent += successCount;
-            else if (campaign.channel === 'whatsapp') usage.whatsappSent += successCount;
+            if (campaign.channel === 'email') usage.emailsSent = (Number(usage.emailsSent) || 0) + successCount;
+            else if (campaign.channel === 'sms') usage.smsSent = (Number(usage.smsSent) || 0) + successCount;
+            else if (campaign.channel === 'whatsapp') usage.whatsappSent = (Number(usage.whatsappSent) || 0) + successCount;
 
             await this.userUsageRepository.save(usage);
 

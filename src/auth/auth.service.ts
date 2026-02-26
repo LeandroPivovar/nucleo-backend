@@ -12,6 +12,7 @@ import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
 import { PasswordReset } from '../entities/password-reset.entity';
 import { EmailVerification } from '../entities/email-verification.entity';
+import { Referral } from '../entities/referral.entity';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -29,6 +30,8 @@ export class AuthService {
     private passwordResetRepository: Repository<PasswordReset>,
     @InjectRepository(EmailVerification)
     private emailVerificationRepository: Repository<EmailVerification>,
+    @InjectRepository(Referral)
+    private referralRepository: Repository<Referral>,
     private jwtService: JwtService,
     private emailHelper: EmailHelper,
   ) { }
@@ -41,7 +44,7 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto) {
-    const { email, password, firstName, lastName } = registerDto;
+    const { email, password, firstName, lastName, document, address, referralCode } = registerDto;
 
     // Verificar se o usuário já existe
     const existingUser = await this.userRepository.findOne({
@@ -55,16 +58,49 @@ export class AuthService {
     // Hash da senha
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Gerar código de indicação único para o novo usuário
+    let newUserReferralCode = '';
+    let isUnique = false;
+    while (!isUnique) {
+      newUserReferralCode = this.generateReferralCode();
+      const existingCode = await this.userRepository.findOne({ where: { referralCode: newUserReferralCode } });
+      if (!existingCode) isUnique = true;
+    }
+
+    // Verificar se foi indicado por alguém
+    let referredById: number | null = null;
+    let referrer: User | null = null;
+    if (referralCode) {
+      referrer = await this.userRepository.findOne({ where: { referralCode } });
+      if (referrer) {
+        referredById = referrer.id;
+      }
+    }
+
     // Criar usuário (ativo por padrão para não exigir verificação por e-mail)
-    const user = this.userRepository.create({
+    const user: User = this.userRepository.create({
       email,
       password: hashedPassword,
       firstName,
       lastName,
+      document,
+      address,
+      referralCode: newUserReferralCode,
+      referredById: referredById ?? undefined,
       active: true, // Conta ativa automaticamente
     });
 
     const savedUser = await this.userRepository.save(user);
+
+    // Se houver indicação, criar registro na tabela referrals
+    if (referrer) {
+      const referral = this.referralRepository.create({
+        referrerId: referrer.id,
+        referredId: savedUser.id,
+        status: 'active',
+      });
+      await this.referralRepository.save(referral);
+    }
 
     // Gerar token de verificação
     const token = this.generateVerificationToken();
@@ -391,6 +427,18 @@ export class AuthService {
     );
 
     return { message: 'Senha redefinida com sucesso' };
+  }
+
+  /**
+   * Gera um código de indicação único de 6 caracteres (alfanumérico)
+   */
+  private generateReferralCode(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
   }
 }
 

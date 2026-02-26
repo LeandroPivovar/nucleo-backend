@@ -20,6 +20,7 @@ import { VtexModule } from './vtex/vtex.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { PixelsModule } from './pixels/pixels.module';
+import { ReferralsModule } from './referrals/referrals.module';
 import { EmailConnection } from './entities/email-connection.entity';
 import { ShopifyConnection } from './entities/shopify-connection.entity';
 import { NuvemshopConnection } from './entities/nuvemshop-connection.entity';
@@ -86,7 +87,8 @@ import { UserUsage } from './entities/user-usage.entity';
     CampaignsModule,
     SubscriptionsModule,
     PixelsModule,
-    ZenviaModule
+    ZenviaModule,
+    ReferralsModule
   ],
   controllers: [AppController],
   providers: [AppService],

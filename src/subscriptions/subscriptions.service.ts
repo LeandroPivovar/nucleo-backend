@@ -8,6 +8,7 @@ import { User } from '../entities/user.entity';
 import { Contact } from '../entities/contact.entity';
 import { UserUsage } from '../entities/user-usage.entity';
 import { Campaign } from '../entities/campaign.entity';
+import { ReferralCommission } from '../entities/referral-commission.entity';
 
 @Injectable()
 export class SubscriptionsService {
@@ -26,6 +27,8 @@ export class SubscriptionsService {
         private userUsageRepository: Repository<UserUsage>,
         @InjectRepository(Campaign)
         private campaignRepository: Repository<Campaign>,
+        @InjectRepository(ReferralCommission)
+        private referralCommissionRepository: Repository<ReferralCommission>,
     ) { }
 
     async getPlans(): Promise<Plan[]> {
@@ -145,6 +148,24 @@ export class SubscriptionsService {
             status: 'paid', // Fictício p/ checkout auto-aprovado
         });
         await this.invoiceRepository.save(newInvoice);
+
+        // 5. Lógica de Comissão de Indicação
+        if (user.referredById && plan.price > 0) {
+            const referrer = await this.userRepository.findOne({ where: { id: user.referredById } });
+            if (referrer) {
+                const commissionPercentage = Number(referrer.referralPercentage) || 3.00;
+                const commissionAmount = (Number(plan.price) * commissionPercentage) / 100;
+
+                const referralCommission = this.referralCommissionRepository.create({
+                    referrerId: referrer.id,
+                    referredId: user.id,
+                    subscriptionId: savedSubscription.id,
+                    amount: commissionAmount,
+                    percentage: commissionPercentage,
+                });
+                await this.referralCommissionRepository.save(referralCommission);
+            }
+        }
 
         return { success: true, message: 'Checkout realizado com sucesso', subscription: savedSubscription };
     }

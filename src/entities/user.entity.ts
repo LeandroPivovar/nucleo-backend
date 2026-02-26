@@ -38,10 +38,18 @@ export class User {
   @Column({ default: 0 })
   emailsSentMonth: number;
 
+  @Column({ length: 20, nullable: true, unique: true })
+  referralCode: string; // Código único de indicação do usuário
+
+  @Column({ nullable: true })
+  referredById: number; // ID do usuário que indicou este usuário
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 3.00 })
+  referralPercentage: number; // Porcentagem de comissão (ex: 3.00 para 3%)
+
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
 }
-

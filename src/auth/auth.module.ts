@@ -9,11 +9,12 @@ import { JwtStrategy } from './jwt.strategy';
 import { User } from '../entities/user.entity';
 import { PasswordReset } from '../entities/password-reset.entity';
 import { EmailVerification } from '../entities/email-verification.entity';
+import { Referral } from '../entities/referral.entity';
 import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, PasswordReset, EmailVerification]),
+    TypeOrmModule.forFeature([User, PasswordReset, EmailVerification, Referral]),
     PassportModule,
     EmailModule,
     JwtModule.registerAsync({
@@ -29,5 +30,5 @@ import { EmailModule } from '../email/email.module';
   providers: [AuthService, JwtStrategy],
   exports: [AuthService],
 })
-export class AuthModule {}
+export class AuthModule { }
 

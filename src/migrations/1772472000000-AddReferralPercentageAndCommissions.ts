@@ -5,7 +5,7 @@ export class AddReferralPercentageAndCommissions1772472000000 implements Migrati
         // 1. Adicionar coluna referralPercentage à tabela users
         await queryRunner.query(`
             ALTER TABLE users 
-            ADD COLUMN IF NOT EXISTS \`referralPercentage\` DECIMAL(5,2) DEFAULT 3.00
+            ADD COLUMN \`referralPercentage\` DECIMAL(5,2) DEFAULT 3.00
         `);
 
         // 2. Criar tabela referral_commissions

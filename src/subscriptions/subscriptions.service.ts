@@ -94,6 +94,9 @@ export class SubscriptionsService {
             smsSent: Number(smsSent),
             emailsSent: Number(emailsSent),
             campaignsCreated: totalCampaigns,
+            smsLimit: subscription?.plan?.limits?.sms ?? null,
+            emailsLimit: subscription?.plan?.limits?.emails ?? null,
+            campaignsLimit: subscription?.plan?.limits?.advancedCampaigns ?? null,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,
         };

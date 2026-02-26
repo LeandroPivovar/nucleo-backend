@@ -6,6 +6,7 @@ import { Plan } from '../entities/plan.entity';
 import { Invoice } from '../entities/invoice.entity';
 import { User } from '../entities/user.entity';
 import { Contact } from '../entities/contact.entity';
+import { UserUsage } from '../entities/user-usage.entity';
 
 @Injectable()
 export class SubscriptionsService {
@@ -20,6 +21,8 @@ export class SubscriptionsService {
         private userRepository: Repository<User>,
         @InjectRepository(Contact)
         private contactRepository: Repository<Contact>,
+        @InjectRepository(UserUsage)
+        private userUsageRepository: Repository<UserUsage>,
     ) { }
 
     async getPlans(): Promise<Plan[]> {
@@ -54,14 +57,19 @@ export class SubscriptionsService {
 
     async getDashboardStats(userId: number) {
         const subscription = await this.getCurrentSubscription(userId);
-        const contactsCount = await this.contactRepository.count({ where: { userId } });
-        const user = await this.userRepository.findOne({ where: { id: userId } });
-        const emailsSent = user?.emailsSentMonth || 0;
+
+        // Mês atual no formato YYYY-MM
+        const now = new Date();
+        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        const usage = await this.userUsageRepository.findOne({
+            where: { userId, monthYear },
+        });
 
         return {
-            contactsUsed: contactsCount,
-            contactsLimit: subscription?.plan?.limits?.contacts || 2000,
-            emailsSent: emailsSent,
+            smsSent: usage?.smsSent || 0,
+            emailsSent: usage?.emailsSent || 0,
+            campaignsCreated: usage?.campaignsCreated || 0,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,
         };

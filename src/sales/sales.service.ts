@@ -309,53 +309,67 @@ export class SalesService {
   }
 
   async getSegmentationStats(userId: number, filters: { campaignId?: number; productId?: number } = {}) {
-    const rawQb = this.contactRepository.createQueryBuilder('contact')
-      .select([
-        'COUNT(DISTINCT contact.id) AS totalLeads',
-        'COUNT(DISTINCT CASE WHEN sale.status = "completed" THEN contact.id END) AS totalBuyers',
-        'COUNT(DISTINCT CASE WHEN cart_event.event = "AddToCart" THEN contact.id END) AS totalCart',
-        'COUNT(DISTINCT CASE WHEN cart_event.event = "AddToCart" AND (sale.id IS NULL OR sale.status != "completed") THEN contact.id END) AS totalCartNoPurchase'
-      ])
-      .leftJoin(Sale, 'sale', 'sale.contactId = contact.id')
-      .leftJoin(PixelEvent, 'cart_event', 'contact.email IS NOT NULL AND (cart_event.data->>"$.email" = contact.email OR cart_event.data->>"$.customer_email" = contact.email) AND cart_event.event = "AddToCart"')
-      .where('contact.userId = :userId', { userId });
+    // 1. Total Leads (Base)
+    const totalLeads = await this.contactRepository.count({ where: { userId } });
 
-    if (filters.campaignId) {
-      rawQb.andWhere('(sale.campaignId = :campaignId OR cart_event.data->>"$.campaignId" = :campaignIdString)', {
-        campaignId: filters.campaignId,
-        campaignIdString: filters.campaignId.toString()
+    // 2. Total Buyers
+    const buyersQb = this.saleRepository.createQueryBuilder('sale')
+      .select('COUNT(DISTINCT sale.contactId)', 'count')
+      .where('sale.userId = :userId', { userId })
+      .andWhere('sale.status = "completed"')
+      .andWhere('sale.contactId IS NOT NULL');
+
+    if (filters.campaignId) buyersQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.productId) buyersQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+
+    const totalBuyers = parseInt((await buyersQb.getRawOne()).count || '0');
+
+    // 3. Cart Events
+    const cartQb = this.pixelEventRepository.createQueryBuilder('event')
+      .leftJoin('event.pixel', 'pixel')
+      .innerJoin(Contact, 'contact', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
+      .select('COUNT(DISTINCT contact.id)', 'count')
+      .where('pixel.userId = :userId', { userId })
+      .andWhere('event.event = "AddToCart"');
+
+    if (filters.campaignId) cartQb.andWhere('event.data->>"$.campaignId" = :campId', { campId: filters.campaignId.toString() });
+    if (filters.productId) cartQb.andWhere('event.data->>"$.productId" = :prodId', { prodId: filters.productId.toString() });
+
+    const totalCart = parseInt((await cartQb.getRawOne()).count || '0');
+
+    // 4. Cart Abandonment (Cart without matching Purchase)
+    const abandonedQb = this.pixelEventRepository.createQueryBuilder('event')
+      .leftJoin('event.pixel', 'pixel')
+      .innerJoin(Contact, 'contact', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
+      .select('COUNT(DISTINCT contact.id)', 'count')
+      .where('pixel.userId = :userId', { userId })
+      .andWhere('event.event = "AddToCart"')
+      .andWhere((qb) => {
+        const subQuery = qb.subQuery()
+          .select('sale.contactId')
+          .from(Sale, 'sale')
+          .where('sale.status = "completed"')
+          .andWhere('sale.userId = :userId')
+          .getQuery();
+        return 'contact.id NOT IN ' + subQuery;
       });
-    }
 
-    if (filters.productId) {
-      rawQb.andWhere('(sale.productId = :productId OR cart_event.data->>"$.productId" = :productIdString)', {
-        productId: filters.productId,
-        productIdString: filters.productId.toString()
-      });
-    }
+    if (filters.campaignId) abandonedQb.andWhere('event.data->>"$.campaignId" = :campId', { campId: filters.campaignId.toString() });
+    if (filters.productId) abandonedQb.andWhere('event.data->>"$.productId" = :prodId', { prodId: filters.productId.toString() });
 
-    const statsResult = await rawQb.getRawOne();
+    const totalCartNoPurchase = parseInt((await abandonedQb.getRawOne()).count || '0');
 
-    // For Loyalty, we need a separate count or a more complex query because it depends on count per contact
+    // 5. Loyalty (2+ Sales)
     const loyalQb = this.contactRepository.createQueryBuilder('contact')
       .select('contact.id')
       .innerJoin(Sale, 'sale', 'sale.contactId = contact.id AND sale.status = "completed" AND sale.userId = :userId', { userId })
       .groupBy('contact.id')
       .having('COUNT(sale.id) > 1');
 
-    if (filters.campaignId) {
-      loyalQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
-    }
-    if (filters.productId) {
-      loyalQb.andWhere('sale.productId = :productId', { productId: filters.productId });
-    }
+    if (filters.campaignId) loyalQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.productId) loyalQb.andWhere('sale.productId = :productId', { productId: filters.productId });
 
     const loyalCount = (await loyalQb.getRawMany()).length;
-
-    const totalLeads = parseInt(statsResult.totalLeads || '0');
-    const totalBuyers = parseInt(statsResult.totalBuyers || '0');
-    const totalCart = parseInt(statsResult.totalCart || '0');
-    const totalCartNoPurchase = parseInt(statsResult.totalCartNoPurchase || '0');
 
     const conversionRate = totalLeads > 0 ? (totalBuyers / totalLeads) * 100 : 0;
     const loyaltyRate = totalBuyers > 0 ? (loyalCount / totalBuyers) * 100 : 0;
@@ -365,7 +379,6 @@ export class SalesService {
       conversionRate: Math.round(conversionRate),
       loyaltyRate: Math.round(loyaltyRate),
       abandonmentRate: Math.round(abandonmentRate),
-      // Keep legacy fields for a bit to avoid breakage if used elsewhere
       abandonedCart: totalCartNoPurchase,
       recentBuyers: totalBuyers,
       inactive: 0

@@ -127,7 +127,6 @@ export class SubscriptionsService {
 
             // 3. Criar a assinatura no Asaas
             const nextDueDate = new Date();
-            nextDueDate.setDate(nextDueDate.getDate() + 1);
 
             const asaasRequestData = {
                 customer: asaasCustomerId,

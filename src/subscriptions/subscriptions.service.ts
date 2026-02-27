@@ -129,14 +129,20 @@ export class SubscriptionsService {
             const nextDueDate = new Date();
             nextDueDate.setDate(nextDueDate.getDate() + 1);
 
-            const asaasSub = await this.asaasService.createSubscription({
+            const asaasRequestData = {
                 customer: asaasCustomerId,
                 billingType: billingType || 'BOLETO',
                 nextDueDate: nextDueDate.toISOString().split('T')[0],
                 value: Number(plan.price),
                 cycle: plan.interval === 'yearly' ? 'YEARLY' : 'MONTHLY',
                 description: `Assinatura Plano ${plan.name}`,
-            });
+            };
+
+            this.logger.log(`Asaas Subscription Request: ${JSON.stringify(asaasRequestData, null, 2)}`);
+
+            const asaasSub = await this.asaasService.createSubscription(asaasRequestData);
+
+            this.logger.log(`Asaas Subscription Response: ${JSON.stringify(asaasSub, null, 2)}`);
 
             // 4. Cancelar as assinaturas antigas ativas
             await this.subscriptionRepository.update(

@@ -34,12 +34,15 @@ export class AsaasService {
         notificationDisabled?: boolean;
     }) {
         const client = await this.getClient();
+        this.logger.log(`Asaas Request [POST /customers]: ${JSON.stringify(data, null, 2)}`);
         try {
             const response = await client.post('/customers', data);
+            this.logger.log(`Asaas Response [POST /customers]: ${JSON.stringify(response.data, null, 2)}`);
             return response.data;
         } catch (error: any) {
             const errorMsg = error.response?.data?.errors?.[0]?.description || error.message;
-            this.logger.error(`Error creating Asaas customer: ${errorMsg}`);
+            const errorData = error.response?.data;
+            this.logger.error(`Error creating Asaas customer: ${errorMsg}`, JSON.stringify(errorData, null, 2));
             throw new Error(`Erro Asaas: ${errorMsg}`);
         }
     }
@@ -53,12 +56,15 @@ export class AsaasService {
         description?: string;
     }) {
         const client = await this.getClient();
+        this.logger.log(`Asaas Request [POST /subscriptions]: ${JSON.stringify(data, null, 2)}`);
         try {
             const response = await client.post('/subscriptions', data);
+            this.logger.log(`Asaas Response [POST /subscriptions]: ${JSON.stringify(response.data, null, 2)}`);
             return response.data;
         } catch (error: any) {
             const errorMsg = error.response?.data?.errors?.[0]?.description || error.message;
-            this.logger.error(`Error creating Asaas subscription: ${errorMsg}`);
+            const errorData = error.response?.data;
+            this.logger.error(`Error creating Asaas subscription: ${errorMsg}`, JSON.stringify(errorData, null, 2));
             throw new Error(`Erro Asaas: ${errorMsg}`);
         }
     }

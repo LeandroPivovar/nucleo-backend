@@ -131,10 +131,10 @@ export class SubscriptionsService {
 
             const asaasRequestData = {
                 customer: asaasCustomerId,
-                billingType: billingType || 'BOLETO',
+                billingType: (billingType || 'BOLETO') as any,
                 nextDueDate: nextDueDate.toISOString().split('T')[0],
                 value: Number(plan.price),
-                cycle: plan.interval === 'yearly' ? 'YEARLY' : 'MONTHLY',
+                cycle: (plan.interval === 'yearly' ? 'YEARLY' : 'MONTHLY') as any,
                 description: `Assinatura Plano ${plan.name}`,
             };
 

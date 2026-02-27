@@ -33,7 +33,7 @@ export class SubscriptionsController {
     @Post('checkout')
     @UseGuards(JwtAuthGuard)
     checkout(@Request() req, @Body() body: any) {
-        return this.subscriptionsService.checkout(req.user.userId, body);
+        return this.subscriptionsService.checkout(req.user.userId, body, req.ip);
     }
 
     @Post('cancel')

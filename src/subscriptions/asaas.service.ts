@@ -69,6 +69,21 @@ export class AsaasService {
         }
     }
 
+    async updateSubscriptionCreditCard(id: string, data: any) {
+        const client = await this.getClient();
+        this.logger.log(`Asaas Request [PUT /subscriptions/${id}/creditCard]: ${JSON.stringify(data, null, 2)}`);
+        try {
+            const response = await client.put(`/subscriptions/${id}/creditCard`, data);
+            this.logger.log(`Asaas Response [PUT /subscriptions/${id}/creditCard]: ${JSON.stringify(response.data, null, 2)}`);
+            return response.data;
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.errors?.[0]?.description || error.message;
+            const errorData = error.response?.data;
+            this.logger.error(`Error updating Asaas subscription ${id} credit card: ${errorMsg}`, JSON.stringify(errorData, null, 2));
+            throw new Error(`Erro Asaas: ${errorMsg}`);
+        }
+    }
+
     async getSubscription(id: string) {
         const client = await this.getClient();
         try {

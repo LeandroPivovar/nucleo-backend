@@ -95,8 +95,8 @@ export class SubscriptionsService {
         };
     }
 
-    async checkout(userId: number, data: any) {
-        const { planId, document, address, phone, billingType } = data;
+    async checkout(userId: number, data: any, remoteIp?: string): Promise<any> {
+        const { planId, billingType, document, address, phone, creditCard, creditCardHolderInfo } = data;
 
         const user = await this.userRepository.findOne({ where: { id: userId } });
         if (!user) throw new NotFoundException('Usuário não encontrado');
@@ -144,6 +144,16 @@ export class SubscriptionsService {
 
             this.logger.log(`Asaas Subscription Response: ${JSON.stringify(asaasSub, null, 2)}`);
 
+            // Se for cartão de crédito, atualiza os dados do cartão para processar o pagamento
+            if (billingType === 'CREDIT_CARD' && creditCard) {
+                this.logger.log(`Updating Credit Card for subscription ${asaasSub.id}`);
+                await this.asaasService.updateSubscriptionCreditCard(asaasSub.id, {
+                    creditCard,
+                    creditCardHolderInfo,
+                    remoteIp
+                });
+            }
+
             // 4. Cancelar as assinaturas antigas ativas
             await this.subscriptionRepository.update(
                 { userId, status: 'active' },
@@ -187,11 +197,11 @@ export class SubscriptionsService {
             throw new UnauthorizedException('Invalid Asaas access token');
         }
 
-        const { event, payment } = payload;
-        this.logger.log(`Asaas Webhook: ${event} for payment ${payment?.id}`);
+        const { event, payment, subscription: asaasSubscription } = payload;
+        this.logger.log(`Asaas Webhook: ${event} for payment ${payment?.id} / sub ${asaasSubscription?.id}`);
 
-        if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
-            const asaasSubscriptionId = payment.subscription;
+        if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED' || (event === 'SUBSCRIPTION_CREATED' && asaasSubscription?.status === 'ACTIVE')) {
+            const asaasSubscriptionId = payment?.subscription || asaasSubscription?.id;
             if (asaasSubscriptionId) {
                 const subscription = await this.subscriptionRepository.findOne({
                     where: { asaasSubscriptionId },
@@ -207,7 +217,7 @@ export class SubscriptionsService {
                     const newInvoice = this.invoiceRepository.create({
                         subscriptionId: subscription.id,
                         userId: subscription.userId,
-                        amount: payment.value,
+                        amount: payment?.value || asaasSubscription?.value || subscription.plan?.price || 0,
                         status: 'paid',
                     });
                     await this.invoiceRepository.save(newInvoice);

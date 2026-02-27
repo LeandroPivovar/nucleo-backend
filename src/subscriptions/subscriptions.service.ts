@@ -126,12 +126,15 @@ export class SubscriptionsService {
             }
 
             // 3. Criar a assinatura no Asaas
-            const nextDueDate = new Date();
+            const now = new Date();
+            // Ajuste para Horário de Brasília (UTC-3)
+            const brDate = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+            const dateString = brDate.toISOString().split('T')[0];
 
             const asaasRequestData = {
                 customer: asaasCustomerId,
                 billingType: (billingType || 'BOLETO') as any,
-                nextDueDate: nextDueDate.toISOString().split('T')[0],
+                nextDueDate: dateString,
                 value: Number(plan.price),
                 cycle: (plan.interval === 'yearly' ? 'YEARLY' : 'MONTHLY') as any,
                 description: `Assinatura Plano ${plan.name}`,

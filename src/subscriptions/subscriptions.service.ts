@@ -244,7 +244,14 @@ export class SubscriptionsService {
                         }
                     }
 
-                    this.logger.log(`Assinatura ${subscription.id} ativada via pagamento Asaas.`);
+                    // Vincular o plano ao usuário
+                    if (user) {
+                        user.planId = subscription.planId;
+                        user.subscriptionStatus = 'active';
+                        await this.userRepository.save(user);
+                    }
+
+                    this.logger.log(`Assinatura ${subscription.id} ativada e plano ${subscription.planId} vinculado ao usuário ${user?.id} via pagamento Asaas.`);
                 }
             }
         } else if (event === 'PAYMENT_OVERDUE') {

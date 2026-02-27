@@ -50,6 +50,12 @@ export class User {
   @Column({ length: 50, nullable: true })
   asaasCustomerId: string;
 
+  @Column({ nullable: true })
+  planId: number;
+
+  @Column({ length: 50, nullable: true })
+  subscriptionStatus: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

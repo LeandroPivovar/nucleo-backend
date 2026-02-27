@@ -202,8 +202,8 @@ export class SubscriptionsService {
         const { event, payment, subscription: asaasSubscription } = payload;
         this.logger.log(`Asaas Webhook: ${event} for payment ${payment?.id} / sub ${asaasSubscription?.id}`);
 
-        if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED' || (event === 'SUBSCRIPTION_CREATED' && asaasSubscription?.status === 'ACTIVE')) {
-            const asaasSubscriptionId = payment?.subscription || asaasSubscription?.id;
+        if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
+            const asaasSubscriptionId = payment?.subscription;
             if (asaasSubscriptionId) {
                 const subscription = await this.subscriptionRepository.findOne({
                     where: { asaasSubscriptionId },

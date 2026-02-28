@@ -56,6 +56,12 @@ export class User {
   @Column({ length: 50, nullable: true })
   subscriptionStatus: string;
 
+  @Column({ default: 0 })
+  extraEmailsBalance: number;
+
+  @Column({ default: 0 })
+  extraSmsBalance: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

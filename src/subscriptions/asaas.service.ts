@@ -94,4 +94,41 @@ export class AsaasService {
             throw error;
         }
     }
+
+    async createSinglePayment(data: {
+        customer: string;
+        billingType: 'BOLETO' | 'CREDIT_CARD' | 'PIX';
+        value: number;
+        dueDate: string;
+        description?: string;
+        externalReference?: string;
+        creditCard?: any;
+        creditCardHolderInfo?: any;
+        remoteIp?: string;
+    }) {
+        const client = await this.getClient();
+        this.logger.log(`Asaas Request [POST /payments]: ${JSON.stringify({ ...data, creditCard: data.creditCard ? '[REDACTED]' : undefined }, null, 2)}`);
+        try {
+            const response = await client.post('/payments', data);
+            this.logger.log(`Asaas Response [POST /payments]: ${JSON.stringify(response.data, null, 2)}`);
+            return response.data;
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.errors?.[0]?.description || error.message;
+            this.logger.error(`Error creating Asaas payment: ${errorMsg}`);
+            throw new Error(`Erro Asaas (Payment): ${errorMsg}`);
+        }
+    }
+
+    async getPixQrCode(paymentId: string) {
+        const client = await this.getClient();
+        this.logger.log(`Asaas Request [GET /payments/${paymentId}/pixQrCode]`);
+        try {
+            const response = await client.get(`/payments/${paymentId}/pixQrCode`);
+            return response.data; // { payload: "...", encodedImage: "...", expirationDate: "..." }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.errors?.[0]?.description || error.message;
+            this.logger.error(`Error getting Asaas PIX QR Code: ${errorMsg}`);
+            throw new Error(`Erro Asaas (PIX QR): ${errorMsg}`);
+        }
+    }
 }

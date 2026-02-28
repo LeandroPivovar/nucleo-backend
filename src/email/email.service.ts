@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import { SystemSettingsService } from '../system-settings/system-settings.service';
 
 export interface EmailOptions {
   to: string | string[];
@@ -21,64 +22,68 @@ export interface EmailOptions {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: Transporter;
 
-  constructor(private configService: ConfigService) {
-    // Log para debug - verificar se as variáveis estão sendo lidas
-    const smtpUser = this.configService.get<string>('SMTP_USER') || this.configService.get<string>('SMTP_USERNAME');
-    const smtpPass = this.configService.get<string>('SMTP_PASS') || this.configService.get<string>('SMTP_PASSWORD');
-    
-    if (!smtpUser || !smtpPass) {
-      this.logger.warn('⚠️ Credenciais SMTP não encontradas!');
-      this.logger.warn('Verifique se o arquivo .env existe na raiz do backend e contém SMTP_USERNAME e SMTP_PASSWORD');
-    } else {
-      this.logger.log('✅ Credenciais SMTP carregadas com sucesso');
-    }
+  constructor(
+    private configService: ConfigService,
+    private systemSettingsService: SystemSettingsService
+  ) { }
 
-    const smtpSecure = this.configService.get<string>('SMTP_SECURE');
+  private async getSmtpConfig(): Promise<{ host: string; port: number; secure: boolean; user: string; pass: string; fromName: string; fromEmail: string }> {
+    const dbHost = await this.systemSettingsService.get('SMTP_HOST', '');
+    const dbPort = await this.systemSettingsService.get('SMTP_PORT', '');
+    const dbUser = await this.systemSettingsService.get('SMTP_USER', '');
+    const dbPass = await this.systemSettingsService.get('SMTP_PASS', '');
+    const dbSecure = await this.systemSettingsService.get('SMTP_SECURE', '');
+    const dbFromName = await this.systemSettingsService.get('SMTP_FROM_NAME', '');
+    const dbFromEmail = await this.systemSettingsService.get('SMTP_FROM_EMAIL', '');
+
+    const host = dbHost || this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
+    const port = parseInt(dbPort, 10) || this.configService.get<number>('SMTP_PORT') || 587;
+
+    let secureToken = dbSecure || this.configService.get<string>('SMTP_SECURE');
     let secure = false;
-    
-    // Suporta 'tls', 'ssl', true, false
-    if (smtpSecure === 'tls' || smtpSecure === 'ssl') {
-      secure = smtpSecure === 'ssl'; // SSL usa secure=true, TLS usa secure=false
-    } else {
-      secure = this.configService.get<boolean>('SMTP_SECURE') || false;
+    if (secureToken === 'true' || secureToken === 'ssl') secure = true;
+    else if (secureToken === 'false' || secureToken === 'tls') secure = false;
+    else secure = this.configService.get<boolean>('SMTP_SECURE') || false;
+
+    const user = dbUser || this.configService.get<string>('SMTP_USER') || this.configService.get<string>('SMTP_USERNAME') || '';
+    const pass = dbPass || this.configService.get<string>('SMTP_PASS') || this.configService.get<string>('SMTP_PASSWORD') || '';
+
+    const fromName = dbFromName || this.configService.get<string>('SMTP_FROM_NAME') || '';
+    const fromEmail = dbFromEmail || this.configService.get<string>('SMTP_FROM_EMAIL') || this.configService.get<string>('SMTP_FROM') || user;
+
+    return { host, port, secure, user, pass, fromName, fromEmail };
+  }
+
+  private async getTransporter(): Promise<Transporter> {
+    const config = await this.getSmtpConfig();
+
+    if (!config.user || !config.pass) {
+      this.logger.warn('⚠️ Credenciais SMTP não encontradas no BD nem no .env!');
+      throw new Error('Credenciais SMTP não configuradas. Acesse o painel Admin em Configurações > E-mail.');
     }
 
-    this.transporter = nodemailer.createTransport({
-      host: this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com',
-      port: this.configService.get<number>('SMTP_PORT') || 587,
-      secure: secure, // true para SSL (porta 465), false para TLS/STARTTLS (porta 587)
+    return nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
       auth: {
-        user: smtpUser,
-        pass: smtpPass,
+        user: config.user,
+        pass: config.pass,
       },
     });
   }
 
   async sendEmail(options: EmailOptions): Promise<void> {
     try {
-      // Verificar se as credenciais SMTP estão configuradas
-      const smtpUser = this.configService.get<string>('SMTP_USER') || this.configService.get<string>('SMTP_USERNAME');
-      const smtpPass = this.configService.get<string>('SMTP_PASS') || this.configService.get<string>('SMTP_PASSWORD');
-      
-      if (!smtpUser || !smtpPass) {
-        throw new Error('Credenciais SMTP não configuradas. Verifique as variáveis SMTP_USERNAME e SMTP_PASSWORD no arquivo .env');
-      }
+      const config = await this.getSmtpConfig();
+      const transporter = await this.getTransporter();
 
-      const smtpFrom = this.configService.get<string>('SMTP_FROM');
-      const smtpFromName = this.configService.get<string>('SMTP_FROM_NAME');
-      const smtpFromEmail = this.configService.get<string>('SMTP_FROM_EMAIL');
-      
       let from: string;
-      if (smtpFrom) {
-        from = smtpFrom;
-      } else if (smtpFromName && smtpFromEmail) {
-        from = `${smtpFromName} <${smtpFromEmail}>`;
-      } else if (smtpFromEmail) {
-        from = smtpFromEmail;
+      if (config.fromName && config.fromEmail) {
+        from = `${config.fromName} <${config.fromEmail}>`;
       } else {
-        from = smtpUser || 'noreply@nucleocrm.com';
+        from = config.fromEmail || 'noreply@nucleocrm.com';
       }
 
       const mailOptions = {
@@ -92,14 +97,14 @@ export class EmailService {
         attachments: options.attachments,
       };
 
-      const info = await this.transporter.sendMail(mailOptions);
+      const info = await transporter.sendMail(mailOptions);
       this.logger.log(`E-mail enviado com sucesso: ${info.messageId}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       const errorStack = error instanceof Error ? error.stack : undefined;
-      
+
       this.logger.error(`Erro ao enviar e-mail: ${errorMessage}`, errorStack);
-      
+
       // Melhorar mensagem de erro para problemas comuns
       if (errorMessage.includes('Invalid login') || errorMessage.includes('authentication failed') || errorMessage.includes('535')) {
         throw new Error('Credenciais SMTP inválidas. Verifique SMTP_USERNAME e SMTP_PASSWORD. Para Gmail, use uma Senha de App.');
@@ -110,7 +115,7 @@ export class EmailService {
       } else if (errorMessage.includes('EAUTH')) {
         throw new Error('Falha na autenticação SMTP. Verifique as credenciais.');
       }
-      
+
       throw new Error(`Erro ao enviar e-mail: ${errorMessage}`);
     }
   }
@@ -154,7 +159,7 @@ export class EmailService {
 
   async sendPasswordResetEmail(to: string, resetToken: string): Promise<void> {
     const resetUrl = `${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:8080'}/auth/reset-password?token=${resetToken}`;
-    
+
     const html = `
       <!DOCTYPE html>
       <html>
@@ -238,7 +243,7 @@ export class EmailService {
 
   async sendEmailVerificationEmail(to: string, token: string, name?: string): Promise<void> {
     const verificationUrl = `${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:8080'}/auth/verify-email?token=${token}`;
-    
+
     const html = `
       <!DOCTYPE html>
       <html>
@@ -285,10 +290,11 @@ export class EmailService {
 
   async verifyConnection(): Promise<boolean> {
     try {
-      await this.transporter.verify();
+      const transporter = await this.getTransporter();
+      await transporter.verify();
       this.logger.log('Conexão SMTP verificada com sucesso');
       return true;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Erro ao verificar conexão SMTP: ${error.message}`);
       return false;
     }

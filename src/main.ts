@@ -16,12 +16,14 @@ async function bootstrap() {
     await dataSource.query(`
       ALTER TABLE \`users\` 
       ADD COLUMN \`planId\` int NULL,
-      ADD COLUMN \`subscriptionStatus\` varchar(50) NULL
+      ADD COLUMN \`subscriptionStatus\` varchar(50) NULL,
+      ADD COLUMN \`extraEmailsBalance\` int DEFAULT 0,
+      ADD COLUMN \`extraSmsBalance\` int DEFAULT 0
     `);
-    logger.log('Fallback Migration: Colunas planId e subscriptionStatus adicionadas com sucesso.');
+    logger.log('Fallback Migration: Colunas de plano e saldo extra adicionadas com sucesso.');
   } catch (err: any) {
     if (err.code === 'ER_DUP_FIELDNAME') {
-      logger.log('Fallback Migration: Colunas planId e subscriptionStatus já existem.');
+      logger.log('Fallback Migration: Colunas de plano e saldo extra já existem.');
     } else {
       logger.error(`Fallback Migration falhou: ${err.message}`);
     }

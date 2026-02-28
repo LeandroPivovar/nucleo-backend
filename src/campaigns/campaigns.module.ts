@@ -11,9 +11,12 @@ import { ZenviaModule } from '../zenvia/zenvia.module';
 import { ContactsModule } from '../contacts/contacts.module';
 import { EmailModule } from '../email/email.module';
 
+import { User } from '../entities/user.entity';
+import { Subscription } from '../entities/subscription.entity';
+
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Campaign, Contact, UserUsage]),
+        TypeOrmModule.forFeature([Campaign, Contact, UserUsage, User, Subscription]),
         ZenviaModule,
         ContactsModule,
         EmailModule

@@ -7,6 +7,8 @@ import { ZenviaService } from '../../zenvia/zenvia.service';
 import { ContactsService } from '../../contacts/contacts.service';
 import { EmailService } from '../../email/email.service';
 import { UserUsage } from '../../entities/user-usage.entity';
+import { User } from '../../entities/user.entity';
+import { Subscription } from '../../entities/subscription.entity';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -17,6 +19,10 @@ export class CampaignSchedulerService {
         private campaignsRepository: Repository<Campaign>,
         @InjectRepository(UserUsage)
         private userUsageRepository: Repository<UserUsage>,
+        @InjectRepository(User)
+        private userRepository: Repository<User>,
+        @InjectRepository(Subscription)
+        private subscriptionRepository: Repository<Subscription>,
         private zenviaService: ZenviaService,
         private contactsService: ContactsService,
         private emailService: EmailService
@@ -152,6 +158,14 @@ export class CampaignSchedulerService {
 
             await this.campaignsRepository.save(campaign);
 
+            // Fetch Plan Limits
+            const subscription = await this.subscriptionRepository.findOne({
+                where: { userId: campaign.userId, status: 'active' },
+                relations: ['plan'],
+            });
+            const planEmailsLimit = subscription?.plan?.limits?.emails || 0;
+            const planSmsLimit = subscription?.plan?.limits?.sms || 0;
+
             // Increment Sender Usage
             const currentMonthYear = new Date().toISOString().slice(0, 7);
             let usage = await this.userUsageRepository.findOne({
@@ -164,9 +178,29 @@ export class CampaignSchedulerService {
                 });
             }
 
-            if (campaign.channel === 'email') usage.emailsSent = (Number(usage.emailsSent) || 0) + successCount;
-            else if (campaign.channel === 'sms') usage.smsSent = (Number(usage.smsSent) || 0) + successCount;
-            else if (campaign.channel === 'whatsapp') usage.whatsappSent = (Number(usage.whatsappSent) || 0) + successCount;
+            const user = await this.userRepository.findOne({ where: { id: campaign.userId } });
+
+            if (campaign.channel === 'email') {
+                const currentUsage = Number(usage.emailsSent) || 0;
+                const newUsage = currentUsage + successCount;
+                if (newUsage > planEmailsLimit && user && user.extraEmailsBalance > 0) {
+                    const exceededAmount = newUsage - Math.max(currentUsage, planEmailsLimit);
+                    user.extraEmailsBalance = Math.max(0, user.extraEmailsBalance - exceededAmount);
+                    await this.userRepository.save(user);
+                }
+                usage.emailsSent = newUsage;
+            } else if (campaign.channel === 'sms') {
+                const currentUsage = Number(usage.smsSent) || 0;
+                const newUsage = currentUsage + successCount;
+                if (newUsage > planSmsLimit && user && user.extraSmsBalance > 0) {
+                    const exceededAmount = newUsage - Math.max(currentUsage, planSmsLimit);
+                    user.extraSmsBalance = Math.max(0, user.extraSmsBalance - exceededAmount);
+                    await this.userRepository.save(user);
+                }
+                usage.smsSent = newUsage;
+            } else if (campaign.channel === 'whatsapp') {
+                usage.whatsappSent = (Number(usage.whatsappSent) || 0) + successCount;
+            }
 
             await this.userUsageRepository.save(usage);
 

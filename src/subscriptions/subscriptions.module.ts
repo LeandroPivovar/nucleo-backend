@@ -12,12 +12,14 @@ import { Campaign } from '../entities/campaign.entity';
 import { ReferralCommission } from '../entities/referral-commission.entity';
 
 import { SystemSettingsModule } from '../system-settings/system-settings.module';
+import { WebhooksModule } from '../webhooks/webhooks.module';
 import { AsaasService } from './asaas.service';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([Subscription, Plan, Invoice, User, Contact, UserUsage, Campaign, ReferralCommission]),
-        SystemSettingsModule
+        SystemSettingsModule,
+        WebhooksModule
     ],
     controllers: [SubscriptionsController],
     providers: [SubscriptionsService, AsaasService],

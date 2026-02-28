@@ -1,10 +1,14 @@
 import { Controller, Get, Post, Body, Request, UseGuards, Headers } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('subscriptions')
 export class SubscriptionsController {
-    constructor(private readonly subscriptionsService: SubscriptionsService) { }
+    constructor(
+        private readonly subscriptionsService: SubscriptionsService,
+        private readonly webhooksService: WebhooksService,
+    ) { }
 
     @Get('plans')
     @UseGuards(JwtAuthGuard)
@@ -43,7 +47,21 @@ export class SubscriptionsController {
     }
 
     @Post('webhook/asaas')
-    handleAsaasWebhook(@Body() body: any, @Headers('asaas-access-token') token: string) {
+    async handleAsaasWebhook(@Request() req, @Body() body: any, @Headers('asaas-access-token') token: string) {
+        const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+        const method = req.method;
+        const headers = req.headers;
+
+        // Registrar o log no banco de dados
+        await this.webhooksService.logWebhook(url, method, headers, body, 'asaas');
+
+        // Processar a regra de negócio
         return this.subscriptionsService.handleAsaasWebhook(body, token);
+    }
+
+    @Post('buy-credits')
+    @UseGuards(JwtAuthGuard)
+    buyCredits(@Request() req, @Body() body: any) {
+        return this.subscriptionsService.buyCredits(req.user.userId, body, req.ip);
     }
 }

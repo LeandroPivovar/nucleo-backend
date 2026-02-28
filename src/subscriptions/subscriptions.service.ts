@@ -69,6 +69,7 @@ export class SubscriptionsService {
 
     async getDashboardStats(userId: number) {
         const subscription = await this.getCurrentSubscription(userId);
+        const user = await this.userRepository.findOne({ where: { id: userId } });
 
         const currentMonthYear = new Date().toISOString().slice(0, 7);
         const usage = await this.userUsageRepository.findOne({
@@ -86,9 +87,11 @@ export class SubscriptionsService {
             emailsSent: Number(emailsSent),
             whatsappSent: Number(whatsappSent),
             campaignsCreated: Number(totalCampaigns),
-            smsLimit: subscription?.plan?.limits?.sms ?? null,
-            emailsLimit: subscription?.plan?.limits?.emails ?? null,
+            smsLimit: (subscription?.plan?.limits?.sms ?? 0) + (user?.extraSmsBalance || 0),
+            emailsLimit: (subscription?.plan?.limits?.emails ?? 0) + (user?.extraEmailsBalance || 0),
             whatsappLimit: subscription?.plan?.limits?.whatsapp ? -1 : 0, // -1 means unlimited if true
+            extraEmailsBalance: user?.extraEmailsBalance || 0,
+            extraSmsBalance: user?.extraSmsBalance || 0,
             campaignsLimit: subscription?.plan?.limits?.advancedCampaigns ?? null,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,
@@ -189,6 +192,72 @@ export class SubscriptionsService {
         }
     }
 
+    async buyCredits(userId: number, data: any, remoteIp?: string): Promise<any> {
+        const { type, amount, billingType, paymentContext } = data;
+        let pricePerUnit = 0;
+
+        if (type === 'email') pricePerUnit = 0.30;
+        else if (type === 'sms') pricePerUnit = 0.40;
+        else throw new Error('Invalid credit type');
+
+        const totalValue = pricePerUnit * amount;
+
+        const user = await this.userRepository.findOne({ where: { id: userId } });
+        if (!user) throw new NotFoundException('Usuário não encontrado');
+
+        try {
+            // Garantir que o cliente exista no Asaas (caso tente comprar avulso sem assinar antes)
+            let asaasCustomerId = (user as any).asaasCustomerId;
+            if (!asaasCustomerId) {
+                const asaasCustomer = await this.asaasService.createCustomer({
+                    name: `${user.firstName} ${user.lastName}`,
+                    email: user.email,
+                    phone: user.phone,
+                    cpfCnpj: user.document || '00000000000', // Asaas required se não tiver, mas idealmente o usuário já preencheu
+                });
+                asaasCustomerId = asaasCustomer.id;
+                (user as any).asaasCustomerId = asaasCustomerId;
+                await this.userRepository.save(user);
+            }
+
+            const now = new Date();
+            const brDate = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+            const dateString = brDate.toISOString().split('T')[0];
+
+            // Define um externalReference pra conseguirmos identificar no webhook
+            const externalRef = `EXTRA_CREDITS|${type}|${amount}|${userId}`;
+
+            const asaasRequestData = {
+                customer: asaasCustomerId,
+                billingType: (billingType || 'PIX') as any,
+                value: totalValue,
+                dueDate: dateString,
+                description: `Pacote de ${amount} disparos de ${type.toUpperCase()}`,
+                externalReference: externalRef,
+                remoteIp
+            };
+
+            const asaasPayment = await this.asaasService.createSinglePayment(asaasRequestData);
+
+            let qrCode = null;
+            if (billingType === 'PIX') {
+                qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+            }
+
+            return {
+                success: true,
+                message: 'Cobrança gerada com sucesso',
+                paymentId: asaasPayment.id,
+                qrCode,
+                invoiceUrl: asaasPayment.invoiceUrl,
+            };
+
+        } catch (error: any) {
+            this.logger.error(`Buy credits error: ${error.message}`);
+            throw new Error(`Falha na geração de cobrança Asaas: ${error.message}`);
+        }
+    }
+
     async handleAsaasWebhook(payload: any, token: string) {
         const secretSetting = await this.userRepository.manager.getRepository(SystemSetting).findOne({
             where: { key: 'ASAAS_WEBHOOK_TOKEN' }
@@ -203,6 +272,37 @@ export class SubscriptionsService {
         this.logger.log(`Asaas Webhook: ${event} for payment ${payment?.id} / sub ${asaasSubscription?.id}`);
 
         if (event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
+            const externalRef = payment?.externalReference;
+
+            // Tratamento de pacotes extras avulsos
+            if (externalRef && externalRef.startsWith('EXTRA_CREDITS|')) {
+                const [tag, type, amountStr, userIdStr] = externalRef.split('|');
+                const amount = parseInt(amountStr, 10);
+                const userId = parseInt(userIdStr, 10);
+
+                if (userId && amount) {
+                    const user = await this.userRepository.findOne({ where: { id: userId } });
+                    if (user) {
+                        if (type === 'email') user.extraEmailsBalance = (user.extraEmailsBalance || 0) + amount;
+                        else if (type === 'sms') user.extraSmsBalance = (user.extraSmsBalance || 0) + amount;
+                        await this.userRepository.save(user);
+
+                        // Criar fatura de pacote avulso
+                        const newInvoice = this.invoiceRepository.create({
+                            subscriptionId: undefined, // Sem assinatura vinculada
+                            userId: user.id,
+                            amount: payment?.value || 0,
+                            status: 'paid',
+                        });
+                        await this.invoiceRepository.save(newInvoice);
+
+                        this.logger.log(`Pacote de ${amount} ${type} adicionado com sucesso ao usuário ${userId}.`);
+                        return { success: true };
+                    }
+                }
+            }
+
+            // Tratamento de assinaturas normais
             const asaasSubscriptionId = payment?.subscription;
             if (asaasSubscriptionId) {
                 const subscription = await this.subscriptionRepository.findOne({
@@ -244,11 +344,38 @@ export class SubscriptionsService {
                         }
                     }
 
-                    // Vincular o plano ao usuário
+                    // Vincular o plano ao usuário e zerar limites gerais
                     if (user) {
                         user.planId = subscription.planId;
                         user.subscriptionStatus = 'active';
+                        user.emailsSentMonth = 0; // Reseta envios do mês na tabela principal
                         await this.userRepository.save(user);
+
+                        // Resetar envios do mês na tabela detalhada (user_usages)
+                        const brDate = new Date(new Date().getTime() - (3 * 60 * 60 * 1000));
+                        const currentMonthYear = `${brDate.getFullYear()}-${String(brDate.getMonth() + 1).padStart(2, '0')}`;
+
+                        let currentUsage = await this.userUsageRepository.findOne({
+                            where: { userId: user.id, monthYear: currentMonthYear }
+                        });
+
+                        if (currentUsage) {
+                            currentUsage.emailsSent = 0;
+                            currentUsage.whatsappSent = 0;
+                            // smsSent e campaignsCreated não são resetados se não fizer sentido, 
+                            // mas envios de e-mail e whatsapp sim pois são os maiores custos diretos.
+                            await this.userUsageRepository.save(currentUsage);
+                        } else {
+                            currentUsage = this.userUsageRepository.create({
+                                userId: user.id,
+                                monthYear: currentMonthYear,
+                                emailsSent: 0,
+                                whatsappSent: 0,
+                                smsSent: 0,
+                                campaignsCreated: 0
+                            });
+                            await this.userUsageRepository.save(currentUsage);
+                        }
                     }
 
                     this.logger.log(`Assinatura ${subscription.id} ativada e plano ${subscription.planId} vinculado ao usuário ${user?.id} via pagamento Asaas.`);

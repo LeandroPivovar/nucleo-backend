@@ -33,7 +33,7 @@ export class EmailService {
     const apiToken = this.configService.get<string>('ZENVIA_API_TOKEN', '');
     const smsFrom = this.configService.get<string>('ZENVIA_SMS_FROM', '');
 
-    const fromEmail = 'contato@nucleocrm.com.br';
+    const fromEmail = dbFromEmail || this.configService.get<string>('SMTP_FROM_EMAIL') || this.configService.get<string>('SMTP_FROM') || smsFrom || 'contato@nucleocrm.com.br';
     const fromName = 'Núcleo CRM';
 
     return { apiToken, fromEmail, fromName };

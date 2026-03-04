@@ -101,7 +101,7 @@ export class EmailService {
         }
       };
 
-      this.logger.debug(`Zenvia E-mail Request Payload for ${payload.to}`);
+      this.logger.debug(`Zenvia E-mail Request Payload for ${payload.to}: \n${JSON.stringify(payload, null, 2)}`);
 
       const response = await fetch('https://api.zenvia.com/v2/channels/email/messages', {
         method: 'POST',
@@ -120,6 +120,7 @@ export class EmailService {
 
       const successPayload = await response.json();
       this.logger.log(`E-mail enviado com sucesso via Zenvia: ID ${successPayload.id}`);
+      this.logger.debug(`Zenvia E-mail Success Response:\n${JSON.stringify(successPayload, null, 2)}`);
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';

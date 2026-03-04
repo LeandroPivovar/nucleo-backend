@@ -31,18 +31,18 @@ export class SystemSettingsController {
         try {
             await this.emailService.sendEmail({
                 to: email,
-                subject: 'Teste de Conexão SMTP - Núcleo CRM',
+                subject: 'Teste de Integração de E-mail Zenvia - Núcleo CRM',
                 html: `
-                    <h2>Teste de Conexão SMTP Concluído</h2>
+                    <h2>Teste de Envio de E-mail via Zenvia Concluído</h2>
                     <p>Olá,</p>
-                    <p>Se você está recebendo esta mensagem, significa que as credenciais SMTP configuradas no painel do Núcleo CRM estão corretas e o sistema está conseguindo disparar e-mails com sucesso.</p>
+                    <p>Se você está recebendo esta mensagem, significa que a integração com a API da Zenvia configurada no servidor do Núcleo CRM está correta e o sistema está conseguindo disparar e-mails com sucesso.</p>
                     <hr>
-                    <p><small>Enviado automaticamente pelo sistema de configurações do Núcleo CRM.</small></p>
+                    <p><small>Enviado automaticamente pelo sistema do Núcleo CRM.</small></p>
                 `,
             });
-            return { success: true, message: 'E-mail de teste enviado com sucesso!' };
+            return { success: true, message: 'E-mail de teste enviado via Zenvia com sucesso!' };
         } catch (error: any) {
-            return { success: false, message: `Erro: ${error.message}` };
+            return { success: false, message: `Erro ao enviar via Zenvia: ${error.message}` };
         }
     }
 }

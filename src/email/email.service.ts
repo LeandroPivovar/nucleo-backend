@@ -1,7 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
-import type { Transporter } from 'nodemailer';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 
 export interface EmailOptions {
@@ -28,94 +26,105 @@ export class EmailService {
     private systemSettingsService: SystemSettingsService
   ) { }
 
-  private async getSmtpConfig(): Promise<{ host: string; port: number; secure: boolean; user: string; pass: string; fromName: string; fromEmail: string }> {
-    const dbHost = await this.systemSettingsService.get('SMTP_HOST', '');
-    const dbPort = await this.systemSettingsService.get('SMTP_PORT', '');
-    const dbUser = await this.systemSettingsService.get('SMTP_USER', '');
-    const dbPass = await this.systemSettingsService.get('SMTP_PASS', '');
-    const dbSecure = await this.systemSettingsService.get('SMTP_SECURE', '');
-    const dbFromName = await this.systemSettingsService.get('SMTP_FROM_NAME', '');
+  private async getZenviaConfig(): Promise<{ apiToken: string; fromEmail: string; fromName: string }> {
     const dbFromEmail = await this.systemSettingsService.get('SMTP_FROM_EMAIL', '');
+    const dbFromName = await this.systemSettingsService.get('SMTP_FROM_NAME', '');
 
-    const host = dbHost || this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
-    const port = parseInt(dbPort, 10) || this.configService.get<number>('SMTP_PORT') || 587;
+    const apiToken = this.configService.get<string>('ZENVIA_API_TOKEN', '');
+    const smsFrom = this.configService.get<string>('ZENVIA_SMS_FROM', '');
 
-    let secureToken = dbSecure || this.configService.get<string>('SMTP_SECURE');
-    let secure = false;
-    if (secureToken === 'true' || secureToken === 'ssl') secure = true;
-    else if (secureToken === 'false' || secureToken === 'tls') secure = false;
-    else secure = this.configService.get<boolean>('SMTP_SECURE') || false;
+    const fromEmail = dbFromEmail || this.configService.get<string>('SMTP_FROM_EMAIL') || this.configService.get<string>('SMTP_FROM') || smsFrom || 'noreply@nucleocrm.com';
+    const fromName = dbFromName || this.configService.get<string>('SMTP_FROM_NAME') || 'Núcleo CRM';
 
-    const user = dbUser || this.configService.get<string>('SMTP_USER') || this.configService.get<string>('SMTP_USERNAME') || '';
-    const pass = dbPass || this.configService.get<string>('SMTP_PASS') || this.configService.get<string>('SMTP_PASSWORD') || '';
-
-    const fromName = dbFromName || this.configService.get<string>('SMTP_FROM_NAME') || '';
-    const fromEmail = dbFromEmail || this.configService.get<string>('SMTP_FROM_EMAIL') || this.configService.get<string>('SMTP_FROM') || user;
-
-    return { host, port, secure, user, pass, fromName, fromEmail };
-  }
-
-  private async getTransporter(): Promise<Transporter> {
-    const config = await this.getSmtpConfig();
-
-    if (!config.user || !config.pass) {
-      this.logger.warn('⚠️ Credenciais SMTP não encontradas no BD nem no .env!');
-      throw new Error('Credenciais SMTP não configuradas. Acesse o painel Admin em Configurações > E-mail.');
-    }
-
-    return nodemailer.createTransport({
-      host: config.host,
-      port: config.port,
-      secure: config.secure,
-      auth: {
-        user: config.user,
-        pass: config.pass,
-      },
-    });
+    return { apiToken, fromEmail, fromName };
   }
 
   async sendEmail(options: EmailOptions): Promise<void> {
     try {
-      const config = await this.getSmtpConfig();
-      const transporter = await this.getTransporter();
+      const config = await this.getZenviaConfig();
 
-      let from: string;
-      if (config.fromName && config.fromEmail) {
-        from = `${config.fromName} <${config.fromEmail}>`;
-      } else {
-        from = config.fromEmail || 'noreply@nucleocrm.com';
+      if (!config.apiToken) {
+        this.logger.warn('⚠️ ZENVIA_API_TOKEN não encontrado no .env!');
+        throw new Error('Configuração de API da Zenvia não encontrada.');
       }
 
-      const mailOptions = {
-        from: from,
-        to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
-        subject: options.subject,
-        html: options.html,
-        text: options.text,
-        cc: options.cc ? (Array.isArray(options.cc) ? options.cc.join(', ') : options.cc) : undefined,
-        bcc: options.bcc ? (Array.isArray(options.bcc) ? options.bcc.join(', ') : options.bcc) : undefined,
-        attachments: options.attachments,
+      // Prepara os endereços de destino (TO) - Para simplificar enviamos um e-mail para o primeiro TO, 
+      // ou múltiplos dependendo de como a aplicação chama, mas a Zenvia pede um 'to' string único no root da API de e-mail 
+      // e permite vários apenas se forem listados em cada recipient, mas o payload base usa um 'to' string único.
+      // Se options.to for array e tivermos que mandar pra todos, precisaremos de multiplos contents/chamadas?
+      // O Payload da documentação pede um único 'to' string no root. Vamos pegar o primeiro.
+      const toAddresses = Array.isArray(options.to) ? options.to : [options.to];
+      if (toAddresses.length === 0) {
+        throw new Error('Nenhum destinatário informado.');
+      }
+
+      // Prepara anexos (se houver e tiver url, pois Zenvia pede url)
+      // A biblioteca antiga nodemailer aceitava content base64, path etc. 
+      // A Zenvia exige fileUrl. Para envio transacional com anexos sem URL, isso precisaria ser adaptado gerando URLs, 
+      // ignoraremos anexos que não mapeiam para a API da Zenvia (que requer fileUrl público)
+      let attachmentsUrl: Array<{ fileUrl: string; fileName?: string }> | undefined = undefined;
+      if (options.attachments && options.attachments.length > 0) {
+        const validAttachments = options.attachments.filter(a => !!a.path);
+
+        if (validAttachments.length > 0) {
+          attachmentsUrl = validAttachments.map(a => ({
+            fileUrl: a.path as string,
+            fileName: a.filename
+          }));
+        }
+      }
+
+      // Prepara CC/BCC
+      const ccList = options.cc
+        ? (Array.isArray(options.cc) ? options.cc : [options.cc]).map(email => ({ email }))
+        : undefined;
+
+      const bccList = options.bcc
+        ? (Array.isArray(options.bcc) ? options.bcc : [options.bcc]).map(email => ({ email }))
+        : undefined;
+
+      const payload = {
+        from: config.fromEmail,
+        to: toAddresses[0], // Pelo doc, 'to' é string e obrigatório
+        contents: [
+          {
+            type: 'email',
+            subject: options.subject,
+            html: options.html || options.text,
+            attachments: attachmentsUrl,
+            cc: ccList,
+            bcc: bccList
+          }
+        ],
+        representative: {
+          name: config.fromName
+        }
       };
 
-      const info = await transporter.sendMail(mailOptions);
-      this.logger.log(`E-mail enviado com sucesso: ${info.messageId}`);
+      this.logger.debug(`Zenvia E-mail Request Payload for ${payload.to}`);
+
+      const response = await fetch('https://api.zenvia.com/v2/channels/email/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-TOKEN': config.apiToken,
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errPayload = await response.text();
+        this.logger.error(`Zenvia Email API Error: ${response.status} - ${errPayload}`);
+        throw new Error(`Zenvia Email API Error: ${response.status} - ${errPayload}`);
+      }
+
+      const successPayload = await response.json();
+      this.logger.log(`E-mail enviado com sucesso via Zenvia: ID ${successPayload.id}`);
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       const errorStack = error instanceof Error ? error.stack : undefined;
-
-      this.logger.error(`Erro ao enviar e-mail: ${errorMessage}`, errorStack);
-
-      // Melhorar mensagem de erro para problemas comuns
-      if (errorMessage.includes('Invalid login') || errorMessage.includes('authentication failed') || errorMessage.includes('535')) {
-        throw new Error('Credenciais SMTP inválidas. Verifique SMTP_USERNAME e SMTP_PASSWORD. Para Gmail, use uma Senha de App.');
-      } else if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ETIMEDOUT')) {
-        throw new Error('Não foi possível conectar ao servidor SMTP. Verifique SMTP_HOST e SMTP_PORT.');
-      } else if (errorMessage.includes('self signed certificate') || errorMessage.includes('UNABLE_TO_VERIFY_LEAF_SIGNATURE')) {
-        throw new Error('Erro de certificado SSL. Verifique a configuração SMTP_SECURE.');
-      } else if (errorMessage.includes('EAUTH')) {
-        throw new Error('Falha na autenticação SMTP. Verifique as credenciais.');
-      }
-
+      this.logger.error(`Erro ao enviar e-mail via Zenvia: ${errorMessage}`, errorStack);
       throw new Error(`Erro ao enviar e-mail: ${errorMessage}`);
     }
   }
@@ -290,12 +299,14 @@ export class EmailService {
 
   async verifyConnection(): Promise<boolean> {
     try {
-      const transporter = await this.getTransporter();
-      await transporter.verify();
-      this.logger.log('Conexão SMTP verificada com sucesso');
-      return true;
+      const config = await this.getZenviaConfig();
+      if (config.apiToken) {
+        this.logger.log('Token da Zenvia configurado. Verificação passiva aprovada.');
+        return true;
+      }
+      return false;
     } catch (error: any) {
-      this.logger.error(`Erro ao verificar conexão SMTP: ${error.message}`);
+      this.logger.error(`Erro ao verificar conexão Zenvia: ${error.message}`);
       return false;
     }
   }

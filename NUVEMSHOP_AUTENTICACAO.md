@@ -25,7 +25,7 @@ Authentication: bearer {access_token}
 A Nuvemshop exige que todas as requisições incluam o cabeçalho `User-Agent`:
 
 ```
-User-Agent: Nucleo CRM (https://nucleocrm.shop)
+User-Agent: Nucleo CRM (https://nucleocrm.com.br)
 ```
 
 ## 📝 Exemplo de Requisição Correta
@@ -36,7 +36,7 @@ const response = await fetch(
   {
     headers: {
       'Authentication': `bearer ${accessToken}`,
-      'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+      'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },

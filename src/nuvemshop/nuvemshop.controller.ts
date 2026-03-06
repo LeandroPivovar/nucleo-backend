@@ -25,7 +25,7 @@ export class NuvemshopController {
   constructor(
     private readonly nuvemshopService: NuvemshopService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
   /**
    * Inicia o fluxo OAuth - retorna a URL de autorização
@@ -78,12 +78,12 @@ export class NuvemshopController {
       // Por enquanto, vamos passar via query string mas codificando melhor
       const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173';
       const redirectUrl = new URL(`${frontendUrl}/integrations/nuvemshop/callback`);
-      
+
       // Passar apenas o state e um código temporário
       // O frontend vai buscar o token usando esse código
       redirectUrl.searchParams.set('state', state);
       redirectUrl.searchParams.set('success', 'true');
-      
+
       // Criar um código temporário para buscar o token
       // Por enquanto, vamos usar uma abordagem mais segura: passar o token codificado em base64
       // Mas isso ainda não é ideal. O ideal seria usar uma sessão/cache no backend
@@ -92,7 +92,7 @@ export class NuvemshopController {
         user_id: tokenData.user_id,
         scope: tokenData.scope || '',
       })).toString('base64');
-      
+
       redirectUrl.searchParams.set('token_data', tempToken);
 
       return res.redirect(redirectUrl.toString());
@@ -159,7 +159,7 @@ export class NuvemshopController {
   ) {
     try {
       const connection = await this.nuvemshopService.getActiveConnection(req.user.userId, storeId);
-      
+
       // Tentar descriptografar o token
       let decryptedToken: string | null = null;
       let decryptError: string | null = null;
@@ -178,7 +178,7 @@ export class NuvemshopController {
             {
               headers: {
                 'Authentication': `bearer ${decryptedToken}`,
-                'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+                'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
               },

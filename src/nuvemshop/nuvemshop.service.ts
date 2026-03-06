@@ -69,20 +69,20 @@ export class NuvemshopService {
       } catch {
         error = { message: errorText || 'Falha ao obter token de acesso' };
       }
-      
+
       console.error('Erro ao trocar código por token:', {
         status: response.status,
         statusText: response.statusText,
         error,
       });
-      
+
       throw new BadRequestException(
         error.error_description || error.message || error.error || 'Falha ao obter token de acesso',
       );
     }
 
     const tokenData = await response.json();
-    
+
     // Validar resposta
     if (!tokenData.access_token || !tokenData.user_id) {
       console.error('Resposta inválida da Nuvemshop:', tokenData);
@@ -201,7 +201,7 @@ export class NuvemshopService {
     }
 
     const saved = await this.nuvemshopConnectionRepository.save(connection);
-    
+
     // Verificar se o token foi salvo corretamente fazendo um teste de descriptografia
     try {
       const testDecrypt = this.decryptToken(saved.accessToken);
@@ -211,7 +211,7 @@ export class NuvemshopService {
         originalToken: accessToken, // Log completo temporário
         decryptedToken: testDecrypt, // Log completo temporário
       });
-      
+
       // Verificar se o escopo inclui read_products
       if (scope && !scope.includes('read_products')) {
         console.error('ERRO CRÍTICO: O token não tem o escopo read_products!');
@@ -254,7 +254,7 @@ export class NuvemshopService {
    */
   async getAccessToken(userId: number, storeId?: string): Promise<string> {
     const connection = await this.getActiveConnection(userId, storeId);
-    
+
     if (!connection || !connection.accessToken) {
       throw new UnauthorizedException('Token de acesso não encontrado na conexão');
     }
@@ -269,13 +269,13 @@ export class NuvemshopService {
       });
 
       const token = this.decryptToken(connection.accessToken);
-      
+
       // Log para debug (remover em produção)
       console.log('Token descriptografado:', {
         tokenLength: token.length,
         tokenPrefix: token.substring(0, 20) + '...',
       });
-      
+
       if (!token || token.trim().length === 0) {
         throw new UnauthorizedException('Token de acesso inválido ou vazio');
       }
@@ -302,14 +302,14 @@ export class NuvemshopService {
   async testToken(userId: number, storeId: string): Promise<boolean> {
     try {
       const accessToken = await this.getAccessToken(userId, storeId);
-      
+
       // Fazer uma requisição simples para verificar se o token é válido
       const response = await fetch(
         `${this.apiBaseUrl}/${storeId}/products?limit=1`,
         {
           headers: {
             'Authentication': `bearer ${accessToken}`,
-            'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+            'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
@@ -355,76 +355,76 @@ export class NuvemshopService {
       ? `${this.apiBaseUrl}/${storeId}/products/${productData.id}`
       : `${this.apiBaseUrl}/${storeId}/products`;
 
-      const response = await fetch(url, {
-        method: productData.id ? 'PUT' : 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authentication': `bearer ${accessToken}`,
-          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
-        },
-        // Ao atualizar (PUT), não enviar variants
-        body: JSON.stringify(productData.id ? productDataWithoutVariants : productData),
-      });
+    const response = await fetch(url, {
+      method: productData.id ? 'PUT' : 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authentication': `bearer ${accessToken}`,
+        'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
+      },
+      // Ao atualizar (PUT), não enviar variants
+      body: JSON.stringify(productData.id ? productDataWithoutVariants : productData),
+    });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        let error;
-        try {
-          error = JSON.parse(errorText);
-        } catch {
-          error = { message: errorText || 'Falha ao sincronizar produto' };
-        }
-        
-        console.error('Erro ao sincronizar produto na Nuvemshop:', {
-          status: response.status,
-          statusText: response.statusText,
-          error,
-          url,
-          productData: {
-            ...productData,
-            id: productData.id,
-            hasId: !!productData.id,
-          },
-        });
-        
-        throw new BadRequestException(
-          error.error_description || error.message || error.error || `Falha ao sincronizar produto (${response.status})`,
-        );
+    if (!response.ok) {
+      const errorText = await response.text();
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText || 'Falha ao sincronizar produto' };
       }
 
-      const result = await response.json();
+      console.error('Erro ao sincronizar produto na Nuvemshop:', {
+        status: response.status,
+        statusText: response.statusText,
+        error,
+        url,
+        productData: {
+          ...productData,
+          id: productData.id,
+          hasId: !!productData.id,
+        },
+      });
 
-      // Se é atualização e temos variants, atualizar variantes separadamente
-      if (productData.id && variants && variants.length > 0) {
-        // Buscar variantes existentes do produto
-        const productDetails = await this.getProduct(userId, storeId, productData.id);
-        
-        if (productDetails && productDetails.variants && productDetails.variants.length > 0) {
-          // Atualizar primeira variante (assumindo produto simples com uma variante)
-          const existingVariant = productDetails.variants[0];
-          const variantToUpdate = variants[0];
-          
-          if (existingVariant.id) {
-            await this.updateVariant(
-              userId,
-              storeId,
-              productData.id,
-              existingVariant.id,
-              variantToUpdate,
-            );
-          }
-        } else if (variants.length > 0) {
-          // Se não tem variantes, criar uma nova
-          await this.createVariant(
+      throw new BadRequestException(
+        error.error_description || error.message || error.error || `Falha ao sincronizar produto (${response.status})`,
+      );
+    }
+
+    const result = await response.json();
+
+    // Se é atualização e temos variants, atualizar variantes separadamente
+    if (productData.id && variants && variants.length > 0) {
+      // Buscar variantes existentes do produto
+      const productDetails = await this.getProduct(userId, storeId, productData.id);
+
+      if (productDetails && productDetails.variants && productDetails.variants.length > 0) {
+        // Atualizar primeira variante (assumindo produto simples com uma variante)
+        const existingVariant = productDetails.variants[0];
+        const variantToUpdate = variants[0];
+
+        if (existingVariant.id) {
+          await this.updateVariant(
             userId,
             storeId,
             productData.id,
-            variants[0],
+            existingVariant.id,
+            variantToUpdate,
           );
         }
+      } else if (variants.length > 0) {
+        // Se não tem variantes, criar uma nova
+        await this.createVariant(
+          userId,
+          storeId,
+          productData.id,
+          variants[0],
+        );
       }
+    }
 
-      return result;
+    return result;
   }
 
   /**
@@ -438,7 +438,7 @@ export class NuvemshopService {
       {
         headers: {
           'Authentication': `bearer ${accessToken}`,
-          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
@@ -486,7 +486,7 @@ export class NuvemshopService {
         headers: {
           'Content-Type': 'application/json',
           'Authentication': `bearer ${accessToken}`,
-          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         },
         body: JSON.stringify(variantData),
       },
@@ -532,7 +532,7 @@ export class NuvemshopService {
         headers: {
           'Content-Type': 'application/json',
           'Authentication': `bearer ${accessToken}`,
-          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         },
         body: JSON.stringify(variantData),
       },
@@ -592,7 +592,7 @@ export class NuvemshopService {
       console.log('URL da requisição:', url);
       console.log('Headers da requisição:', {
         'Authentication': `bearer ${accessToken.substring(0, 20)}...`,
-        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+        'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       });
@@ -600,7 +600,7 @@ export class NuvemshopService {
       const response = await fetch(url, {
         headers: {
           'Authentication': `bearer ${accessToken}`,
-          'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
@@ -614,7 +614,7 @@ export class NuvemshopService {
         } catch {
           error = { message: errorText || 'Falha ao buscar produtos' };
         }
-        
+
         // Log para debug (remover em produção se necessário)
         console.error('Erro ao buscar produtos da Nuvemshop:', {
           status: response.status,
@@ -632,7 +632,7 @@ export class NuvemshopService {
               'Por favor, reconecte a integração e certifique-se de que o app na Nuvemshop tenha o escopo "read_products" configurado no painel do desenvolvedor.',
             );
           }
-          
+
           throw new UnauthorizedException(
             error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado',
           );
@@ -685,7 +685,7 @@ export class NuvemshopService {
     const response = await fetch(url, {
       headers: {
         'Authentication': `bearer ${accessToken}`,
-        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+        'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         'Content-Type': 'application/json',
       },
     });
@@ -719,7 +719,7 @@ export class NuvemshopService {
         headers: {
           'Content-Type': 'application/json',
           'Authentication': `bearer ${accessToken}`,
-        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         },
         body: JSON.stringify({
           event: event,
@@ -750,7 +750,7 @@ export class NuvemshopService {
       {
         headers: {
           'Authentication': `bearer ${accessToken}`,
-        'User-Agent': 'Nucleo CRM (https://nucleocrm.shop)',
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         },
       },
     );

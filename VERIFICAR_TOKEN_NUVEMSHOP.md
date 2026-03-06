@@ -41,7 +41,7 @@ WHERE storeId = '7138199';
 ### Testar o token via API:
 
 ```bash
-curl -X POST https://nucleocrm.shop/api/nuvemshop/test-connection \
+curl -X POST https://nucleocrm.com.br/api/nuvemshop/test-connection \
   -H "Authorization: Bearer {seu_token_jwt}" \
   -H "Content-Type: application/json" \
   -d '{"storeId": "7138199"}'

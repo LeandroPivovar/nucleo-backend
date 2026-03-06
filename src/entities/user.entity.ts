@@ -62,10 +62,10 @@ export class User {
   @Column({ default: 0 })
   extraSmsBalance: number;
 
-  @Column({ default: false })
+  @Column({ type: 'boolean', default: false })
   twoFactorEnabled: boolean;
 
-  @Column({ length: 10, nullable: true })
+  @Column({ type: 'varchar', length: 10, nullable: true })
   twoFactorCode: string | null;
 
   @Column({ type: 'datetime', nullable: true })

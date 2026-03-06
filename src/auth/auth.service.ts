@@ -87,7 +87,7 @@ export class AuthService {
       address,
       referralCode: newUserReferralCode,
       referredById: referredById ?? undefined,
-      active: true, // Conta ativa automaticamente
+      active: false, // Conta inativa até verificação
     });
 
     const savedUser = await this.userRepository.save(user);
@@ -117,8 +117,7 @@ export class AuthService {
 
     await this.emailVerificationRepository.save(emailVerification);
 
-    // Enviar e-mail de verificação (Desabilitado temporariamente)
-    /*
+    // Enviar e-mail de verificação
     try {
       await this.emailHelper.sendEmailVerification(
         savedUser.email,
@@ -126,18 +125,18 @@ export class AuthService {
         `${savedUser.firstName} ${savedUser.lastName}`,
       );
     } catch (error) {
-      // Se falhar ao enviar e-mail, remover o registro de verificação
+      // Se falhar ao enviar e-mail, remover o registro de verificação e o usuário
       await this.emailVerificationRepository.remove(emailVerification);
+      await this.userRepository.remove(savedUser);
       throw new BadRequestException('Erro ao enviar e-mail de verificação. Tente novamente mais tarde.');
     }
-    */
 
     // Remover senha do retorno
     const { password: _, ...userWithoutPassword } = savedUser;
 
     // NÃO gerar token JWT - usuário fará o login
     return {
-      message: 'Conta criada com sucesso! Você já pode fazer o seu login.',
+      message: 'Conta criada com sucesso! Verifique seu e-mail para ativar a conta.',
       user: userWithoutPassword,
     };
   }
@@ -161,12 +160,10 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    // Verificar se a conta está ativa (Desabilitado temporariamente)
-    /*
+    // Verificar se a conta está ativa
     if (!user.active) {
       throw new UnauthorizedException('Conta não verificada. Verifique seu e-mail para ativar sua conta.');
     }
-    */
 
     // Remover senha do retorno
     const { password: _, ...userWithoutPassword } = user;

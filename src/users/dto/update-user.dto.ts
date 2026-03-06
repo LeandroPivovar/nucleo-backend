@@ -19,5 +19,8 @@ export class UpdateUserDto {
   @IsString()
   @MaxLength(20)
   phone?: string;
+
+  @IsOptional()
+  twoFactorEnabled?: boolean;
 }
 

@@ -304,6 +304,49 @@ export class EmailService {
     });
   }
 
+  async sendTwoFactorCodeEmail(to: string, code: string, name?: string): Promise<void> {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+            .code-box { background: #fff; border: 2px dashed #667eea; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px; }
+            .code { font-size: 32px; font-weight: bold; color: #667eea; letter-spacing: 8px; font-family: 'Courier New', monospace; }
+            .warning { color: #d32f2f; font-size: 12px; margin-top: 20px; }
+            .info { color: #666; font-size: 14px; margin-top: 10px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Autenticação de Dois Fatores</h1>
+            </div>
+            <div class="content">
+              <p>Olá${name ? `, ${name}` : ''}!</p>
+              <p>Para prosseguir com seu login no Núcleo CRM, utilize o código de segurança abaixo:</p>
+              <div class="code-box">
+                <div class="code">${code}</div>
+              </div>
+              <p class="info">Este código é válido por 10 minutos.</p>
+              <p class="warning">Se você não tentou fazer login na sua conta, recomendamos que altere sua senha imediatamente.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    await this.sendEmail({
+      to,
+      subject: 'Seu Código de Segurança - Núcleo CRM',
+      html,
+    });
+  }
+
   async verifyConnection(): Promise<boolean> {
     try {
       const config = await this.getZenviaConfig();

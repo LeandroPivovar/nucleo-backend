@@ -62,6 +62,15 @@ export class User {
   @Column({ default: 0 })
   extraSmsBalance: number;
 
+  @Column({ default: false })
+  twoFactorEnabled: boolean;
+
+  @Column({ length: 10, nullable: true })
+  twoFactorCode: string | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  twoFactorExpires: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

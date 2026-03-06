@@ -7,10 +7,11 @@ import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
+import { Verify2faDto } from './dto/verify-2fa.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -22,6 +23,12 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post('verify-2fa')
+  @HttpCode(HttpStatus.OK)
+  async verify2fa(@Body() verify2faDto: Verify2faDto) {
+    return this.authService.verify2fa(verify2faDto);
   }
 
   @Post('forgot-password')

@@ -18,6 +18,7 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { Verify2faDto } from './dto/verify-2fa.dto';
 import { EmailHelper } from '../email/email.helper';
 import * as crypto from 'crypto';
 
@@ -168,6 +169,29 @@ export class AuthService {
     // Remover senha do retorno
     const { password: _, ...userWithoutPassword } = user;
 
+    // Verificar se 2FA está ativado
+    if (user.twoFactorEnabled) {
+      const code = this.generate2faCode();
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10); // Expira em 10 minutos
+
+      user.twoFactorCode = code;
+      user.twoFactorExpires = expiresAt;
+      await this.userRepository.save(user);
+
+      // Enviar e-mail com o código
+      await this.emailHelper.sendTwoFactorCode(
+        user.email,
+        code,
+        `${user.firstName} ${user.lastName}`
+      );
+
+      return {
+        twoFactorRequired: true,
+        email: user.email,
+      };
+    }
+
     // Gerar token JWT
     const token = this.jwtService.sign({ sub: user.id, email: user.email });
 
@@ -175,6 +199,52 @@ export class AuthService {
       user: userWithoutPassword,
       token,
     };
+  }
+
+  /**
+   * Verifica o código de 2FA e retorna o token JWT
+   */
+  async verify2fa(verify2faDto: Verify2faDto) {
+    const { email, code } = verify2faDto;
+
+    const user = await this.userRepository.findOne({
+      where: { email },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Usuário não encontrado');
+    }
+
+    if (!user.twoFactorCode || user.twoFactorCode !== code) {
+      throw new UnauthorizedException('Código de segurança inválido');
+    }
+
+    if (!user.twoFactorExpires || new Date() > user.twoFactorExpires) {
+      throw new UnauthorizedException('Código de segurança expirado');
+    }
+
+    // Limpar código após uso bem-sucedido
+    user.twoFactorCode = null;
+    user.twoFactorExpires = null;
+    await this.userRepository.save(user);
+
+    // Remover senha do retorno
+    const { password: _, ...userWithoutPassword } = user;
+
+    // Gerar token JWT
+    const token = this.jwtService.sign({ sub: user.id, email: user.email });
+
+    return {
+      user: userWithoutPassword,
+      token,
+    };
+  }
+
+  /**
+   * Gera um código de 6 dígitos para 2FA
+   */
+  private generate2faCode(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
   /**

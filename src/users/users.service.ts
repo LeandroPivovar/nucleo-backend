@@ -13,6 +13,7 @@ import { Plan } from '../entities/plan.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { Toggle2faDto } from './dto/toggle-2fa.dto';
 
 @Injectable()
 export class UsersService {
@@ -180,4 +181,5 @@ export class UsersService {
     subscription.currentPeriodEnd = new Date(expiryDate);
     return this.subscriptionRepository.save(subscription);
   }
+
 }

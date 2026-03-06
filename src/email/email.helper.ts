@@ -17,7 +17,7 @@ import { EmailService, EmailOptions } from './email.service';
  */
 @Injectable()
 export class EmailHelper {
-  constructor(private emailService: EmailService) {}
+  constructor(private emailService: EmailService) { }
 
   /**
    * Envia um e-mail genérico
@@ -52,6 +52,13 @@ export class EmailHelper {
    */
   async sendEmailVerification(to: string, token: string, name?: string): Promise<void> {
     return this.emailService.sendEmailVerificationEmail(to, token, name);
+  }
+
+  /**
+   * Envia e-mail com código de autenticação de dois fatores
+   */
+  async sendTwoFactorCode(to: string, code: string, name?: string): Promise<void> {
+    return this.emailService.sendTwoFactorCodeEmail(to, code, name);
   }
 
   /**

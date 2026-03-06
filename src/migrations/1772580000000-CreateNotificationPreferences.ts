@@ -26,12 +26,15 @@ export class CreateNotificationPreferences1772580000000 implements MigrationInte
                     type: "boolean",
                     default: true
                 }
+            ],
+            indices: [
+                {
+                    name: "UQ_USER_NOTIFICATION_PREFERENCE",
+                    columnNames: ["userId", "type"],
+                    isUnique: true
+                }
             ]
         }), true);
-
-        await queryRunner.createUniqueConstraint("notification_preferences", new TableUnique({
-            columnNames: ["userId", "type"]
-        }));
 
         // Not strictly necessary to ALTER enum if we use varchar column for enum in some DBs, 
         // but for MySQL/Postgres we might need to handle it.

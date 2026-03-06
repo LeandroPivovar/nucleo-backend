@@ -104,69 +104,9 @@ export class CampaignSchedulerService {
             this.logger.log(`Campaign [${campaign.id}] has ${targetContacts.length} target contacts.`);
 
             let successCount = 0;
+            const BATCH_SIZE = 50;
 
-            for (const contact of targetContacts) {
-                let sent = false;
-
-                if (campaign.channel === 'whatsapp' || campaign.channel === 'sms') {
-                    if (!contact.phone) {
-                        this.logger.warn(`Contact ${contact.id} has no phone number. Skipping.`);
-                        continue;
-                    }
-
-                    const messageContent = campaign.config?.email?.content || 'Olá! Temos uma novidade para você.';
-
-                    if (campaign.channel === 'whatsapp') {
-                        sent = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, messageContent);
-                    } else if (campaign.channel === 'sms') {
-                        sent = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, messageContent);
-                    }
-                } else if (campaign.channel === 'email') {
-                    if (!contact.email) {
-                        this.logger.warn(`Contact ${contact.id} has no email address. Skipping.`);
-                        continue;
-                    }
-
-                    const subject = campaign.config?.email?.subject || 'Nova Campanha';
-                    const content = campaign.config?.email?.content || '';
-
-                    // The simplest path uses the fallback email service assuming the User has SMTP configured.
-                    // A proper implementation would fetch the EmailConnection of the user.
-                    try {
-                        await this.emailService.sendEmail({
-                            to: contact.email,
-                            subject: subject,
-                            html: content,
-                            text: content.replace(/<[^>]*>?/gm, '') // Strip HTML tags for plain text fallback
-                        });
-                        sent = true;
-                    } catch (e) {
-                        this.logger.error(`Failed to send email to ${contact.email}`);
-                        sent = false;
-                    }
-                }
-
-                if (sent) {
-                    successCount++;
-                }
-            }
-
-            // After loop, finalize campaign metrics
-            campaign.sentCount = (campaign.sentCount || 0) + successCount;
-            campaign.recipientsCount = targetContacts.length;
-            campaign.status = 'finalizada'; // Mark as done for simple dispatch
-
-            await this.campaignsRepository.save(campaign);
-
-            // Fetch Plan Limits
-            const subscription = await this.subscriptionRepository.findOne({
-                where: { userId: campaign.userId, status: 'active' },
-                relations: ['plan'],
-            });
-            const planEmailsLimit = subscription?.plan?.limits?.emails || 0;
-            const planSmsLimit = subscription?.plan?.limits?.sms || 0;
-
-            // Increment Sender Usage
+            // Pré-carrega Usage e Assinatura para atualizar incrementalmente
             const currentMonthYear = new Date().toISOString().slice(0, 7);
             let usage = await this.userUsageRepository.findOne({
                 where: { userId: campaign.userId, monthYear: currentMonthYear }
@@ -176,35 +116,113 @@ export class CampaignSchedulerService {
                     userId: campaign.userId,
                     monthYear: currentMonthYear,
                 });
+                await this.userUsageRepository.save(usage);
             }
 
+            const subscription = await this.subscriptionRepository.findOne({
+                where: { userId: campaign.userId, status: 'active' },
+                relations: ['plan'],
+            });
+            const planEmailsLimit = subscription?.plan?.limits?.emails || 0;
+            const planSmsLimit = subscription?.plan?.limits?.sms || 0;
             const user = await this.userRepository.findOne({ where: { id: campaign.userId } });
 
-            if (campaign.channel === 'email') {
-                const currentUsage = Number(usage.emailsSent) || 0;
-                const newUsage = currentUsage + successCount;
-                if (newUsage > planEmailsLimit && user && user.extraEmailsBalance > 0) {
-                    const exceededAmount = newUsage - Math.max(currentUsage, planEmailsLimit);
-                    user.extraEmailsBalance = Math.max(0, user.extraEmailsBalance - exceededAmount);
-                    await this.userRepository.save(user);
+            // Processar em Lotes
+            for (let i = 0; i < targetContacts.length; i += BATCH_SIZE) {
+                const batch = targetContacts.slice(i, i + BATCH_SIZE);
+                let batchSuccessCount = 0;
+
+                const batchPromises = batch.map(async (contact) => {
+                    let sent = false;
+
+                    if (campaign.channel === 'whatsapp' || campaign.channel === 'sms') {
+                        if (!contact.phone) {
+                            this.logger.warn(`Contact ${contact.id} has no phone number. Skipping.`);
+                            return false;
+                        }
+
+                        const messageContent = campaign.config?.email?.content || 'Olá! Temos uma novidade para você.';
+
+                        if (campaign.channel === 'whatsapp') {
+                            sent = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, messageContent);
+                        } else if (campaign.channel === 'sms') {
+                            sent = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, messageContent);
+                        }
+                    } else if (campaign.channel === 'email') {
+                        if (!contact.email) {
+                            this.logger.warn(`Contact ${contact.id} has no email address. Skipping.`);
+                            return false;
+                        }
+
+                        const subject = campaign.config?.email?.subject || 'Nova Campanha';
+                        const content = campaign.config?.email?.content || '';
+
+                        try {
+                            await this.emailService.sendEmail({
+                                to: contact.email,
+                                subject: subject,
+                                html: content,
+                                text: content.replace(/<[^>]*>?/gm, '')
+                            });
+                            sent = true;
+                        } catch (e) {
+                            this.logger.error(`Failed to send email to ${contact.email}`, e);
+                            sent = false;
+                        }
+                    }
+
+                    return sent;
+                });
+
+                // Espera o lote terminar (seja sucesso ou erro isolado)
+                const results = await Promise.allSettled(batchPromises);
+
+                results.forEach((result) => {
+                    if (result.status === 'fulfilled' && result.value === true) {
+                        batchSuccessCount++;
+                    }
+                });
+
+                successCount += batchSuccessCount;
+
+                // Atualizar campanha incrementalmente
+                campaign.sentCount = (campaign.sentCount || 0) + batchSuccessCount;
+                campaign.recipientsCount = targetContacts.length;
+                await this.campaignsRepository.save(campaign);
+
+                // Atualizar Usage incrementalmente
+                if (batchSuccessCount > 0) {
+                    if (campaign.channel === 'email') {
+                        const currentUsage = Number(usage.emailsSent) || 0;
+                        const newUsage = currentUsage + batchSuccessCount;
+                        if (newUsage > planEmailsLimit && user && user.extraEmailsBalance > 0) {
+                            const exceededAmount = newUsage - Math.max(currentUsage, planEmailsLimit);
+                            user.extraEmailsBalance = Math.max(0, user.extraEmailsBalance - exceededAmount);
+                            await this.userRepository.save(user);
+                        }
+                        usage.emailsSent = newUsage;
+                    } else if (campaign.channel === 'sms') {
+                        const currentUsage = Number(usage.smsSent) || 0;
+                        const newUsage = currentUsage + batchSuccessCount;
+                        if (newUsage > planSmsLimit && user && user.extraSmsBalance > 0) {
+                            const exceededAmount = newUsage - Math.max(currentUsage, planSmsLimit);
+                            user.extraSmsBalance = Math.max(0, user.extraSmsBalance - exceededAmount);
+                            await this.userRepository.save(user);
+                        }
+                        usage.smsSent = newUsage;
+                    } else if (campaign.channel === 'whatsapp') {
+                        usage.whatsappSent = (Number(usage.whatsappSent) || 0) + batchSuccessCount;
+                    }
+                    await this.userUsageRepository.save(usage);
                 }
-                usage.emailsSent = newUsage;
-            } else if (campaign.channel === 'sms') {
-                const currentUsage = Number(usage.smsSent) || 0;
-                const newUsage = currentUsage + successCount;
-                if (newUsage > planSmsLimit && user && user.extraSmsBalance > 0) {
-                    const exceededAmount = newUsage - Math.max(currentUsage, planSmsLimit);
-                    user.extraSmsBalance = Math.max(0, user.extraSmsBalance - exceededAmount);
-                    await this.userRepository.save(user);
-                }
-                usage.smsSent = newUsage;
-            } else if (campaign.channel === 'whatsapp') {
-                usage.whatsappSent = (Number(usage.whatsappSent) || 0) + successCount;
+
+                this.logger.log(`Lote ${Math.floor(i / BATCH_SIZE) + 1} de campanhas finalizado: ${batchSuccessCount} enviados com sucesso.`);
             }
 
-            await this.userUsageRepository.save(usage);
+            campaign.status = 'finalizada'; // Mark as done when all batches are processed
+            await this.campaignsRepository.save(campaign);
 
-            this.logger.log(`Campaign [${campaign.id}] finished. Successfully sent: ${successCount}/${targetContacts.length}.`);
+            this.logger.log(`Campaign [${campaign.id}] finished overall. Successfully sent: ${successCount}/${targetContacts.length}.`);
 
         } catch (error: any) {
             this.logger.error(`Error processing campaign [ID: ${campaign.id}]: ${error.message}`);

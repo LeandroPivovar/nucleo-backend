@@ -254,32 +254,40 @@ export class PixelsService {
         const currentConversionRate = currentClicks > 0 ? ((currentLeads + currentPurchases) / currentClicks) * 100 : 0;
         const previousConversionRate = previousClicks > 0 ? ((previousLeads + previousPurchases) / previousClicks) * 100 : 0;
 
-        // Top Pages Query
-        const topPagesQuery = await this.eventsRepository
+        // Top Pages aggregation in memory to avoid ONLY_FULL_GROUP_BY issues
+        const allEvents = await this.eventsRepository
             .createQueryBuilder('event')
             .leftJoin('event.pixel', 'pixel')
-            .select("COALESCE(NULLIF(event.pageTitle, ''), 'Página sem título')", "name")
-            .addSelect("COUNT(CASE WHEN event.event = 'PageView' THEN 1 END)", "visits")
-            .addSelect("COUNT(CASE WHEN event.event IN ('Lead', 'Purchase') THEN 1 END)", "conversions")
+            .select(['event.id', 'event.event', 'event.pageTitle', 'event.timestamp'])
             .where('pixel.userId = :userId', { userId })
             .andWhere('event.timestamp >= :startDate', { startDate: startDate.getTime().toString() })
-            .groupBy("name")
-            .orderBy("conversions", "DESC")
-            .addOrderBy("visits", "DESC")
-            .limit(5)
-            .getRawMany();
+            .getMany();
 
-        const topPages = topPagesQuery.map(page => {
-            const visits = parseInt(page.visits);
-            const conversions = parseInt(page.conversions);
+        const pageStats = new Map<string, { name: string, visits: number, conversions: number }>();
 
-            return {
+        for (const event of allEvents) {
+            const name = event.pageTitle || 'Página sem título';
+            if (!pageStats.has(name)) {
+                pageStats.set(name, { name, visits: 0, conversions: 0 });
+            }
+            const stats = pageStats.get(name)!;
+
+            if (event.event === 'PageView') {
+                stats.visits++;
+            } else if (['Lead', 'Purchase'].includes(event.event)) {
+                stats.conversions++;
+            }
+        }
+
+        const topPages = [...pageStats.values()]
+            .sort((a, b) => b.conversions - a.conversions || b.visits - a.visits)
+            .slice(0, 5)
+            .map(page => ({
                 name: page.name,
-                visits,
-                conversions,
-                rate: visits > 0 ? parseFloat(((conversions / visits) * 100).toFixed(1)) : 0
-            };
-        });
+                visits: page.visits,
+                conversions: page.conversions,
+                rate: page.visits > 0 ? parseFloat(((page.conversions / page.visits) * 100).toFixed(1)) : 0
+            }));
 
         // Breakdown Queries
 

@@ -60,13 +60,11 @@ export class CampaignsService {
         usage.campaignsCreated = (Number(usage.campaignsCreated) || 0) + 1;
         await this.userUsageRepository.save(usage);
 
-        // Immediate send if status is 'ativa'
+        // Immediate send if status is 'ativa', running in background
         if (savedCampaign.status === 'ativa') {
-            try {
-                await this.campaignSchedulerService.processCampaign(savedCampaign);
-            } catch (err) {
+            this.campaignSchedulerService.processCampaign(savedCampaign).catch((err) => {
                 console.error(`Failed to immediately process campaign ${savedCampaign.id}:`, err);
-            }
+            });
         }
 
         return savedCampaign;
@@ -74,8 +72,19 @@ export class CampaignsService {
 
     async update(id: number, userId: number, campaignData: Partial<Campaign>): Promise<Campaign> {
         const campaign = await this.findOne(id, userId);
+        const previousStatus = campaign.status;
+
         Object.assign(campaign, campaignData);
-        return this.campaignsRepository.save(campaign);
+        const savedCampaign = await this.campaignsRepository.save(campaign);
+
+        // Se o status mudou para ativa através de uma atualização, dispara em background
+        if (previousStatus !== 'ativa' && savedCampaign.status === 'ativa') {
+            this.campaignSchedulerService.processCampaign(savedCampaign).catch((err) => {
+                console.error(`Failed to immediately process campaign ${savedCampaign.id} after update:`, err);
+            });
+        }
+
+        return savedCampaign;
     }
 
     async remove(id: number, userId: number): Promise<void> {

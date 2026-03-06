@@ -34,9 +34,17 @@ export class UsersService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    // Remover senha do retorno
-    const { password: _, ...userWithoutPassword } = user;
-    return userWithoutPassword as User;
+    // Retornar objeto plano
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+      twoFactorEnabled: user.twoFactorEnabled,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    } as User;
   }
 
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
@@ -64,9 +72,17 @@ export class UsersService {
 
     const updatedUser = await this.userRepository.save(user);
 
-    // Remover senha do retorno
-    const { password: _, ...userWithoutPassword } = updatedUser;
-    return userWithoutPassword as User;
+    // Retornar objeto plano
+    return {
+      id: updatedUser.id,
+      firstName: updatedUser.firstName,
+      lastName: updatedUser.lastName,
+      email: updatedUser.email,
+      phone: updatedUser.phone,
+      twoFactorEnabled: updatedUser.twoFactorEnabled,
+      createdAt: updatedUser.createdAt,
+      updatedAt: updatedUser.updatedAt,
+    } as User;
   }
 
   async changePassword(id: number, changePasswordDto: ChangePasswordDto): Promise<void> {

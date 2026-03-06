@@ -132,13 +132,21 @@ export class AuthService {
       throw new BadRequestException('Erro ao enviar e-mail de verificação. Tente novamente mais tarde.');
     }
 
-    // Remover senha do retorno
-    const { password: _, ...userWithoutPassword } = savedUser;
+    // Criar objeto do usuário para retorno (sem senha)
+    const userResponse = {
+      id: savedUser.id,
+      firstName: savedUser.firstName,
+      lastName: savedUser.lastName,
+      email: savedUser.email,
+      phone: savedUser.phone,
+      twoFactorEnabled: savedUser.twoFactorEnabled,
+      createdAt: savedUser.createdAt,
+      updatedAt: savedUser.updatedAt,
+    };
 
-    // NÃO gerar token JWT - usuário fará o login
     return {
       message: 'Conta criada com sucesso! Verifique seu e-mail para ativar a conta.',
-      user: userWithoutPassword,
+      user: userResponse,
     };
   }
 
@@ -165,9 +173,6 @@ export class AuthService {
     if (!user.active) {
       throw new UnauthorizedException('Conta não verificada. Verifique seu e-mail para ativar sua conta.');
     }
-
-    // Remover senha do retorno
-    const { password: _, ...userWithoutPassword } = user;
 
     // Verificar se 2FA está ativado
     if (user.twoFactorEnabled) {
@@ -196,7 +201,16 @@ export class AuthService {
     const token = this.jwtService.sign({ sub: user.id, email: user.email });
 
     return {
-      user: userWithoutPassword,
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone,
+        twoFactorEnabled: user.twoFactorEnabled,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
       token,
     };
   }
@@ -228,14 +242,20 @@ export class AuthService {
     user.twoFactorExpires = null;
     await this.userRepository.save(user);
 
-    // Remover senha do retorno
-    const { password: _, ...userWithoutPassword } = user;
-
     // Gerar token JWT
     const token = this.jwtService.sign({ sub: user.id, email: user.email });
 
     return {
-      user: userWithoutPassword,
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone,
+        twoFactorEnabled: user.twoFactorEnabled,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
       token,
     };
   }

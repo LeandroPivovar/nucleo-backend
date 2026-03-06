@@ -293,6 +293,7 @@ export class SubscriptionsService {
                             userId: user.id,
                             amount: payment?.value || 0,
                             status: 'paid',
+                            hostedInvoiceUrl: payment?.invoiceUrl,
                         });
                         await this.invoiceRepository.save(newInvoice);
 
@@ -321,6 +322,7 @@ export class SubscriptionsService {
                         userId: subscription.userId,
                         amount: payment?.value || asaasSubscription?.value || subscription.plan?.price || 0,
                         status: 'paid',
+                        hostedInvoiceUrl: payment?.invoiceUrl,
                     });
                     await this.invoiceRepository.save(newInvoice);
 

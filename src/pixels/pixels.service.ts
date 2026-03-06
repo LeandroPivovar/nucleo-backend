@@ -254,28 +254,59 @@ export class PixelsService {
         const currentConversionRate = currentClicks > 0 ? ((currentLeads + currentPurchases) / currentClicks) * 100 : 0;
         const previousConversionRate = previousClicks > 0 ? ((previousLeads + previousPurchases) / previousClicks) * 100 : 0;
 
-        // Top Pages aggregation in memory to avoid ONLY_FULL_GROUP_BY issues
+        // Aggregations in memory for reliability and flexibility
         const allEvents = await this.eventsRepository
             .createQueryBuilder('event')
             .leftJoin('event.pixel', 'pixel')
-            .select(['event.id', 'event.event', 'event.pageTitle', 'event.timestamp'])
+            .select(['event.id', 'event.event', 'event.pageTitle', 'event.timestamp', 'event.url', 'event.sessionId'])
             .where('pixel.userId = :userId', { userId })
             .andWhere('event.timestamp >= :startDate', { startDate: startDate.getTime().toString() })
             .getMany();
 
         const pageStats = new Map<string, { name: string, visits: number, conversions: number }>();
+        const utmSourceStats = new Map<string, { visits: number, conversions: number }>();
+        const sessionIds = new Set<string>();
+        const sessionsWithClicks = new Set<string>();
+        const sessionsWithLeads = new Set<string>();
+
+        const getUtmSource = (urlStr: string) => {
+            try {
+                if (!urlStr) return 'Direto / Orgânico';
+                const url = new URL(urlStr);
+                return url.searchParams.get('utm_source') || 'Direto / Orgânico';
+            } catch {
+                return 'Direto / Orgânico';
+            }
+        };
 
         for (const event of allEvents) {
-            const name = event.pageTitle || 'Página sem título';
-            if (!pageStats.has(name)) {
-                pageStats.set(name, { name, visits: 0, conversions: 0 });
+            // Sessions & Funnel
+            if (event.sessionId) {
+                sessionIds.add(event.sessionId);
+                if (event.event === 'PageView') sessionsWithClicks.add(event.sessionId);
+                if (['Lead', 'Purchase'].includes(event.event)) sessionsWithLeads.add(event.sessionId);
             }
-            const stats = pageStats.get(name)!;
+
+            // UTM Sources attribution
+            const source = getUtmSource(event.url);
+            if (!utmSourceStats.has(source)) {
+                utmSourceStats.set(source, { visits: 0, conversions: 0 });
+            }
+            const sStat = utmSourceStats.get(source)!;
+
+            // Top Pages
+            const pageName = event.pageTitle || 'Página sem título';
+            if (!pageStats.has(pageName)) {
+                pageStats.set(pageName, { name: pageName, visits: 0, conversions: 0 });
+            }
+            const pStats = pageStats.get(pageName)!;
 
             if (event.event === 'PageView') {
-                stats.visits++;
+                pStats.visits++;
+                sStat.visits++;
             } else if (['Lead', 'Purchase'].includes(event.event)) {
-                stats.conversions++;
+                pStats.conversions++;
+                sStat.conversions++;
             }
         }
 
@@ -288,6 +319,27 @@ export class PixelsService {
                 conversions: page.conversions,
                 rate: page.visits > 0 ? parseFloat(((page.conversions / page.visits) * 100).toFixed(1)) : 0
             }));
+
+        const funnelData = [
+            { name: 'Visitantes', value: sessionIds.size, color: 'bg-blue-500' },
+            { name: 'Cliques', value: sessionsWithClicks.size, color: 'bg-purple-500' },
+            { name: 'Conversões', value: sessionsWithLeads.size, color: 'bg-green-500' }
+        ];
+
+        const totalVisits = [...utmSourceStats.values()].reduce((a, b) => a + b.visits, 0);
+        const conversionSources = [...utmSourceStats.entries()]
+            .sort((a, b) => b[1].conversions - a[1].conversions || b[1].visits - a[1].visits)
+            .slice(0, 4)
+            .map(([source, stats], idx) => {
+                const colors = ['bg-blue-500', 'bg-red-500', 'bg-pink-500', 'bg-green-500'];
+                return {
+                    source,
+                    conversions: stats.conversions,
+                    visits: stats.visits,
+                    percentage: totalVisits > 0 ? parseFloat(((stats.visits / totalVisits) * 100).toFixed(1)) : 0,
+                    color: colors[idx] || 'bg-gray-500'
+                };
+            });
 
         // Breakdown Queries
 
@@ -323,8 +375,43 @@ export class PixelsService {
             .sort((a, b) => b.count - a.count)
             .slice(0, 5);
 
-        // 2. Completed Purchases
-        // 2. Metrics Logic (Purchases, Top Products, Top Customers)
+        // 2. Leads (for Top Forms)
+        const allLeadsEvents = await this.eventsRepository
+            .createQueryBuilder('event')
+            .leftJoin('event.pixel', 'pixel')
+            .select(['event.id', 'event.data', 'event.pageTitle', 'event.url'])
+            .where('pixel.userId = :userId', { userId })
+            .andWhere('event.event = :eventType', { eventType: 'Lead' })
+            .andWhere('event.timestamp >= :startDate', { startDate: startDate.getTime().toString() })
+            .getMany();
+
+        const formStats = new Map<string, { name: string, submissions: number, visits: number }>();
+        for (const event of allLeadsEvents) {
+            const data = event.data || {};
+            const formName = data.form_name || data.content_name || event.pageTitle || 'Formulário s/ Nome';
+            if (!formStats.has(formName)) {
+                formStats.set(formName, { name: formName, submissions: 0, visits: 0 });
+            }
+            formStats.get(formName)!.submissions++;
+        }
+
+        // Link leads to visits for efficiency (approximate via pageTitle)
+        for (const [name, stats] of formStats) {
+            const pStat = pageStats.get(name);
+            if (pStat) stats.visits = pStat.visits;
+        }
+
+        const topForms = [...formStats.values()]
+            .sort((a, b) => b.submissions - a.submissions)
+            .slice(0, 5)
+            .map(f => ({
+                name: f.name,
+                submissions: f.submissions,
+                rate: f.visits > 0 ? parseFloat(((f.submissions / f.visits) * 100).toFixed(1)) : 0,
+                efficiency: (f.submissions / (f.visits || 1)) > 0.3 ? 'Alta' : (f.submissions / (f.visits || 1)) > 0.1 ? 'Média' : 'Baixa'
+            }));
+
+        // 3. Completed Purchases & Payment Methods
         const allPurchases = await this.eventsRepository
             .createQueryBuilder('event')
             .leftJoin('event.pixel', 'pixel')
@@ -422,6 +509,31 @@ export class PixelsService {
             .sort((a, b) => b.total - a.total)
             .slice(0, 5);
 
+        const paymentMethodStats = new Map<string, { method: string, usage: number, total: number }>();
+        for (const event of allPurchases) {
+            const data = event.data || {};
+            const method = data.payment_method || data.method || 'Outro';
+            if (!paymentMethodStats.has(method)) {
+                paymentMethodStats.set(method, { method, usage: 0, total: 0 });
+            }
+            const ps = paymentMethodStats.get(method)!;
+            ps.usage++;
+            ps.total += parseFloat(data.value || 0);
+        }
+
+        const paymentMethods = [...paymentMethodStats.values()]
+            .sort((a, b) => b.usage - a.usage)
+            .map((pm, idx) => {
+                const colors = ['bg-teal-500', 'bg-purple-500', 'bg-orange-500', 'bg-blue-500'];
+                return {
+                    method: pm.method,
+                    usage: pm.usage,
+                    percentage: totalPurchasesCount > 0 ? parseFloat(((pm.usage / totalPurchasesCount) * 100).toFixed(1)) : 0,
+                    color: colors[idx] || 'bg-gray-500',
+                    avgTime: 'N/A' // Not tracked yet
+                };
+            });
+
         // Formatting Helpers
         const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
@@ -482,6 +594,10 @@ export class PixelsService {
                 change: calculateChange(currentConversionRate, previousConversionRate),
             },
             topPages,
+            funnelData,
+            conversionSources,
+            paymentMethods,
+            topForms,
             clicksBreakdown
         };
     }

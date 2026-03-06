@@ -246,13 +246,15 @@ export class EmailService {
 
     await this.sendEmail({
       to,
-      subject: 'Código de Recuperação de Senha - ULTRA Academy',
+      subject: 'Código de Recuperação de Senha',
       html,
     });
   }
 
   async sendEmailVerificationEmail(to: string, token: string, name?: string): Promise<void> {
-    const verificationUrl = `${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:8080'}/auth/verify-email?token=${token}`;
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://nucleo.com.br';
+    const baseUrl = frontendUrl.includes('localhost') ? frontendUrl : 'https://nucleo.com.br';
+    const verificationUrl = `${baseUrl}/auth/verify-email?token=${token}`;
 
     const html = `
       <!DOCTYPE html>
@@ -262,11 +264,12 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-            .button { display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
-            .warning { color: #d32f2f; font-size: 12px; margin-top: 20px; }
-            .info { color: #666; font-size: 14px; margin-top: 10px; }
+            .header { text-align: center; margin-bottom: 20px; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 10px; }
+            .button { display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; text-align: center; font-weight: bold; }
+            .warning { color: #666; font-size: 14px; margin-top: 20px; }
+            .info { color: #666; font-size: 14px; margin-top: 30px; }
+            .link-box { background: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px; word-break: break-all; color: #667eea; font-size: 12px; margin-top: 10px; }
           </style>
         </head>
         <body>
@@ -275,16 +278,19 @@ export class EmailService {
               <h1>Verifique seu E-mail</h1>
             </div>
             <div class="content">
-              <p>Olá${name ? `, ${name}` : ''}!</p>
-              <p>Obrigado por se cadastrar no Núcleo CRM!</p>
-              <p>Para ativar sua conta, clique no botão abaixo:</p>
+              <p>Olá${name ? `, ${name}` : ''} 👋</p>
+              <p>Obrigado por se cadastrar na Núcleo CRM. Para ativar sua conta e começar a usar a plataforma, confirme seu e-mail clicando no botão abaixo:</p>
+              
               <div style="text-align: center;">
-                <a href="${verificationUrl}" class="button">Verificar E-mail e Ativar Conta</a>
+                <a href="${verificationUrl}" class="button">Verificar e ativar minha conta</a>
               </div>
-              <p class="info">Ou copie e cole este link no seu navegador:</p>
-              <p style="word-break: break-all; color: #667eea; font-size: 12px;">${verificationUrl}</p>
-              <p class="warning">Este link expira em 24 horas.</p>
-              <p class="warning">Se você não criou esta conta, ignore este e-mail.</p>
+              
+              <p class="warning">Este link expira em 24 horas. Se você não solicitou este cadastro, basta ignorar este e-mail.</p>
+              
+              <p class="info">Caso o botão não funcione, copie e cole o link abaixo no seu navegador:</p>
+              <div class="link-box">
+                ${verificationUrl}
+              </div>
             </div>
           </div>
         </body>
@@ -293,7 +299,7 @@ export class EmailService {
 
     await this.sendEmail({
       to,
-      subject: 'Verifique seu e-mail - ULTRA Academy',
+      subject: 'Verifique seu e-mail e ative sua conta - Núcleo CRM',
       html,
     });
   }

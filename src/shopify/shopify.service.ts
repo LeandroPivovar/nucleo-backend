@@ -8,6 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { ShopifyConnection } from '../entities/shopify-connection.entity';
+import { Contact } from '../entities/contact.entity';
+import { Sale } from '../entities/sale.entity';
+import { Product } from '../entities/product.entity';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -20,6 +23,12 @@ export class ShopifyService {
   constructor(
     @InjectRepository(ShopifyConnection)
     private shopifyConnectionRepository: Repository<ShopifyConnection>,
+    @InjectRepository(Contact)
+    private contactRepository: Repository<Contact>,
+    @InjectRepository(Sale)
+    private saleRepository: Repository<Sale>,
+    @InjectRepository(Product)
+    private productRepository: Repository<Product>,
     private configService: ConfigService,
   ) {
     this.clientId = this.configService.get<string>('SHOPIFY_CLIENT_ID') || '';
@@ -430,6 +439,195 @@ export class ShopifyService {
     const connection = await this.getActiveConnection(userId, shop);
     connection.isActive = false;
     await this.shopifyConnectionRepository.save(connection);
+  }
+
+  /**
+   * Busca clientes da loja Shopify
+   */
+  async getCustomers(
+    userId: number,
+    shop: string,
+    params?: { limit?: number; page_info?: string },
+  ): Promise<any[]> {
+    const accessToken = await this.getAccessToken(userId, shop);
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.page_info) queryParams.append('page_info', params.page_info);
+
+    const url = `https://${shop}/admin/api/${this.apiVersion}/customers.json${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+    const response = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+    });
+
+    if (!response.ok) throw new BadRequestException('Falha ao buscar clientes da Shopify');
+    const data = await response.json();
+    return data.customers || [];
+  }
+
+  /**
+   * Busca pedidos da loja Shopify
+   */
+  async getOrders(
+    userId: number,
+    shop: string,
+    params?: { limit?: number; status?: string; page_info?: string },
+  ): Promise<any[]> {
+    const accessToken = await this.getAccessToken(userId, shop);
+    const queryParams = new URLSearchParams();
+    queryParams.append('status', params?.status || 'any');
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.page_info) queryParams.append('page_info', params.page_info);
+
+    const url = `https://${shop}/admin/api/${this.apiVersion}/orders.json?${queryParams.toString()}`;
+    const response = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+    });
+
+    if (!response.ok) throw new BadRequestException('Falha ao buscar pedidos da Shopify');
+    const data = await response.json();
+    return data.orders || [];
+  }
+
+  /**
+   * Sincroniza clientes da Shopify para o CRM
+   */
+  async syncCustomers(userId: number, shop: string): Promise<{ imported: number; updated: number }> {
+    const shopifyCustomers = await this.getCustomers(userId, shop, { limit: 250 });
+    let imported = 0;
+    let updated = 0;
+
+    for (const sCustomer of shopifyCustomers) {
+      if (!sCustomer.email) continue;
+
+      let contact = await this.contactRepository.findOne({
+        where: { userId, email: sCustomer.email },
+      });
+
+      if (contact) {
+        contact.name = contact.name || sCustomer.first_name || 'Sem Nome';
+        contact.lastName = contact.lastName || sCustomer.last_name || '';
+        contact.phone = contact.phone || sCustomer.phone || '';
+        contact.city = contact.city || sCustomer.default_address?.city || '';
+        contact.state = contact.state || sCustomer.default_address?.province_code || '';
+        await this.contactRepository.save(contact);
+        updated++;
+      } else {
+        contact = this.contactRepository.create({
+          userId,
+          email: sCustomer.email,
+          name: sCustomer.first_name || 'Sem Nome',
+          lastName: sCustomer.last_name || '',
+          phone: sCustomer.phone || '',
+          city: sCustomer.default_address?.city || '',
+          state: sCustomer.default_address?.province_code || '',
+          source: 'shopify',
+          status: 'customer',
+        });
+        await this.contactRepository.save(contact);
+        imported++;
+      }
+    }
+
+    const connection = await this.getActiveConnection(userId, shop);
+    connection.lastSyncAt = new Date();
+    await this.shopifyConnectionRepository.save(connection);
+
+    return { imported, updated };
+  }
+
+  /**
+   * Sincroniza pedidos da Shopify para o CRM como Vendas
+   */
+  async syncOrders(userId: number, shop: string): Promise<{ imported: number; updated: number }> {
+    const shopifyOrders = await this.getOrders(userId, shop, { limit: 250, status: 'any' });
+    let imported = 0;
+    let updated = 0;
+
+    for (const sOrder of shopifyOrders) {
+      // Verificar se a venda já foi importada (usando ID da Shopify no canal ou metadata)
+      // Como não temos um externalId na Sale, vamos usar canal e data como proxy ou precisaríamos de um campo.
+      // Vou assumir que por enquanto buscamos por email e data aproximada ou simplesmente inserimos se não houver duplicata óbvia.
+      // Idealmente a Sale deveria ter um externalId.
+
+      const customerEmail = sOrder.email || sOrder.customer?.email;
+      if (!customerEmail) continue;
+
+      // Buscar ou criar contato
+      let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+      if (!contact && sOrder.customer) {
+        contact = this.contactRepository.create({
+          userId,
+          email: customerEmail,
+          name: sOrder.customer.first_name || 'Sem Nome',
+          lastName: sOrder.customer.last_name || '',
+          source: 'shopify',
+          status: 'customer',
+        });
+        await this.contactRepository.save(contact);
+      }
+
+      // Processar itens do pedido
+      for (const item of sOrder.line_items) {
+        // Tentar encontrar produto pelo SKU ou Nome
+        let product = await this.productRepository.findOne({
+          where: [
+            { userId, sku: item.sku },
+            { userId, name: item.name }
+          ]
+        });
+
+        if (!product) {
+          // Criar produto básico se não existir
+          product = this.productRepository.create({
+            userId,
+            name: item.name || item.title,
+            sku: item.sku || '',
+            price: parseFloat(item.price),
+            stock: 0,
+            active: true,
+          });
+          await this.productRepository.save(product);
+        }
+
+        // Criar a venda
+        // Evitar duplicidade básica: mesma data, mesmo produto, mesmo cliente
+        const createdAt = new Date(sOrder.created_at);
+        const existingSale = await this.saleRepository.findOne({
+          where: {
+            userId,
+            productId: product.id,
+            contactId: contact?.id,
+            createdAt: createdAt,
+          }
+        });
+
+        if (!existingSale) {
+          const sale = this.saleRepository.create({
+            userId,
+            productId: product.id,
+            contactId: contact?.id,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.price),
+            totalValue: parseFloat(item.price) * item.quantity,
+            customerName: contact ? `${contact.name} ${contact.lastName}` : sOrder.customer?.first_name,
+            customerEmail: customerEmail,
+            channel: 'shopify',
+            status: sOrder.financial_status === 'paid' ? 'completed' : 'processing',
+            createdAt: createdAt,
+          });
+          await this.saleRepository.save(sale);
+          imported++;
+        } else {
+          updated++;
+        }
+      }
+    }
+
+    const connection = await this.getActiveConnection(userId, shop);
+    connection.lastSyncAt = new Date();
+    await this.shopifyConnectionRepository.save(connection);
+
+    return { imported, updated };
   }
 }
 

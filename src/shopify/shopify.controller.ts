@@ -21,7 +21,7 @@ import * as crypto from 'crypto';
 
 @Controller('shopify')
 export class ShopifyController {
-  constructor(private readonly shopifyService: ShopifyService) {}
+  constructor(private readonly shopifyService: ShopifyService) { }
 
   /**
    * Inicia o fluxo OAuth - retorna a URL de autorização
@@ -283,6 +283,34 @@ export class ShopifyController {
     return {
       success: true,
       message: 'Conexão desativada com sucesso',
+    };
+  }
+
+  /**
+   * Sincroniza clientes da Shopify
+   */
+  @Post('sync/customers')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncCustomers(@Request() req, @Body() body: { shop: string }) {
+    const result = await this.shopifyService.syncCustomers(req.user.userId, body.shop);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  /**
+   * Sincroniza pedidos da Shopify
+   */
+  @Post('sync/orders')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncOrders(@Request() req, @Body() body: { shop: string }) {
+    const result = await this.shopifyService.syncOrders(req.user.userId, body.shop);
+    return {
+      success: true,
+      ...result,
     };
   }
 }

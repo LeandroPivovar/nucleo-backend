@@ -22,6 +22,8 @@ import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Verify2faDto } from './dto/verify-2fa.dto';
 import { EmailHelper } from '../email/email.helper';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../entities/notification.entity';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -39,6 +41,7 @@ export class AuthService {
     private loginAttemptRepository: Repository<LoginAttempt>,
     private jwtService: JwtService,
     private emailHelper: EmailHelper,
+    private notificationsService: NotificationsService,
   ) { }
 
   /**
@@ -179,12 +182,14 @@ export class AuthService {
 
       if (!isPasswordValid) {
         await this.recordAttempt(user.id, email, ip || 'unknown', geo, false);
+        await this.notifyFailedLogin(user, ip || 'unknown', geo);
         throw new UnauthorizedException('Credenciais inválidas');
       }
 
       // Verificar se a conta está ativa
       if (!user.active) {
         await this.recordAttempt(user.id, email, ip || 'unknown', geo, false);
+        await this.notifyFailedLogin(user, ip || 'unknown', geo, 'Conta inativa');
         throw new UnauthorizedException('Conta não verificada. Verifique seu e-mail para ativar sua conta.');
       }
 
@@ -264,11 +269,13 @@ export class AuthService {
 
     if (!user.twoFactorCode || user.twoFactorCode !== code) {
       await this.recordAttempt(user.id, email, ip || 'unknown', geo, false, true);
+      await this.notifyFailedLogin(user, ip || 'unknown', geo, 'Código 2FA inválido');
       throw new UnauthorizedException('Código de segurança inválido');
     }
 
     if (!user.twoFactorExpires || new Date() > user.twoFactorExpires) {
       await this.recordAttempt(user.id, email, ip || 'unknown', geo, false, true);
+      await this.notifyFailedLogin(user, ip || 'unknown', geo, 'Código 2FA expirado');
       throw new UnauthorizedException('Código de segurança expirado');
     }
 
@@ -607,6 +614,27 @@ export class AuthService {
       console.error('Erro ao obter localização do IP:', error);
     }
     return { city: null, country: null };
+  }
+
+  private async notifyFailedLogin(user: User, ip: string, geo: { city: string | null; country: string | null }, reason?: string) {
+    try {
+      const location = (geo.city && geo.country) ? `${geo.city}, ${geo.country}` : (ip === '::1' || ip === '127.0.0.1') ? 'Localhost' : 'Localização desconhecida';
+      const time = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+      await this.notificationsService.create({
+        userId: user.id,
+        title: '⚠️ Tentativa de Login Negada',
+        message: `Uma tentativa de login em sua conta foi bloqueada.\n\n` +
+          `📍 Localização: ${location}\n` +
+          `🌐 IP: ${ip}\n` +
+          `⏰ Horário: ${time}\n` +
+          (reason ? `❌ Motivo: ${reason}\n` : '') +
+          `\nSe não foi você, recomendamos alterar sua senha imediatamente.`,
+        type: NotificationType.SECURITY,
+      });
+    } catch (error) {
+      console.error('Erro ao enviar notificação de falha de login:', error);
+    }
   }
 }
 

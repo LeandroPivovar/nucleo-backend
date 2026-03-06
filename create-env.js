@@ -11,14 +11,14 @@ DB_DATABASE=nucleo_crm
 # JWT
 JWT_SECRET=your-secret-key-change-in-production
 
-# SMTP Configuration - ULTRA Academy
+# SMTP Configuration
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_SECURE=tls
 SMTP_USERNAME=suporte.ultra.academy@gmail.com
 SMTP_PASSWORD=zgri migf nurw hmqy
 SMTP_FROM_EMAIL=suporte.ultra.academy@gmail.com
-SMTP_FROM_NAME=ULTRA Academy
+SMTP_FROM_NAME=
 
 # Frontend URL
 FRONTEND_URL=http://localhost:8080

@@ -57,12 +57,15 @@ export class ContactsController {
     }
 
     // Parse CSV
-    const csvContent = file.buffer.toString('utf-8');
+    const csvContent = file.buffer.toString('utf-8').replace(/^\uFEFF/, '');
     const lines = csvContent.split('\n').filter(line => line.trim());
 
     if (lines.length < 2) {
       throw new BadRequestException('CSV deve conter pelo menos uma linha de cabeçalho e uma linha de dados');
     }
+
+    // Auto-detect delimiter based on first line
+    const delimiter = lines[0].indexOf(';') !== -1 ? ';' : ',';
 
     // Função auxiliar para parsear linha CSV
     const parseCSVLine = (line: string): string[] => {
@@ -73,14 +76,14 @@ export class ContactsController {
       for (let j = 0; j < line.length; j++) {
         const char = line[j];
         if (char === '"') {
-          if (insideQuotes && line[j + 1] === '"') {
+          if (insideQuotes && j + 1 < line.length && line[j + 1] === '"') {
             // Escaped quote
             currentValue += '"';
             j++;
           } else {
             insideQuotes = !insideQuotes;
           }
-        } else if (char === ',' && !insideQuotes) {
+        } else if (char === delimiter && !insideQuotes) {
           values.push(currentValue.trim());
           currentValue = '';
         } else {

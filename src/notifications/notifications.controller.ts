@@ -2,6 +2,7 @@ import {
     Controller,
     Get,
     Post,
+    Delete,
     Param,
     UseGuards,
     Request,
@@ -31,5 +32,13 @@ export class NotificationsController {
         @Param('id', ParseIntPipe) id: number,
     ) {
         return this.notificationsService.markAsRead(req.user.userId, id);
+    }
+
+    @Delete(':id')
+    async delete(
+        @Request() req,
+        @Param('id', ParseIntPipe) id: number,
+    ) {
+        return this.notificationsService.markAsDeleted(req.user.userId, id);
     }
 }

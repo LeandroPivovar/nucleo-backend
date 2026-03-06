@@ -20,6 +20,9 @@ export class UserNotification {
     @Column({ type: 'timestamp', nullable: true })
     readAt: Date | null;
 
+    @Column({ type: 'timestamp', nullable: true, default: null })
+    deletedAt: Date | null;
+
     @ManyToOne(() => User, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'userId' })
     user: User;

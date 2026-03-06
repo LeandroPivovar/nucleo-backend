@@ -24,7 +24,7 @@ export class NotificationsService {
             take: 50,
         });
 
-        // Buscar status de leitura para o usuário
+        // Buscar status de leitura e deleção para o usuário
         const readStatuses = await this.userNotificationRepository.find({
             where: {
                 userId,
@@ -32,14 +32,16 @@ export class NotificationsService {
             },
         });
 
-        const readMap = new Map();
-        readStatuses.forEach(rs => readMap.set(rs.notificationId, rs.readAt));
+        const statusMap = new Map();
+        readStatuses.forEach(rs => statusMap.set(rs.notificationId, { readAt: rs.readAt, deletedAt: rs.deletedAt }));
 
-        return notifications.map(n => ({
-            ...n,
-            read: !!readMap.get(n.id),
-            readAt: readMap.get(n.id) || null,
-        }));
+        return notifications
+            .filter(n => !statusMap.get(n.id)?.deletedAt)
+            .map(n => ({
+                ...n,
+                read: !!statusMap.get(n.id)?.readAt,
+                readAt: statusMap.get(n.id)?.readAt || null,
+            }));
     }
 
     async markAsRead(userId: number, notificationId: number) {
@@ -55,6 +57,24 @@ export class NotificationsService {
             });
         } else {
             userNotification.readAt = new Date();
+        }
+
+        return this.userNotificationRepository.save(userNotification);
+    }
+
+    async markAsDeleted(userId: number, notificationId: number) {
+        let userNotification = await this.userNotificationRepository.findOne({
+            where: { userId, notificationId },
+        });
+
+        if (!userNotification) {
+            userNotification = this.userNotificationRepository.create({
+                userId,
+                notificationId,
+                deletedAt: new Date(),
+            });
+        } else {
+            userNotification.deletedAt = new Date();
         }
 
         return this.userNotificationRepository.save(userNotification);

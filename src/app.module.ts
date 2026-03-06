@@ -21,6 +21,7 @@ import { CampaignsModule } from './campaigns/campaigns.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { PixelsModule } from './pixels/pixels.module';
 import { ReferralsModule } from './referrals/referrals.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { EmailConnection } from './entities/email-connection.entity';
 import { ShopifyConnection } from './entities/shopify-connection.entity';
 import { NuvemshopConnection } from './entities/nuvemshop-connection.entity';
@@ -43,6 +44,8 @@ import { Subscription } from './entities/subscription.entity';
 import { Invoice } from './entities/invoice.entity';
 import { Pixel } from './entities/pixel.entity';
 import { PixelEvent } from './entities/pixel-event.entity';
+import { Notification } from './entities/notification.entity';
+import { UserNotification } from './entities/user-notification.entity';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ZenviaModule } from './zenvia/zenvia.module';
 import { UserUsage } from './entities/user-usage.entity';
@@ -92,7 +95,8 @@ import { SystemSettingsModule } from './system-settings/system-settings.module';
     ZenviaModule,
     ReferralsModule,
     WebhooksModule,
-    SystemSettingsModule
+    SystemSettingsModule,
+    NotificationsModule
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -284,29 +284,36 @@ export class PixelsService {
         // Breakdown Queries
 
         // 1. Abandoned Carts (Proxy: InitiateCheckout)
-        const abandonedCartsQuery = await this.eventsRepository
+        const allAbandonedCarts = await this.eventsRepository
             .createQueryBuilder('event')
             .leftJoin('event.pixel', 'pixel')
-            .select("COUNT(*)", "total")
-            .addSelect("SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(event.data, '$.value')) AS DECIMAL(10,2)))", "totalValue")
+            .select(['event.id', 'event.data'])
             .where('pixel.userId = :userId', { userId })
             .andWhere('event.event = :eventType', { eventType: 'InitiateCheckout' })
             .andWhere('event.timestamp >= :startDate', { startDate: startDate.getTime().toString() })
-            .getRawOne();
+            .getMany();
 
-        const abandonedItemsQuery = await this.eventsRepository
-            .createQueryBuilder('event')
-            .leftJoin('event.pixel', 'pixel')
-            .select("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(event.data, '$.content_name')), 'Produto Desconhecido')", "product")
-            .addSelect("COUNT(*)", "count")
-            .addSelect("SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(event.data, '$.value')) AS DECIMAL(10,2)))", "value")
-            .where('pixel.userId = :userId', { userId })
-            .andWhere('event.event = :eventType', { eventType: 'InitiateCheckout' })
-            .andWhere('event.timestamp >= :startDate', { startDate: startDate.getTime().toString() })
-            .groupBy("product")
-            .orderBy("count", "DESC")
-            .limit(5)
-            .getRawMany();
+        let abandonedTotalCount = allAbandonedCarts.length;
+        let abandonedTotalValue = 0;
+        const abandonedProductStats = new Map<string, { product: string, count: number, value: number }>();
+
+        for (const event of allAbandonedCarts) {
+            const data = event.data || {};
+            const val = parseFloat(data.value || 0);
+            abandonedTotalValue += val;
+
+            const productName = data.content_name || 'Produto Desconhecido';
+            if (!abandonedProductStats.has(productName)) {
+                abandonedProductStats.set(productName, { product: productName, count: 0, value: 0 });
+            }
+            const stats = abandonedProductStats.get(productName)!;
+            stats.count++;
+            stats.value += val;
+        }
+
+        const topAbandonedItems = [...abandonedProductStats.values()]
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
 
         // 2. Completed Purchases
         // 2. Metrics Logic (Purchases, Top Products, Top Customers)
@@ -412,12 +419,12 @@ export class PixelsService {
 
         const clicksBreakdown = {
             abandonedCarts: {
-                total: parseInt(abandonedCartsQuery.total || '0'),
-                value: formatCurrency(parseFloat(abandonedCartsQuery.totalValue || '0')),
-                items: abandonedItemsQuery.map(item => ({
+                total: abandonedTotalCount,
+                value: formatCurrency(abandonedTotalValue),
+                items: topAbandonedItems.map(item => ({
                     product: item.product,
-                    count: parseInt(item.count),
-                    value: formatCurrency(parseFloat(item.value || '0'))
+                    count: item.count,
+                    value: formatCurrency(item.value)
                 }))
             },
             completedPurchases: {

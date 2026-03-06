@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, In } from 'typeorm';
 import { Notification } from '../entities/notification.entity';
 import { UserNotification } from '../entities/user-notification.entity';
+import { NotificationPreference } from '../entities/notification-preference.entity';
 
 @Injectable()
 export class NotificationsService {
@@ -11,18 +12,29 @@ export class NotificationsService {
         private notificationRepository: Repository<Notification>,
         @InjectRepository(UserNotification)
         private userNotificationRepository: Repository<UserNotification>,
+        @InjectRepository(NotificationPreference)
+        private preferenceRepository: Repository<NotificationPreference>,
     ) { }
 
     async findAllForUser(userId: number) {
-        // Buscar todas as notificações globais ou específicas para o usuário
-        const notifications = await this.notificationRepository.find({
-            where: [
-                { userId: IsNull() },
-                { userId: userId },
-            ],
-            order: { createdAt: 'DESC' },
-            take: 50,
+        // Obter preferências desativadas
+        const disabledPreferences = await this.preferenceRepository.find({
+            where: { userId, enabled: false },
         });
+        const disabledTypes = disabledPreferences.map(p => p.type);
+
+        // Buscar todas as notificações globais ou específicas para o usuário
+        const query = this.notificationRepository.createQueryBuilder('n')
+            .where('(n.userId IS NULL OR n.userId = :userId)', { userId });
+
+        if (disabledTypes.length > 0) {
+            query.andWhere('n.type NOT IN (:...disabledTypes)', { disabledTypes });
+        }
+
+        const notifications = await query
+            .orderBy('n.createdAt', 'DESC')
+            .take(50)
+            .getMany();
 
         // Buscar status de leitura e deleção para o usuário
         const readStatuses = await this.userNotificationRepository.find({
@@ -81,14 +93,22 @@ export class NotificationsService {
     }
 
     async getUnreadCount(userId: number) {
-        // Buscar todas as notificações elegíveis (globais ou do usuário)
-        const notifications = await this.notificationRepository.find({
-            where: [
-                { userId: IsNull() },
-                { userId: userId },
-            ],
-            select: ['id'],
+        // Obter preferências desativadas
+        const disabledPreferences = await this.preferenceRepository.find({
+            where: { userId, enabled: false },
         });
+        const disabledTypes = disabledPreferences.map(p => p.type);
+
+        // Buscar todas as notificações elegíveis (globais ou do usuário)
+        const query = this.notificationRepository.createQueryBuilder('n')
+            .select('n.id')
+            .where('(n.userId IS NULL OR n.userId = :userId)', { userId });
+
+        if (disabledTypes.length > 0) {
+            query.andWhere('n.type NOT IN (:...disabledTypes)', { disabledTypes });
+        }
+
+        const notifications = await query.getMany();
 
         if (notifications.length === 0) return { count: 0 };
 
@@ -102,6 +122,34 @@ export class NotificationsService {
             .getCount();
 
         return { count: Math.max(0, notifications.length - readOrDeletedCount) };
+    }
+
+    async getPreferences(userId: number) {
+        const preferences = await this.preferenceRepository.find({
+            where: { userId },
+        });
+        return preferences;
+    }
+
+    async updatePreferences(userId: number, preferences: { type: any, enabled: boolean }[]) {
+        for (const pref of preferences) {
+            let p = await this.preferenceRepository.findOne({
+                where: { userId, type: pref.type },
+            });
+
+            if (!p) {
+                p = this.preferenceRepository.create({
+                    userId,
+                    type: pref.type,
+                    enabled: pref.enabled,
+                });
+            } else {
+                p.enabled = pref.enabled;
+            }
+
+            await this.preferenceRepository.save(p);
+        }
+        return { success: true };
     }
 
     // Admin methods

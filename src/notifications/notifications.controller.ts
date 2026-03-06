@@ -6,6 +6,7 @@ import {
     Param,
     UseGuards,
     Request,
+    Body,
     ParseIntPipe,
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
@@ -40,5 +41,15 @@ export class NotificationsController {
         @Param('id', ParseIntPipe) id: number,
     ) {
         return this.notificationsService.markAsDeleted(req.user.userId, id);
+    }
+
+    @Get('preferences')
+    async getPreferences(@Request() req) {
+        return this.notificationsService.getPreferences(req.user.userId);
+    }
+
+    @Post('preferences')
+    async updatePreferences(@Request() req, @Body() body: { type: any, enabled: boolean }[]) {
+        return this.notificationsService.updatePreferences(req.user.userId, body);
     }
 }

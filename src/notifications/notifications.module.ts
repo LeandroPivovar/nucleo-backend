@@ -5,9 +5,10 @@ import { NotificationsController } from './notifications.controller';
 import { AdminNotificationsController } from './admin-notifications.controller';
 import { Notification } from '../entities/notification.entity';
 import { UserNotification } from '../entities/user-notification.entity';
+import { NotificationPreference } from '../entities/notification-preference.entity';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Notification, UserNotification])],
+    imports: [TypeOrmModule.forFeature([Notification, UserNotification, NotificationPreference])],
     controllers: [NotificationsController, AdminNotificationsController],
     providers: [NotificationsService],
     exports: [NotificationsService],

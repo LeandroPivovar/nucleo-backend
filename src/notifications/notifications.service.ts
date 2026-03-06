@@ -81,33 +81,27 @@ export class NotificationsService {
     }
 
     async getUnreadCount(userId: number) {
-        // Esta é uma query um pouco mais complexa pois precisamos contar notificações
-        // globais/pessoais que NÃO possuem entrada em user_notifications com readAt preenchido
-
-        // Simplificando por enquanto: contar total de notificações elegíveis - total de lidas
-        const totalEligible = await this.notificationRepository.count({
+        // Buscar todas as notificações elegíveis (globais ou do usuário)
+        const notifications = await this.notificationRepository.find({
             where: [
                 { userId: IsNull() },
                 { userId: userId },
             ],
+            select: ['id'],
         });
 
-        const totalRead = await this.userNotificationRepository.count({
-            where: {
-                userId,
-                readAt: In(
-                    (await this.notificationRepository.find({
-                        where: [
-                            { userId: IsNull() },
-                            { userId: userId },
-                        ],
-                        select: ['id'],
-                    })).map(n => n.id)
-                ),
-            },
-        });
+        if (notifications.length === 0) return { count: 0 };
 
-        return { count: Math.max(0, totalEligible - totalRead) };
+        const notificationIds = notifications.map(n => n.id);
+
+        // Buscar status que mostram que a notificação foi lida OU excluída
+        const readOrDeletedCount = await this.userNotificationRepository.createQueryBuilder('un')
+            .where('un.userId = :userId', { userId })
+            .andWhere('un.notificationId IN (:...ids)', { ids: notificationIds })
+            .andWhere('(un.readAt IS NOT NULL OR un.deletedAt IS NOT NULL)')
+            .getCount();
+
+        return { count: Math.max(0, notifications.length - readOrDeletedCount) };
     }
 
     // Admin methods

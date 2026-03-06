@@ -10,11 +10,12 @@ import { User } from '../entities/user.entity';
 import { PasswordReset } from '../entities/password-reset.entity';
 import { EmailVerification } from '../entities/email-verification.entity';
 import { Referral } from '../entities/referral.entity';
+import { LoginAttempt } from '../entities/login-attempt.entity';
 import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, PasswordReset, EmailVerification, Referral]),
+    TypeOrmModule.forFeature([User, PasswordReset, EmailVerification, Referral, LoginAttempt]),
     PassportModule,
     EmailModule,
     JwtModule.registerAsync({

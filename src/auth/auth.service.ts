@@ -13,7 +13,9 @@ import { User } from '../entities/user.entity';
 import { PasswordReset } from '../entities/password-reset.entity';
 import { EmailVerification } from '../entities/email-verification.entity';
 import { Referral } from '../entities/referral.entity';
+import { LoginAttempt } from '../entities/login-attempt.entity';
 import { RegisterDto } from './dto/register.dto';
+import axios from 'axios';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
@@ -33,6 +35,8 @@ export class AuthService {
     private emailVerificationRepository: Repository<EmailVerification>,
     @InjectRepository(Referral)
     private referralRepository: Repository<Referral>,
+    @InjectRepository(LoginAttempt)
+    private loginAttemptRepository: Repository<LoginAttempt>,
     private jwtService: JwtService,
     private emailHelper: EmailHelper,
   ) { }
@@ -150,90 +154,121 @@ export class AuthService {
     };
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, ip?: string) {
     const { email, password } = loginDto;
+    let user: User | null = null;
+    let geo: { city: string | null; country: string | null } = { city: null, country: null };
 
-    // Buscar usuário
-    const user = await this.userRepository.findOne({
-      where: { email },
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('Credenciais inválidas');
+    if (ip) {
+      geo = await this.getLocationFromIp(ip);
     }
 
-    // Verificar senha
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    try {
+      // Buscar usuário
+      user = await this.userRepository.findOne({
+        where: { email },
+      });
 
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
+      if (!user) {
+        await this.recordAttempt(null, email, ip || 'unknown', geo, false);
+        throw new UnauthorizedException('Credenciais inválidas');
+      }
 
-    // Verificar se a conta está ativa
-    if (!user.active) {
-      throw new UnauthorizedException('Conta não verificada. Verifique seu e-mail para ativar sua conta.');
-    }
+      // Verificar senha
+      const isPasswordValid = await bcrypt.compare(password, user.password);
 
-    // Verificar se 2FA está ativado
-    if (user.twoFactorEnabled) {
-      const code = this.generate2faCode();
-      const expiresAt = new Date();
-      expiresAt.setMinutes(expiresAt.getMinutes() + 10); // Expira em 10 minutos
+      if (!isPasswordValid) {
+        await this.recordAttempt(user.id, email, ip || 'unknown', geo, false);
+        throw new UnauthorizedException('Credenciais inválidas');
+      }
 
-      user.twoFactorCode = code;
-      user.twoFactorExpires = expiresAt;
-      await this.userRepository.save(user);
+      // Verificar se a conta está ativa
+      if (!user.active) {
+        await this.recordAttempt(user.id, email, ip || 'unknown', geo, false);
+        throw new UnauthorizedException('Conta não verificada. Verifique seu e-mail para ativar sua conta.');
+      }
 
-      // Enviar e-mail com o código
-      await this.emailHelper.sendTwoFactorCode(
-        user.email,
-        code,
-        `${user.firstName} ${user.lastName}`
-      );
+      // Verificar se 2FA está ativado
+      if (user.twoFactorEnabled) {
+        const code = this.generate2faCode();
+        const expiresAt = new Date();
+        expiresAt.setMinutes(expiresAt.getMinutes() + 10); // Expira em 10 minutos
+
+        user.twoFactorCode = code;
+        user.twoFactorExpires = expiresAt;
+        await this.userRepository.save(user);
+
+        // Enviar e-mail com o código
+        await this.emailHelper.sendTwoFactorCode(
+          user.email,
+          code,
+          `${user.firstName} ${user.lastName}`
+        );
+
+        // Registro parcial - sucesso na senha, mas aguardando 2FA
+        // Não gravamos como sucesso final ainda? O usuário disse se teve uso de 2fa ou não.
+        // Vou gravar quando o login for FINALIZADO.
+        // No entanto, o login inicial é uma "tentativa".
+        return {
+          twoFactorRequired: true,
+          email: user.email,
+        };
+      }
+
+      // Sucesso sem 2FA
+      await this.recordAttempt(user.id, email, ip || 'unknown', geo, true, false);
+
+      // Gerar token JWT
+      const token = this.jwtService.sign({ sub: user.id, email: user.email });
 
       return {
-        twoFactorRequired: true,
-        email: user.email,
+        user: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone,
+          twoFactorEnabled: user.twoFactorEnabled,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        },
+        token,
       };
+    } catch (error) {
+      if (!(error instanceof UnauthorizedException)) {
+        await this.recordAttempt(user?.id || null, email, ip || 'unknown', geo, false);
+      }
+      throw error;
     }
-
-    // Gerar token JWT
-    const token = this.jwtService.sign({ sub: user.id, email: user.email });
-
-    return {
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phone: user.phone,
-        twoFactorEnabled: user.twoFactorEnabled,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-      token,
-    };
   }
 
   /**
    * Verifica o código de 2FA e retorna o token JWT
    */
-  async verify2fa(verify2faDto: Verify2faDto) {
+  async verify2fa(verify2faDto: Verify2faDto, ip?: string) {
     const { email, code } = verify2faDto;
+    let geo: { city: string | null; country: string | null } = { city: null, country: null };
+
+    if (ip) {
+      geo = await this.getLocationFromIp(ip);
+    }
 
     const user = await this.userRepository.findOne({
       where: { email },
     });
 
     if (!user) {
+      await this.recordAttempt(null, email, ip || 'unknown', geo, false, true);
       throw new UnauthorizedException('Usuário não encontrado');
     }
 
     if (!user.twoFactorCode || user.twoFactorCode !== code) {
+      await this.recordAttempt(user.id, email, ip || 'unknown', geo, false, true);
       throw new UnauthorizedException('Código de segurança inválido');
     }
 
     if (!user.twoFactorExpires || new Date() > user.twoFactorExpires) {
+      await this.recordAttempt(user.id, email, ip || 'unknown', geo, false, true);
       throw new UnauthorizedException('Código de segurança expirado');
     }
 
@@ -241,6 +276,9 @@ export class AuthService {
     user.twoFactorCode = null;
     user.twoFactorExpires = null;
     await this.userRepository.save(user);
+
+    // Sucesso com 2FA
+    await this.recordAttempt(user.id, email, ip || 'unknown', geo, true, true);
 
     // Gerar token JWT
     const token = this.jwtService.sign({ sub: user.id, email: user.email });
@@ -526,6 +564,49 @@ export class AuthService {
       code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return code;
+  }
+
+  private async recordAttempt(
+    userId: number | null,
+    email: string,
+    ip: string,
+    geo: { city: string | null; country: string | null },
+    success: boolean,
+    twoFactorUsed: boolean = false
+  ) {
+    try {
+      const attempt = this.loginAttemptRepository.create({
+        userId: userId || undefined,
+        email,
+        ip,
+        city: geo.city || undefined,
+        country: geo.country || undefined,
+        success,
+        twoFactorUsed,
+      });
+      await this.loginAttemptRepository.save(attempt);
+    } catch (error) {
+      console.error('Erro ao gravar tentativa de login:', error);
+    }
+  }
+
+  private async getLocationFromIp(ip: string): Promise<{ city: string | null; country: string | null }> {
+    if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip === 'unknown') {
+      return { city: 'Localhost', country: 'Localhost' };
+    }
+
+    try {
+      const response = await axios.get(`http://ip-api.com/json/${ip}`);
+      if (response.data && response.data.status === 'success') {
+        return {
+          city: response.data.city,
+          country: response.data.country,
+        };
+      }
+    } catch (error) {
+      console.error('Erro ao obter localização do IP:', error);
+    }
+    return { city: null, country: null };
   }
 }
 

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Query } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Query, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -21,14 +21,14 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Request() req) {
+    return this.authService.login(loginDto, req.ip);
   }
 
   @Post('verify-2fa')
   @HttpCode(HttpStatus.OK)
-  async verify2fa(@Body() verify2faDto: Verify2faDto) {
-    return this.authService.verify2fa(verify2faDto);
+  async verify2fa(@Body() verify2faDto: Verify2faDto, @Request() req) {
+    return this.authService.verify2fa(verify2faDto, req.ip);
   }
 
   @Post('forgot-password')

@@ -13,6 +13,8 @@ import { Referral } from '../entities/referral.entity';
 import { LoginAttempt } from '../entities/login-attempt.entity';
 import { EmailModule } from '../email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { CampaignsModule } from '../campaigns/campaigns.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
     PassportModule,
     EmailModule,
     NotificationsModule,
+    SubscriptionsModule,
+    CampaignsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

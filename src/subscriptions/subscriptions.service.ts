@@ -12,6 +12,8 @@ import { ReferralCommission } from '../entities/referral-commission.entity';
 
 import { AsaasService } from './asaas.service';
 import { SystemSetting } from '../entities/system-setting.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../entities/notification.entity';
 
 @Injectable()
 export class SubscriptionsService {
@@ -35,6 +37,7 @@ export class SubscriptionsService {
         @InjectRepository(ReferralCommission)
         private referralCommissionRepository: Repository<ReferralCommission>,
         private asaasService: AsaasService,
+        private notificationsService: NotificationsService,
     ) { }
 
     async getPlans(): Promise<Plan[]> {
@@ -414,5 +417,50 @@ export class SubscriptionsService {
         await this.subscriptionRepository.save(subscription);
 
         return { success: true, message: 'Assinatura cancelada com sucesso. Seus benefícios ficam ativos por 30 dias.' };
+    }
+
+    async checkAndNotifyUpcomingInvoice(userId: number) {
+        try {
+            // Verificar se o usuário deseja receber notificações de faturamento
+            const isEnabled = await this.notificationsService.isPreferenceEnabled(userId, NotificationType.BILLING);
+            if (!isEnabled) return;
+
+            const subscription = await this.subscriptionRepository.findOne({
+                where: { userId, status: 'active' },
+                order: { createdAt: 'DESC' },
+            });
+
+            if (!subscription || !subscription.currentPeriodEnd) return;
+
+            const now = new Date();
+            const dueDate = new Date(subscription.currentPeriodEnd);
+            const diffTime = dueDate.getTime() - now.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            // Se o vencimento for em 5 dias ou menos (e ainda não venceu)
+            if (diffDays <= 5 && diffDays > 0) {
+                const dateString = dueDate.toLocaleDateString('pt-BR');
+                const title = `💳 Fatura disponível - Vencimento ${dateString}`;
+
+                // Verificar se já existe uma notificação para esta fatura/data para este usuário
+                const alreadyNotified = await this.notificationsService.exists(
+                    userId,
+                    NotificationType.BILLING,
+                    title
+                );
+
+                if (!alreadyNotified) {
+                    await this.notificationsService.create({
+                        userId,
+                        title,
+                        message: `Sua próxima fatura com vencimento em ${dateString} já está disponível.\n\nO boleto ou chave PIX deve aparecer em seu e-mail em instantes. Você também pode acessar os detalhes na aba Financeiro.`,
+                        type: NotificationType.BILLING,
+                    });
+                    this.logger.log(`Billing notification created for user ${userId} (due in ${diffDays} days)`);
+                }
+            }
+        } catch (error) {
+            this.logger.error(`Error checking upcoming invoice for user ${userId}: ${error.message}`);
+        }
     }
 }

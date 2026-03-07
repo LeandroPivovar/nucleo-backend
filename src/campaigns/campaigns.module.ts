@@ -10,6 +10,7 @@ import { CampaignSchedulerService } from './campaign-scheduler/campaign-schedule
 import { ZenviaModule } from '../zenvia/zenvia.module';
 import { ContactsModule } from '../contacts/contacts.module';
 import { EmailModule } from '../email/email.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -19,7 +20,8 @@ import { Subscription } from '../entities/subscription.entity';
         TypeOrmModule.forFeature([Campaign, Contact, UserUsage, User, Subscription]),
         ZenviaModule,
         ContactsModule,
-        EmailModule
+        EmailModule,
+        NotificationsModule
     ],
     providers: [CampaignsService, CampaignSchedulerService],
     controllers: [CampaignsController],

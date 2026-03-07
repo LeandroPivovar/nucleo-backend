@@ -165,6 +165,20 @@ export class NotificationsService {
         return this.notificationRepository.save(notification);
     }
 
+    async exists(userId: number, type: string, title: string) {
+        const count = await this.notificationRepository.count({
+            where: { userId, type: type as any, title },
+        });
+        return count > 0;
+    }
+
+    async isPreferenceEnabled(userId: number, type: string): Promise<boolean> {
+        const preference = await this.preferenceRepository.findOne({
+            where: { userId, type: type as any },
+        });
+        return preference ? preference.enabled : true; // Default to true if not set
+    }
+
     async delete(id: number) {
         const result = await this.notificationRepository.delete(id);
         if (result.affected === 0) {

@@ -23,6 +23,8 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Verify2faDto } from './dto/verify-2fa.dto';
 import { EmailHelper } from '../email/email.helper';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { NotificationType } from '../entities/notification.entity';
 import * as crypto from 'crypto';
 
@@ -42,6 +44,8 @@ export class AuthService {
     private jwtService: JwtService,
     private emailHelper: EmailHelper,
     private notificationsService: NotificationsService,
+    private subscriptionsService: SubscriptionsService,
+    private campaignsService: CampaignsService,
   ) { }
 
   /**
@@ -223,6 +227,16 @@ export class AuthService {
       // Sucesso sem 2FA
       await this.recordAttempt(user.id, email, ip || 'unknown', geo, true, false);
 
+      // Verificar faturas pendentes de forma assíncrona para não atrasar o login
+      this.subscriptionsService.checkAndNotifyUpcomingInvoice(user.id).catch(e =>
+        console.error('Erro ao verificar faturas no login:', e)
+      );
+
+      // Verificar desempenho de campanhas
+      this.campaignsService.checkAndNotifyPerformance(user.id).catch(e =>
+        console.error('Erro ao verificar desempenho de campanhas no login:', e)
+      );
+
       // Gerar token JWT
       const token = this.jwtService.sign({ sub: user.id, email: user.email });
 
@@ -286,6 +300,16 @@ export class AuthService {
 
     // Sucesso com 2FA
     await this.recordAttempt(user.id, email, ip || 'unknown', geo, true, true);
+
+    // Verificar faturas pendentes
+    this.subscriptionsService.checkAndNotifyUpcomingInvoice(user.id).catch(e =>
+      console.error('Erro ao verificar faturas no login 2FA:', e)
+    );
+
+    // Verificar desempenho de campanhas
+    this.campaignsService.checkAndNotifyPerformance(user.id).catch(e =>
+      console.error('Erro ao verificar desempenho de campanhas no login 2FA:', e)
+    );
 
     // Gerar token JWT
     const token = this.jwtService.sign({ sub: user.id, email: user.email });

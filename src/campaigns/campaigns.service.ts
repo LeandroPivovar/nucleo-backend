@@ -1,13 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
 import { Campaign } from '../entities/campaign.entity';
 import { UserUsage } from '../entities/user-usage.entity';
 import { Contact } from '../entities/contact.entity';
 import { CampaignSchedulerService } from './campaign-scheduler/campaign-scheduler.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../entities/notification.entity';
 
 @Injectable()
 export class CampaignsService {
+    private readonly logger = new Logger(CampaignsService.name);
+
     constructor(
         @InjectRepository(Campaign)
         private campaignsRepository: Repository<Campaign>,
@@ -15,7 +19,8 @@ export class CampaignsService {
         private userUsageRepository: Repository<UserUsage>,
         @InjectRepository(Contact)
         private contactsRepository: Repository<Contact>,
-        private campaignSchedulerService: CampaignSchedulerService
+        private campaignSchedulerService: CampaignSchedulerService,
+        private notificationsService: NotificationsService
     ) { }
 
     async findAll(userId: number): Promise<Campaign[]> {
@@ -302,5 +307,58 @@ export class CampaignsService {
             recentActivity,
             channelPerformance
         };
+    }
+
+    async checkAndNotifyPerformance(userId: number) {
+        try {
+            // Verificar se o usuário deseja receber notificações de campanhas
+            const isEnabled = await this.notificationsService.isPreferenceEnabled(userId, NotificationType.CAMPAIGN);
+            if (!isEnabled) return;
+
+            // Buscar campanhas finalizadas nas últimas 48 horas
+            const twoDaysAgo = new Date();
+            twoDaysAgo.setHours(twoDaysAgo.getHours() - 48);
+
+            const finishedCampaigns = await this.campaignsRepository.find({
+                where: {
+                    userId,
+                    status: 'finalizada',
+                    updatedAt: Between(twoDaysAgo, new Date())
+                },
+                order: { updatedAt: 'DESC' }
+            });
+
+            for (const camp of finishedCampaigns) {
+                const title = `📊 Desempenho: ${camp.name}`;
+
+                // Verificar se já existe uma notificação para esta campanha específica
+                const alreadyNotified = await this.notificationsService.exists(
+                    userId,
+                    NotificationType.CAMPAIGN,
+                    title
+                );
+
+                if (!alreadyNotified) {
+                    const openRate = camp.sentCount > 0 ? ((camp.opensCount / camp.sentCount) * 100).toFixed(1) : '0';
+                    const clickRate = camp.sentCount > 0 ? ((camp.clicksCount / camp.sentCount) * 100).toFixed(1) : '0';
+
+                    await this.notificationsService.create({
+                        userId,
+                        title,
+                        message: `Sua campanha "${camp.name}" foi finalizada com sucesso!\n\n` +
+                            `✅ Envios: ${camp.sentCount}\n` +
+                            `👁️ Aberturas: ${camp.opensCount} (${openRate}%)\n` +
+                            `🖱️ Cliques: ${camp.clicksCount} (${clickRate}%)\n` +
+                            (camp.revenue > 0 ? `💰 Receita: R$ ${camp.revenue}\n` : '') +
+                            `Consulte o relatório detalhado no menu de Campanhas.`,
+                        type: NotificationType.CAMPAIGN,
+                    });
+
+                    this.logger.log(`Performance notification created for user ${userId} (campaign ${camp.id})`);
+                }
+            }
+        } catch (error) {
+            console.error(`Error checking campaign performance for user ${userId}:`, error);
+        }
     }
 }

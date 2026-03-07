@@ -61,6 +61,9 @@ export class AuthService {
       phone: user.phone,
       twoFactorEnabled: user.twoFactorEnabled,
       planName: subscription?.plan?.name || 'Plano gratuito',
+      document: user.document,
+      address: user.address,
+      postalCode: user.postalCode,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

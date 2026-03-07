@@ -196,7 +196,7 @@ export class SubscriptionsService {
     }
 
     async buyCredits(userId: number, data: any, remoteIp?: string): Promise<any> {
-        const { type, amount, billingType, paymentContext } = data;
+        const { type, amount, billingType, creditCard, creditCardHolderInfo } = data;
         let pricePerUnit = 0;
 
         if (type === 'email') pricePerUnit = 0.30;
@@ -237,6 +237,8 @@ export class SubscriptionsService {
                 dueDate: dateString,
                 description: `Pacote de ${amount} disparos de ${type.toUpperCase()}`,
                 externalReference: externalRef,
+                creditCard,
+                creditCardHolderInfo,
                 remoteIp
             };
 

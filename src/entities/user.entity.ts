@@ -29,6 +29,9 @@ export class User {
   @Column({ length: 255, nullable: true })
   address: string;
 
+  @Column({ length: 20, nullable: true })
+  postalCode: string;
+
   @Column({ length: 255 })
   password: string;
 

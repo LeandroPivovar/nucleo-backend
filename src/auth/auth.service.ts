@@ -49,6 +49,24 @@ export class AuthService {
   ) { }
 
   /**
+   * Formata a resposta do usuário incluindo o nome do plano atual
+   */
+  private async formatUserResponse(user: User) {
+    const subscription = await this.subscriptionsService.getCurrentSubscription(user.id);
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone,
+      twoFactorEnabled: user.twoFactorEnabled,
+      planName: subscription?.plan?.name || 'Plano gratuito',
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+
+  /**
    * Gera um token único para verificação de e-mail
    */
   private generateVerificationToken(): string {
@@ -144,16 +162,7 @@ export class AuthService {
     }
 
     // Criar objeto do usuário para retorno (sem senha)
-    const userResponse = {
-      id: savedUser.id,
-      firstName: savedUser.firstName,
-      lastName: savedUser.lastName,
-      email: savedUser.email,
-      phone: savedUser.phone,
-      twoFactorEnabled: savedUser.twoFactorEnabled,
-      createdAt: savedUser.createdAt,
-      updatedAt: savedUser.updatedAt,
-    };
+    const userResponse = await this.formatUserResponse(savedUser);
 
     return {
       message: 'Conta criada com sucesso! Verifique seu e-mail para ativar a conta.',
@@ -241,16 +250,7 @@ export class AuthService {
       const token = this.jwtService.sign({ sub: user.id, email: user.email });
 
       return {
-        user: {
-          id: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phone: user.phone,
-          twoFactorEnabled: user.twoFactorEnabled,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-        },
+        user: await this.formatUserResponse(user),
         token,
       };
     } catch (error) {
@@ -315,16 +315,7 @@ export class AuthService {
     const token = this.jwtService.sign({ sub: user.id, email: user.email });
 
     return {
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phone: user.phone,
-        twoFactorEnabled: user.twoFactorEnabled,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
+      user: await this.formatUserResponse(user),
       token,
     };
   }

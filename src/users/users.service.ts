@@ -25,7 +25,7 @@ export class UsersService {
     private subscriptionRepository: Repository<Subscription>,
   ) { }
 
-  async findOne(id: number): Promise<User> {
+  async findOne(id: number): Promise<any> {
     const user = await this.userRepository.findOne({
       where: { id },
     });
@@ -34,7 +34,13 @@ export class UsersService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    // Retornar objeto plano
+    // Buscar plano atual
+    const subscription = await this.subscriptionRepository.findOne({
+      where: { userId: id, status: 'active' },
+      relations: ['plan'],
+    });
+
+    // Retornar objeto com plano
     return {
       id: user.id,
       firstName: user.firstName,
@@ -44,7 +50,8 @@ export class UsersService {
       twoFactorEnabled: user.twoFactorEnabled,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-    } as User;
+      planName: subscription?.plan?.name || 'Plano gratuito'
+    };
   }
 
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
@@ -72,17 +79,8 @@ export class UsersService {
 
     const updatedUser = await this.userRepository.save(user);
 
-    // Retornar objeto plano
-    return {
-      id: updatedUser.id,
-      firstName: updatedUser.firstName,
-      lastName: updatedUser.lastName,
-      email: updatedUser.email,
-      phone: updatedUser.phone,
-      twoFactorEnabled: updatedUser.twoFactorEnabled,
-      createdAt: updatedUser.createdAt,
-      updatedAt: updatedUser.updatedAt,
-    } as User;
+    // Retornar perfil completo com plano
+    return this.findOne(updatedUser.id);
   }
 
   async changePassword(id: number, changePasswordDto: ChangePasswordDto): Promise<void> {

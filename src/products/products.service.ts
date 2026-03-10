@@ -21,7 +21,7 @@ export class ProductsService {
     private productRepository: Repository<Product>,
     private nuvemshopService: NuvemshopService,
     private shopifyService: ShopifyService,
-  ) {}
+  ) { }
 
   async create(userId: number, createProductDto: CreateProductDto): Promise<Product> {
     const product = this.productRepository.create({
@@ -71,7 +71,7 @@ export class ProductsService {
 
       if (existingBySku) {
         this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO POR SKU: ${productData.sku} (ID local: ${existingBySku.id})`);
-        
+
         // Atualizar produto existente
         Object.assign(existingBySku, {
           name: productData.name,
@@ -87,7 +87,7 @@ export class ProductsService {
           const currentExternalIds = (existingBySku.externalIds as any) || {};
           this.logger.log(`[IMPORT] ExternalIds atual:`, JSON.stringify(currentExternalIds));
           this.logger.log(`[IMPORT] ExternalIds novo:`, JSON.stringify(productData.externalIds));
-          
+
           existingBySku.externalIds = {
             ...currentExternalIds,
             ...productData.externalIds,
@@ -100,7 +100,7 @@ export class ProductsService {
               ...productData.externalIds.shopify,
             },
           } as any;
-          
+
           this.logger.log(`[IMPORT] ExternalIds mesclado:`, JSON.stringify(existingBySku.externalIds));
         }
 
@@ -119,15 +119,15 @@ export class ProductsService {
     if (productData.externalIds?.nuvemshop) {
       this.logger.log(`[IMPORT] >>> Verificando produto por externalIds Nuvemshop:`, JSON.stringify(productData.externalIds.nuvemshop));
       const storeIds = Object.keys(productData.externalIds.nuvemshop);
-      
+
       for (const storeId of storeIds) {
         const nuvemshopProductId = productData.externalIds.nuvemshop[storeId];
         this.logger.log(`[IMPORT] >>> Buscando produto com externalId Nuvemshop: storeId=${storeId}, productId=${nuvemshopProductId}`);
-        
+
         // Buscar produtos que tenham este ID externo
         const allProducts = await this.productRepository.find({ where: { userId } });
         this.logger.log(`[IMPORT] >>> Total de produtos do usuário: ${allProducts.length}`);
-        
+
         // Log de todos os produtos para debug
         this.logger.log(`[IMPORT] >>> Produtos existentes:`, allProducts.map(p => ({
           id: p.id,
@@ -135,13 +135,13 @@ export class ProductsService {
           sku: p.sku,
           externalIds: p.externalIds,
         })));
-        
+
         const existingByExternalId = allProducts.find((p) => {
           const extIds = (p.externalIds as any) || {};
           // Comparar convertendo ambos para número para evitar problemas de tipo
           const storedId = extIds.nuvemshop?.[storeId];
           const hasMatch = storedId != null && (
-            storedId === nuvemshopProductId || 
+            storedId === nuvemshopProductId ||
             Number(storedId) === Number(nuvemshopProductId)
           );
           if (hasMatch) {
@@ -165,7 +165,7 @@ export class ProductsService {
 
         if (existingByExternalId) {
           this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO POR EXTERNALID NUVEMSHOP: ${nuvemshopProductId} (ID local: ${existingByExternalId.id})`);
-          
+
           // Atualizar produto existente
           Object.assign(existingByExternalId, {
             name: productData.name,
@@ -180,7 +180,7 @@ export class ProductsService {
           // Mesclar externalIds
           const currentExternalIds = (existingByExternalId.externalIds as any) || {};
           this.logger.log(`[IMPORT] ExternalIds atual do produto encontrado:`, JSON.stringify(currentExternalIds));
-          
+
           existingByExternalId.externalIds = {
             ...currentExternalIds,
             ...productData.externalIds,
@@ -208,11 +208,11 @@ export class ProductsService {
     if (productData.externalIds?.shopify) {
       this.logger.log(`[IMPORT] >>> Verificando produto por externalIds Shopify:`, JSON.stringify(productData.externalIds.shopify));
       const shops = Object.keys(productData.externalIds.shopify);
-      
+
       for (const shop of shops) {
         const shopifyProductId = productData.externalIds.shopify[shop];
         this.logger.log(`[IMPORT] >>> Buscando produto com externalId Shopify: shop=${shop}, productId=${shopifyProductId}`);
-        
+
         // Buscar produtos que tenham este ID externo
         const allProducts = await this.productRepository.find({ where: { userId } });
         const existingByExternalId = allProducts.find((p) => {
@@ -222,7 +222,7 @@ export class ProductsService {
 
         if (existingByExternalId) {
           this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO POR EXTERNALID SHOPIFY: ${shopifyProductId} (ID local: ${existingByExternalId.id})`);
-          
+
           // Atualizar produto existente
           Object.assign(existingByExternalId, {
             name: productData.name,
@@ -268,7 +268,7 @@ export class ProductsService {
 
       if (existingByName) {
         this.logger.log(`[IMPORT] ✅ PRODUTO ENCONTRADO POR NOME: ${productData.name} (ID local: ${existingByName.id})`);
-        
+
         // Atualizar produto existente
         Object.assign(existingByName, {
           description: productData.description,
@@ -283,7 +283,7 @@ export class ProductsService {
         if (productData.externalIds) {
           const currentExternalIds = (existingByName.externalIds as any) || {};
           this.logger.log(`[IMPORT] ExternalIds atual do produto encontrado por nome:`, JSON.stringify(currentExternalIds));
-          
+
           existingByName.externalIds = {
             ...currentExternalIds,
             ...productData.externalIds,
@@ -410,7 +410,7 @@ export class ProductsService {
                 this.logger.log(`Produto encontrado por SKU na Nuvemshop: ${existingProductId}`);
               }
             }
-            
+
             // Se não encontrou por SKU, tentar por nome
             if (!existingProductId && product.name) {
               this.logger.debug(`Buscando produto por nome: ${product.name}`);
@@ -430,7 +430,7 @@ export class ProductsService {
               }
             }
           }
-          
+
           // Se encontrou ID por SKU, também salvar
           if (existingProductId && !externalIds.nuvemshop?.[connection.storeId]) {
             if (!externalIds.nuvemshop) {
@@ -442,11 +442,11 @@ export class ProductsService {
           }
 
           const nuvemshopProductData = this.convertToNuvemshopFormat(product, existingProductId);
-          
+
           this.logger.debug(
             `Enviando produto para Nuvemshop: ${existingProductId ? 'PUT (atualizar)' : 'POST (criar)'}, ID: ${existingProductId || 'novo'}`,
           );
-          
+
           const result = await this.nuvemshopService.syncProduct(
             userId,
             connection.storeId,
@@ -508,7 +508,7 @@ export class ProductsService {
           }
 
           const shopifyProductData = this.convertToShopifyFormat(product, existingProductId);
-          
+
           const result = await this.shopifyService.syncProduct(userId, connection.shop, shopifyProductData);
 
           // Salvar o ID retornado (formato GraphQL: gid://shopify/Product/123456)
@@ -578,8 +578,8 @@ export class ProductsService {
       },
       description: product.description
         ? {
-            pt: product.description,
-          }
+          pt: product.description,
+        }
         : undefined,
       variants: [
         {
@@ -606,9 +606,9 @@ export class ProductsService {
     try {
       this.logger.debug(`Buscando produto na Nuvemshop por SKU: ${sku} (storeId: ${storeId})`);
       const products = await this.nuvemshopService.getProducts(userId, storeId, { limit: 250 });
-      
+
       this.logger.debug(`Total de produtos encontrados na Nuvemshop: ${products.length}`);
-      
+
       for (const product of products) {
         // Verificar se alguma variante tem o SKU correspondente
         if (product.variants && Array.isArray(product.variants)) {
@@ -619,7 +619,7 @@ export class ProductsService {
           }
         }
       }
-      
+
       this.logger.debug(`Nenhum produto encontrado na Nuvemshop com SKU: ${sku}`);
     } catch (error) {
       this.logger.error(`Erro ao buscar produto por SKU na Nuvemshop: ${sku}`, error);
@@ -638,9 +638,9 @@ export class ProductsService {
     try {
       this.logger.debug(`Buscando produto na Nuvemshop por nome: ${name} (storeId: ${storeId})`);
       const products = await this.nuvemshopService.getProducts(userId, storeId, { limit: 250 });
-      
+
       this.logger.debug(`Total de produtos encontrados na Nuvemshop: ${products.length}`);
-      
+
       for (const product of products) {
         // A Nuvemshop retorna o nome como objeto { pt, en, es } ou string
         let productName = '';
@@ -649,14 +649,14 @@ export class ProductsService {
         } else if (typeof product.name === 'string') {
           productName = product.name;
         }
-        
+
         // Comparar nomes (case-insensitive, sem espaços extras)
         if (productName.trim().toLowerCase() === name.trim().toLowerCase() && product.id) {
           this.logger.log(`Produto encontrado na Nuvemshop por nome: ${name} -> Product ID: ${product.id}`);
           return product.id;
         }
       }
-      
+
       this.logger.debug(`Nenhum produto encontrado na Nuvemshop com nome: ${name}`);
     } catch (error) {
       this.logger.error(`Erro ao buscar produto por nome na Nuvemshop: ${name}`, error);
@@ -675,7 +675,7 @@ export class ProductsService {
   ): Promise<string | undefined> {
     try {
       const products = await this.shopifyService.getProducts(userId, shop, { limit: 250 });
-      
+
       for (const product of products) {
         // Verificar se alguma variante tem o SKU correspondente
         if (product.variants && Array.isArray(product.variants)) {
@@ -709,7 +709,6 @@ export class ProductsService {
       optionValues: Array<{ optionName: string; name: string }>;
       price: string;
       sku?: string;
-      inventoryQuantity?: number;
     }>;
     id?: string;
   } {
@@ -721,7 +720,6 @@ export class ProductsService {
           optionValues: [], // Produto simples sem opções
           price: (typeof product.price === 'number' ? product.price : parseFloat(String(product.price)) || 0).toFixed(2),
           sku: product.sku || undefined,
-          inventoryQuantity: typeof product.stock === 'number' ? product.stock : parseInt(String(product.stock)) || 0,
         },
       ],
     };

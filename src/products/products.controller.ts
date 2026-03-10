@@ -52,7 +52,7 @@ export class ProductsController {
     if (!file) {
       throw new BadRequestException('Nenhum arquivo enviado');
     }
-    return { url: `/uploads/products/${file.filename}` };
+    return { url: `/api/uploads/products/${file.filename}` };
   }
 
   @Post()

@@ -12,7 +12,7 @@ async function bootstrap() {
 
   // Servir arquivos estáticos da pasta uploads
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
-    prefix: '/uploads/',
+    prefix: '/api/uploads/',
   });
 
   const logger = new Logger('Bootstrap');

@@ -199,7 +199,6 @@ export class ShopifyService {
         optionValues: Array<{ optionName: string; name: string }>;
         price: string;
         sku?: string;
-        inventoryQuantity?: number;
       }>;
       id?: string;
     },

@@ -15,7 +15,9 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -52,7 +54,9 @@ export class ProductsController {
     if (!file) {
       throw new BadRequestException('Nenhum arquivo enviado');
     }
-    return { url: `/uploads/products/${file.filename}` };
+    // Mangle the extension with '---' to bypass aggressive Nginx static file traps
+    const safeFilename = file.filename.replace('.', '---');
+    return { url: `/api/products-image/${safeFilename}` };
   }
 
   @Post()
@@ -118,8 +122,16 @@ export class ProductsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Request() req, @Param('id', ParseIntPipe) id: number) {
-    await this.productsService.remove(id, req.user.userId);
+  async remove(@Param('id', ParseIntPipe) id: number, @Request() req) {
+    return this.productsService.remove(id, req.user.id);
   }
 }
 
+@Controller('products-image')
+export class ProductsImageController {
+  @Get(':id')
+  serveImage(@Param('id') id: string, @Res() res: Response) {
+    const filename = id.replace('---', '.');
+    return res.sendFile(filename, { root: join(__dirname, '..', '..', 'uploads', 'products') });
+  }
+}

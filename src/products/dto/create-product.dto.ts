@@ -31,5 +31,12 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsString()
+  coverPhoto?: string;
+
+  @IsOptional()
+  gallery?: string[];
 }
 

@@ -33,5 +33,12 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsString()
+  coverPhoto?: string;
+
+  @IsOptional()
+  gallery?: string[];
 }
 

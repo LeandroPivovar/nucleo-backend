@@ -41,6 +41,12 @@ export class Product {
     shopify?: Record<string, string>; // { shop: productId }
   } | null;
 
+  @Column({ type: 'text', nullable: true })
+  coverPhoto: string | null;
+
+  @Column({ type: 'json', nullable: true })
+  gallery: string[] | null;
+
   @ManyToOne(() => User)
   @JoinColumn({ name: 'userId' })
   user: User;

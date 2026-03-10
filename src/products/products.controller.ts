@@ -12,18 +12,48 @@ import {
   HttpStatus,
   ParseIntPipe,
   Logger,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+import * as fs from 'fs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+
+// Ensure the upload directory exists
+const uploadDir = './uploads/products';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 @Controller('products')
 @UseGuards(JwtAuthGuard)
 export class ProductsController {
   private readonly logger = new Logger(ProductsController.name);
 
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(private readonly productsService: ProductsService) { }
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: uploadDir,
+      filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
+      },
+    }),
+  }))
+  uploadProductPhoto(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo enviado');
+    }
+    return { url: `/uploads/products/${file.filename}` };
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -53,16 +83,16 @@ export class ProductsController {
       sku: importData.sku || 'não informado',
       externalIds: importData.externalIds,
     });
-    
+
     const result = await this.productsService.createOrUpdateFromIntegration(req.user.userId, importData);
-    
+
     this.logger.log(`[IMPORT] Produto processado:`, {
       id: result.id,
       name: result.name,
       sku: result.sku,
       externalIds: result.externalIds,
     });
-    
+
     return result;
   }
 

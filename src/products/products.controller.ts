@@ -21,12 +21,12 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { join, extname } from 'path';
 import * as fs from 'fs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-// Ensure the upload directory exists
-const uploadDir = './uploads/products';
+// Ensure the upload directory exists using absolute path from __dirname
+const uploadDir = join(__dirname, '..', '..', 'uploads', 'products');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }

@@ -51,6 +51,7 @@ import { ZenviaModule } from './zenvia/zenvia.module';
 import { UserUsage } from './entities/user-usage.entity';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
+import { CategoriesModule } from './categories/categories.module';
 
 @Module({
   imports: [
@@ -96,7 +97,8 @@ import { SystemSettingsModule } from './system-settings/system-settings.module';
     ReferralsModule,
     WebhooksModule,
     SystemSettingsModule,
-    NotificationsModule
+    NotificationsModule,
+    CategoriesModule
   ],
   controllers: [AppController],
   providers: [AppService],

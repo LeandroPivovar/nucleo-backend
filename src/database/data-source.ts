@@ -22,6 +22,16 @@ import { PixelEvent } from '../entities/pixel-event.entity';
 import { Referral } from '../entities/referral.entity';
 import { ReferralCommission } from '../entities/referral-commission.entity';
 import { UserUsage } from '../entities/user-usage.entity';
+import { Category } from '../entities/category.entity';
+import { Notification } from '../entities/notification.entity';
+import { UserNotification } from '../entities/user-notification.entity';
+import { ShopifyConnection } from '../entities/shopify-connection.entity';
+import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
+import { VtexConnection } from '../entities/vtex-connection.entity';
+import { LoginAttempt } from '../entities/login-attempt.entity';
+import { NotificationPreference } from '../entities/notification-preference.entity';
+import { SystemSetting } from '../entities/system-setting.entity';
+import { WebhookLog } from '../entities/webhook-log.entity';
 
 config();
 
@@ -32,7 +42,40 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_DATABASE || 'nucleo_crm',
-  entities: [User, Product, Sale, Contact, ContactPurchase, ContactTag, ContactSegmentation, Group, Tag, ScoreConfig, PasswordReset, EmailVerification, EmailConnection, Campaign, Plan, Subscription, Invoice, Pixel, PixelEvent, Referral, ReferralCommission, UserUsage],
+  entities: [
+    User,
+    Product,
+    Sale,
+    Contact,
+    ContactPurchase,
+    ContactTag,
+    ContactSegmentation,
+    Group,
+    Tag,
+    ScoreConfig,
+    PasswordReset,
+    EmailVerification,
+    EmailConnection,
+    Campaign,
+    Plan,
+    Subscription,
+    Invoice,
+    Pixel,
+    PixelEvent,
+    Referral,
+    ReferralCommission,
+    UserUsage,
+    Category,
+    Notification,
+    UserNotification,
+    ShopifyConnection,
+    NuvemshopConnection,
+    VtexConnection,
+    LoginAttempt,
+    NotificationPreference,
+    SystemSetting,
+    WebhookLog
+  ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
   logging: true,

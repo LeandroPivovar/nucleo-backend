@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
+import { Category } from './category.entity';
 
 @Entity('products')
 export class Product {
@@ -31,6 +32,13 @@ export class Product {
 
   @Column({ length: 50, nullable: true })
   category: string;
+
+  @Column({ nullable: true })
+  categoryId: number;
+
+  @ManyToOne(() => Category)
+  @JoinColumn({ name: 'categoryId' })
+  categoryEntity: Category;
 
   @Column({ type: 'boolean', default: true })
   active: boolean;

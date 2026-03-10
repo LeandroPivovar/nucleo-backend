@@ -31,7 +31,8 @@ export class ProductsService {
       active: createProductDto.active ?? true,
     });
 
-    return this.productRepository.save(product);
+    const saved = await this.productRepository.save(product);
+    return this.findOne(saved.id, userId);
   }
 
   /**
@@ -79,6 +80,7 @@ export class ProductsService {
           price: productData.price,
           stock: productData.stock ?? existingBySku.stock,
           category: productData.category,
+          categoryId: productData.categoryId,
           active: productData.active ?? existingBySku.active,
         });
 
@@ -173,6 +175,7 @@ export class ProductsService {
             price: productData.price,
             stock: productData.stock ?? existingByExternalId.stock,
             category: productData.category,
+            categoryId: productData.categoryId,
             active: productData.active ?? existingByExternalId.active,
             sku: productData.sku || existingByExternalId.sku,
           });
@@ -275,6 +278,7 @@ export class ProductsService {
           price: productData.price,
           stock: productData.stock ?? existingByName.stock,
           category: productData.category,
+          categoryId: productData.categoryId,
           active: productData.active ?? existingByName.active,
           sku: productData.sku || existingByName.sku,
         });
@@ -326,6 +330,7 @@ export class ProductsService {
   async findAll(userId: number): Promise<Product[]> {
     return this.productRepository.find({
       where: { userId },
+      relations: ['categoryEntity'],
       order: { createdAt: 'DESC' },
     });
   }
@@ -333,6 +338,7 @@ export class ProductsService {
   async findOne(id: number, userId: number): Promise<Product> {
     const product = await this.productRepository.findOne({
       where: { id, userId },
+      relations: ['categoryEntity'],
     });
 
     if (!product) {

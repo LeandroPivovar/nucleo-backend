@@ -31,6 +31,10 @@ export class UpdateProductDto {
   category?: string;
 
   @IsOptional()
+  @IsNumber()
+  categoryId?: number;
+
+  @IsOptional()
   @IsBoolean()
   active?: boolean;
 

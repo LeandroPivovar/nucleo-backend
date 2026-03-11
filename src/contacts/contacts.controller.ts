@@ -188,6 +188,12 @@ export class ContactsController {
     return result;
   }
 
+  @Post('segments')
+  @HttpCode(HttpStatus.OK)
+  async getBySegments(@Request() req, @Body('segmentations') segmentations: any[]) {
+    return this.contactsService.getContactsBySegments(req.user.userId, segmentations);
+  }
+
   @Get(':id')
   findOne(@Request() req, @Param('id') id: string) {
     return this.contactsService.findOne(req.user.userId, +id);

@@ -11,6 +11,16 @@ import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { ImportContactRow } from './dto/import-contacts.dto';
 
+export interface SegmentationParam {
+  id: string;
+  params?: {
+    days?: number;
+    minPurchases?: number;
+    minTicket?: number;
+    [key: string]: any;
+  };
+}
+
 @Injectable()
 export class ContactsService {
   constructor(
@@ -394,7 +404,7 @@ export class ContactsService {
     return stats;
   }
 
-  async getContactsBySegments(userId: number, segmentations: string[]): Promise<Contact[]> {
+  async getContactsBySegments(userId: number, segmentations: (string | SegmentationParam)[]): Promise<Contact[]> {
     if (!segmentations || segmentations.length === 0) return [];
 
     const query = this.contactsRepository.createQueryBuilder('contact')
@@ -406,7 +416,9 @@ export class ContactsService {
     const parameters: any = {};
 
     for (let i = 0; i < segmentations.length; i++) {
-      const segId = segmentations[i];
+      const seg = segmentations[i];
+      const segId = typeof seg === 'string' ? seg : seg.id;
+      const segParams = typeof seg === 'string' ? {} : (seg.params || {});
       const paramName = `seg_${i}`;
 
       if (segId === 'birthday') {
@@ -420,39 +432,47 @@ export class ContactsService {
       } else if (segId === 'lead_captured') {
         orConditions.push(`contact.status = 'lead'`);
       } else if (segId === 'inactive_customers') {
+        const days = segParams.days || 90;
         const ninetyDaysAgo = new Date();
-        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - days);
 
         const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
           .select('p.contactId')
           .groupBy('p.contactId')
-          .having('MAX(p.purchaseDate) < :ninetyDate', { ninetyDate: ninetyDaysAgo });
+          .having('MAX(p.purchaseDate) < :nineDate', { nineDate: ninetyDaysAgo });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'no_purchase_x_days') {
+        const days = segParams.days || 30;
         const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - days);
 
         const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
           .select('p.contactId')
           .groupBy('p.contactId')
-          .having('MAX(p.purchaseDate) < :thirtyDate', { thirtyDate: thirtyDaysAgo });
+          .having('MAX(p.purchaseDate) < :thirtDate', { thirtDate: thirtyDaysAgo });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'by_purchase_count') {
-        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
-          .select('DISTINCT p.contactId');
-
-        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
-      } else if (segId === 'high_ticket') {
+        const minPurchases = segParams.minPurchases || 1;
         const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
           .select('p.contactId')
           .groupBy('p.contactId')
-          .having('AVG(p.value) > 500');
+          .having('COUNT(*) >= :minPurchases', { minPurchases });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
+      } else if (segId === 'high_ticket') {
+        const minTicket = segParams.minTicket || 500;
+        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+          .select('p.contactId')
+          .groupBy('p.contactId')
+          .having('AVG(p.value) > :minTicket', { minTicket });
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'by_state' || segId.startsWith('state_')) {
         if (segId.startsWith('state_')) {
           const state = segId.replace('state_', '').toUpperCase();

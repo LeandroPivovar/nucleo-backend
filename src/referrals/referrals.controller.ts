@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Param, UseGuards, Request } from '@nestjs/common';
 import { ReferralsService } from './referrals.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -27,5 +27,11 @@ export class ReferralsController {
     @Get('stats')
     async getStats(@Request() req) {
         return this.referralsService.getStats(req.user.id);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Post('generate')
+    async generateMyCode(@Request() req) {
+        return this.referralsService.generateMyCode(req.user.id);
     }
 }

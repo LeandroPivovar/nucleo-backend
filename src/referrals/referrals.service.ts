@@ -106,4 +106,39 @@ export class ReferralsService {
             isValid: true,
         };
     }
+
+    /**
+     * Gera um código de indicação único para o usuário atual
+     */
+    async generateMyCode(userId: number) {
+        const user = await this.userRepository.findOne({ where: { id: userId } });
+        if (!user) throw new NotFoundException('Usuário não encontrado');
+
+        if (user.referralCode) {
+            return { referralCode: user.referralCode };
+        }
+
+        // Gerar código único
+        let code = '';
+        let isUnique = false;
+        while (!isUnique) {
+            code = this.generateRandomCode();
+            const existing = await this.userRepository.findOne({ where: { referralCode: code } });
+            if (!existing) isUnique = true;
+        }
+
+        user.referralCode = code;
+        await this.userRepository.save(user);
+
+        return { referralCode: code };
+    }
+
+    private generateRandomCode(): string {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let code = '';
+        for (let i = 0; i < 6; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return code;
+    }
 }

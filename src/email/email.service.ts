@@ -209,91 +209,137 @@ export class EmailService {
   }
 
   async sendPasswordResetCodeEmail(to: string, code: string, name?: string): Promise<void> {
+    const year = new Date().getFullYear();
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://nucleo.com.br';
+    const supportEmail = 'contato@nucleocrm.com.br';
+
     const html = `
       <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-            .code-box { background: #fff; border: 2px dashed #667eea; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px; }
-            .code { font-size: 32px; font-weight: bold; color: #667eea; letter-spacing: 8px; font-family: 'Courier New', monospace; }
-            .warning { color: #d32f2f; font-size: 12px; margin-top: 20px; }
-            .info { color: #666; font-size: 14px; margin-top: 10px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>Recuperação de Senha</h1>
-            </div>
-            <div class="content">
-              <p>Olá${name ? `, ${name}` : ''}!</p>
-              <p>Você solicitou a recuperação de senha da sua conta. Use o código abaixo para continuar:</p>
-              <div class="code-box">
-                <div class="code">${code}</div>
-              </div>
-              <p class="info">Este código é válido por 15 minutos.</p>
-              <p class="warning">Se você não solicitou esta recuperação, ignore este e-mail.</p>
-            </div>
-          </div>
-        </body>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <style>
+          body { margin: 0; padding: 0; background-color: #f4f2f8; font-family: Arial, Helvetica, sans-serif; color: #1f2937; }
+          table { border-collapse: collapse; }
+          .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; }
+          .header { background: linear-gradient(135deg, #6d28d9, #8b5cf6); padding: 32px; text-align: center; }
+          .logo { max-width: 180px; }
+          .content { padding: 32px; }
+          .title { font-size: 24px; font-weight: bold; margin-bottom: 12px; }
+          .text { font-size: 15px; line-height: 1.6; margin-bottom: 20px; color: #374151; }
+          .code-box { background: #f9fafb; border: 2px dashed #6d28d9; border-radius: 10px; padding: 24px; text-align: center; margin: 24px 0; }
+          .code { font-size: 32px; font-weight: bold; color: #6d28d9; letter-spacing: 8px; font-family: 'Courier New', monospace; }
+          .footer { padding: 24px; font-size: 12px; color: #6b7280; text-align: center; }
+          .footer a { color: #6d28d9; text-decoration: none; }
+        </style>
+      </head>
+      <body>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding: 24px;">
+              <table class="container" width="100%">
+                <tr>
+                  <td class="header">
+                    <img src="${frontendUrl}/nucleo-logo.png" alt="Núcleo CRM" class="logo" />
+                  </td>
+                </tr>
+                <tr>
+                  <td class="content">
+                    <div class="title">Recuperação de Senha</div>
+                    <p class="text">Olá, <strong>${name || 'Usuário'}</strong> 👋</p>
+                    <p class="text">Você solicitou a recuperação de senha da sua conta na <strong>Núcleo CRM</strong>. Use o código abaixo para continuar:</p>
+                    <div class="code-box">
+                      <div class="code">${code}</div>
+                    </div>
+                    <p class="text" style="font-size:13px;color:#6b7280;">Este código é válido por <strong>15 minutos</strong>. Se você não solicitou esta recuperação, ignore este e-mail.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="footer">
+                    ©️ ${year} Núcleo CRM<br/>
+                    <a href="${frontendUrl}">${frontendUrl}</a> · 
+                    <a href="mailto:${supportEmail}">${supportEmail}</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
       </html>
     `;
 
     await this.sendEmail({
       to,
-      subject: 'Código de Recuperação de Senha',
+      subject: 'Código de Recuperação de Senha - Núcleo CRM',
       html,
     });
   }
 
   async sendEmailVerificationEmail(to: string, token: string, name?: string): Promise<void> {
+    const year = new Date().getFullYear();
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://nucleo.com.br';
     const baseUrl = frontendUrl.includes('localhost') ? frontendUrl : 'https://nucleo.com.br';
     const verificationUrl = `${baseUrl}/auth/verify-email?token=${token}`;
+    const supportEmail = 'contato@nucleocrm.com.br';
 
     const html = `
       <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { text-align: center; margin-bottom: 20px; }
-            .content { background: #f9f9f9; padding: 30px; border-radius: 10px; }
-            .button { display: inline-block; padding: 12px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; text-align: center; font-weight: bold; }
-            .warning { color: #666; font-size: 14px; margin-top: 20px; }
-            .info { color: #666; font-size: 14px; margin-top: 30px; }
-            .link-box { background: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px; word-break: break-all; color: #667eea; font-size: 12px; margin-top: 10px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>Verifique seu E-mail</h1>
-            </div>
-            <div class="content">
-              <p>Olá${name ? `, ${name}` : ''} 👋</p>
-              <p>Obrigado por se cadastrar na Núcleo CRM. Para ativar sua conta e começar a usar a plataforma, confirme seu e-mail clicando no botão abaixo:</p>
-              
-              <div style="text-align: center;">
-                <a href="${verificationUrl}" class="button">Verificar e ativar minha conta</a>
-              </div>
-              
-              <p class="warning">Este link expira em 24 horas. Se você não solicitou este cadastro, basta ignorar este e-mail.</p>
-              
-              <p class="info">Caso o botão não funcione, copie e cole o link abaixo no seu navegador:</p>
-              <div class="link-box">
-                ${verificationUrl}
-              </div>
-            </div>
-          </div>
-        </body>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <style>
+          body { margin: 0; padding: 0; background-color: #f4f2f8; font-family: Arial, Helvetica, sans-serif; color: #1f2937; }
+          table { border-collapse: collapse; }
+          .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; }
+          .header { background: linear-gradient(135deg, #6d28d9, #8b5cf6); padding: 32px; text-align: center; }
+          .logo { max-width: 180px; }
+          .content { padding: 32px; }
+          .title { font-size: 24px; font-weight: bold; margin-bottom: 12px; }
+          .text { font-size: 15px; line-height: 1.6; margin-bottom: 20px; color: #374151; }
+          .button { display: inline-block; background-color: #6d28d9; color: #ffffff !important; text-decoration: none; padding: 14px 24px; border-radius: 10px; font-weight: bold; font-size: 15px; }
+          .link-box { background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; font-size: 12px; word-break: break-all; color: #111827; }
+          .footer { padding: 24px; font-size: 12px; color: #6b7280; text-align: center; }
+          .footer a { color: #6d28d9; text-decoration: none; }
+        </style>
+      </head>
+      <body>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding: 24px;">
+              <table class="container" width="100%">
+                <tr>
+                  <td class="header">
+                    <img src="${frontendUrl}/nucleo-logo.png" alt="Núcleo CRM" class="logo" />
+                  </td>
+                </tr>
+                <tr>
+                  <td class="content">
+                    <div class="title">Verifique seu e-mail</div>
+                    <p class="text">Olá, <strong>${name || 'Usuário'}</strong> 👋</p>
+                    <p class="text">Obrigado por se cadastrar na <strong>Núcleo CRM</strong>. Para ativar sua conta e começar a usar a plataforma, confirme seu e-mail clicando no botão abaixo:</p>
+                    <p style="text-align:center; margin: 32px 0;">
+                      <a href="${verificationUrl}" class="button" target="_blank">Verificar e ativar minha conta</a>
+                    </p>
+                    <p class="text" style="font-size:13px;color:#6b7280;">Este link expira em <strong>24 horas</strong>. Se você não solicitou este cadastro, basta ignorar este e-mail.</p>
+                    <p class="text" style="font-size:13px;color:#6b7280;">Caso o botão não funcione, copie e cole o link abaixo no seu navegador:</p>
+                    <div class="link-box">${verificationUrl}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="footer">
+                    ©️ ${year} Núcleo CRM<br/>
+                    <a href="${frontendUrl}">${frontendUrl}</a> · 
+                    <a href="mailto:${supportEmail}">${supportEmail}</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
       </html>
     `;
 

@@ -432,31 +432,29 @@ export class ContactsService {
       } else if (segId === 'lead_captured') {
         orConditions.push(`contact.status = 'lead'`);
       } else if (segId === 'inactive_customers') {
-        const days = segParams.days || 90;
+        const days = segParams.days !== undefined ? segParams.days : 90;
         const ninetyDaysAgo = new Date();
         ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - days);
 
         const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
           .select('p.contactId')
-          .groupBy('p.contactId')
-          .having('MAX(p.purchaseDate) < :nineDate', { nineDate: ninetyDaysAgo });
+          .where('p.purchaseDate >= :nineDate', { nineDate: ninetyDaysAgo });
 
-        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        orConditions.push(`contact.id NOT IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'no_purchase_x_days') {
-        const days = segParams.days || 30;
+        const days = segParams.days !== undefined ? segParams.days : 30;
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - days);
 
         const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
           .select('p.contactId')
-          .groupBy('p.contactId')
-          .having('MAX(p.purchaseDate) < :thirtDate', { thirtDate: thirtyDaysAgo });
+          .where('p.purchaseDate >= :thirtDate', { thirtDate: thirtyDaysAgo });
 
-        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        orConditions.push(`contact.id NOT IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'by_purchase_count') {
-        const minPurchases = segParams.minPurchases || 1;
+        const minPurchases = segParams.minPurchases !== undefined ? segParams.minPurchases : 1;
         const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
           .select('p.contactId')
           .groupBy('p.contactId')
@@ -465,7 +463,7 @@ export class ContactsService {
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'high_ticket') {
-        const minTicket = segParams.minTicket || 500;
+        const minTicket = segParams.minTicket !== undefined ? segParams.minTicket : 500;
         const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
           .select('p.contactId')
           .groupBy('p.contactId')

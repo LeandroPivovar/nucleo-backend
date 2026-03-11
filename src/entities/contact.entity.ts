@@ -51,6 +51,12 @@ export class Contact {
   @Column({ length: 100, nullable: true })
   city: string; // Cidade
 
+  @Column({ type: 'date', nullable: true })
+  birthDate: Date; // Data de nascimento
+
+  @Column({ length: 1, nullable: true })
+  gender: string; // 'M' | 'F'
+
   @ManyToOne(() => User)
   @JoinColumn({ name: 'userId' })
   user: User;

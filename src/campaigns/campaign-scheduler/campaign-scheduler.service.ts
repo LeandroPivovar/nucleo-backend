@@ -9,6 +9,7 @@ import { EmailService } from '../../email/email.service';
 import { UserUsage } from '../../entities/user-usage.entity';
 import { User } from '../../entities/user.entity';
 import { Subscription } from '../../entities/subscription.entity';
+import { Contact } from '../../entities/contact.entity';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -59,47 +60,29 @@ export class CampaignSchedulerService {
         await this.campaignsRepository.save(campaign);
 
         try {
-            // Load target contacts based on config
             const groups = campaign.config?.groups || [];
             const segmentations = campaign.config?.segmentations || [];
 
-            // Fetch all contacts for the user with their segmentations
-            const allContacts = await this.contactsService.findAll(campaign.userId);
+            let targetContacts: Contact[] = [];
 
-            // Logic compatible with frontend filtering
-            const targetContacts = allContacts.filter(contact => {
-                // If groups are specified, check if contact belongs to one
-                if (groups.length > 0 && contact.group && groups.includes(contact.group.name)) {
-                    return true;
-                }
+            if (segmentations.length > 0) {
+                targetContacts = await this.contactsService.getContactsBySegments(campaign.userId, segmentations);
+            }
 
-                // If segmentations are specified
-                if (segmentations.length > 0) {
-                    // Direct matches
-                    const hasSegmentation = contact.contactSegmentations?.some(cs =>
-                        segmentations.includes(cs.segmentationId)
-                    );
-                    if (hasSegmentation) return true;
+            if (groups.length > 0) {
+                const allContacts = await this.contactsService.findAll(campaign.userId);
+                const groupContacts = allContacts.filter(contact =>
+                    contact.group && groups.includes(contact.group.name)
+                );
 
-                    // Dynamic logic
-                    for (const segId of segmentations) {
-                        if (segId === 'by_state' || segId.startsWith('state_')) {
-                            if (contact.state) return true;
-                        }
-
-                        if (segId === 'lead_captured') {
-                            if (contact.status?.toLowerCase() === 'lead') return true;
-                        }
-
-                        if (segId === 'by_purchase_count' || segId === 'inactive_customers' || segId === 'high_ticket') {
-                            const status = contact.status?.toLowerCase();
-                            if (status === 'customer' || status === 'cliente') return true;
-                        }
+                // Merge and remove duplicates
+                const existingIds = new Set(targetContacts.map(c => c.id));
+                for (const contact of groupContacts) {
+                    if (!existingIds.has(contact.id)) {
+                        targetContacts.push(contact);
                     }
                 }
-
-                return false;
-            });
+            }
 
             this.logger.log(`Campaign [${campaign.id}] has ${targetContacts.length} target contacts.`);
 

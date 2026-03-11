@@ -334,8 +334,38 @@ export class ContactsService {
 
     stats['high_ticket'] = highTicket.length;
 
-    // 7. Contagem manual das segmentações persistidas
-    // Isso cobre casos como 'birthday', 'gender_male', 'active_coupon' etc que podem ter sido atribuídos manualmente
+    // 7. Aniversariantes do Mês (Automático)
+    const currentMonth = new Date().getMonth() + 1;
+    stats['birthday'] = await this.contactsRepository
+      .createQueryBuilder('contact')
+      .where('contact.userId = :userId', { userId })
+      .andWhere('EXTRACT(MONTH FROM contact.birthDate) = :currentMonth', { currentMonth })
+      .getCount();
+
+    // 8. Por Gênero (Automático)
+    stats['gender_male'] = await this.contactsRepository.count({
+      where: { userId, gender: 'M' }
+    });
+    stats['gender_female'] = await this.contactsRepository.count({
+      where: { userId, gender: 'F' }
+    });
+
+    // 9. Clientes que não compram há 30 dias (Automático)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const noPurchase30Days = await this.contactsRepository
+      .createQueryBuilder('contact')
+      .innerJoin(ContactPurchase, 'purchase', 'purchase.contactId = contact.id')
+      .where('contact.userId = :userId', { userId })
+      .select('contact.id')
+      .groupBy('contact.id')
+      .having('MAX(purchase.purchaseDate) < :thirtyDaysAgo', { thirtyDaysAgo })
+      .getRawMany();
+
+    stats['no_purchase_x_days'] = noPurchase30Days.length;
+
+    // 10. Contagem manual das segmentações persistidas (Fallback para o que ainda é manual)
     const manualStats = await this.contactSegmentationsRepository
       .createQueryBuilder('seg')
       .innerJoin('seg.contact', 'contact')
@@ -346,13 +376,13 @@ export class ContactsService {
       .getRawMany();
 
     manualStats.forEach(s => {
-      // Se já foi calculado dinamicamente acima e tem valor, não sobrescreve a menos que o valor dinâmico seja 0
-      if (!stats[s.id] || stats[s.id] === 0) {
+      // Se já foi calculado dinamicamente acima e tem valor 0 ou não existe, usa o manual
+      if (!stats[s.id]) {
         stats[s.id] = parseInt(s.count);
       }
     });
 
-    // 8. Garantir que chaves comuns do frontend existam pelo menos com 0
+    // 11. Garantir que chaves comuns do frontend existam pelo menos com 0
     const commonKeys = [
       'birthday', 'gender_male', 'gender_female',
       'active_coupon', 'cart_recovered_customer', 'no_purchase_x_days'
@@ -362,6 +392,87 @@ export class ContactsService {
     });
 
     return stats;
+  }
+
+  async getContactsBySegments(userId: number, segmentations: string[]): Promise<Contact[]> {
+    if (!segmentations || segmentations.length === 0) return [];
+
+    const query = this.contactsRepository.createQueryBuilder('contact')
+      .leftJoinAndSelect('contact.contactSegmentations', 'cs')
+      .leftJoinAndSelect('contact.group', 'group')
+      .where('contact.userId = :userId', { userId });
+
+    const orConditions: string[] = [];
+    const parameters: any = {};
+
+    for (let i = 0; i < segmentations.length; i++) {
+      const segId = segmentations[i];
+      const paramName = `seg_${i}`;
+
+      if (segId === 'birthday') {
+        const currentMonth = new Date().getMonth() + 1;
+        orConditions.push(`EXTRACT(MONTH FROM contact.birthDate) = :month`);
+        parameters['month'] = currentMonth;
+      } else if (segId === 'gender_male') {
+        orConditions.push(`contact.gender = 'M'`);
+      } else if (segId === 'gender_female') {
+        orConditions.push(`contact.gender = 'F'`);
+      } else if (segId === 'lead_captured') {
+        orConditions.push(`contact.status = 'lead'`);
+      } else if (segId === 'inactive_customers') {
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+          .select('p.contactId')
+          .groupBy('p.contactId')
+          .having('MAX(p.purchaseDate) < :ninetyDate', { ninetyDate: ninetyDaysAgo });
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
+      } else if (segId === 'no_purchase_x_days') {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+          .select('p.contactId')
+          .groupBy('p.contactId')
+          .having('MAX(p.purchaseDate) < :thirtyDate', { thirtyDate: thirtyDaysAgo });
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
+      } else if (segId === 'by_purchase_count') {
+        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+          .select('DISTINCT p.contactId');
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+      } else if (segId === 'high_ticket') {
+        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+          .select('p.contactId')
+          .groupBy('p.contactId')
+          .having('AVG(p.value) > 500');
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+      } else if (segId === 'by_state' || segId.startsWith('state_')) {
+        if (segId.startsWith('state_')) {
+          const state = segId.replace('state_', '').toUpperCase();
+          orConditions.push(`contact.state = :${paramName}`);
+          parameters[paramName] = state;
+        } else {
+          orConditions.push(`contact.state IS NOT NULL`);
+        }
+      } else {
+        // Fallback para segmentações manuais persistidas
+        orConditions.push(`cs.segmentationId = :${paramName}`);
+        parameters[paramName] = segId;
+      }
+    }
+
+    if (orConditions.length > 0) {
+      query.andWhere(`(${orConditions.join(' OR ')})`, parameters);
+    }
+
+    return query.getMany();
   }
 }
 

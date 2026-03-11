@@ -52,6 +52,14 @@ export class CreateContactDto {
   @IsOptional()
   city?: string;
 
+  @IsString()
+  @IsOptional()
+  birthDate?: string;
+
+  @IsString()
+  @IsOptional()
+  gender?: string;
+
   @IsNumber()
   @IsOptional()
   groupId?: number;

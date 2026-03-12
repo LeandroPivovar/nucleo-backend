@@ -276,6 +276,48 @@ export class NuvemshopController {
   }
 
   /**
+   * Sincroniza clientes da Nuvemshop para o CRM
+   */
+  @Post('sync/customers')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncCustomers(@Request() req, @Body() body: { storeId: string }) {
+    const result = await this.nuvemshopService.syncCustomers(req.user.userId, body.storeId);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  /**
+   * Sincroniza pedidos da Nuvemshop para o CRM
+   */
+  @Post('sync/orders')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncOrders(@Request() req, @Body() body: { storeId: string }) {
+    const result = await this.nuvemshopService.syncOrders(req.user.userId, body.storeId);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  /**
+   * Sincroniza produtos da Nuvemshop para o CRM
+   */
+  @Post('sync/products-to-crm')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncProductsToCrm(@Request() req, @Body() body: { storeId: string }) {
+    const result = await this.nuvemshopService.syncProductsToCrm(req.user.userId, body.storeId);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  /**
    * Busca produtos da loja
    */
   @Get('products')

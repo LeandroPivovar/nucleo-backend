@@ -315,6 +315,20 @@ export class ShopifyController {
   }
 
   /**
+   * Sincroniza produtos da Shopify para o CRM
+   */
+  @Post('sync/products-to-crm')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncProductsToCrm(@Request() req, @Body() body: { shop: string }) {
+    const result = await this.shopifyService.syncProductsToCrm(req.user.userId, body.shop);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  /**
    * Cria um cupom de forma isolada
    */
   @Post('coupons')

@@ -630,6 +630,105 @@ export class ShopifyService {
 
     return { imported, updated };
   }
+
+  /**
+   * Sincroniza produtos da Shopify para o CRM
+   */
+  async syncProductsToCrm(userId: number, shop: string): Promise<{ imported: number; updated: number }> {
+    let allProducts: any[] = [];
+    let pageInfo: string | undefined = undefined;
+    let hasMore = true;
+
+    while (hasMore) {
+      // Usar a estrutura atual baseada na REST API de Shopify ou GraphQL já existente
+      try {
+        const queryParams = new URL(
+          `https://${shop}/admin/api/${this.apiVersion}/products.json?limit=250${pageInfo ? `&page_info=${pageInfo}` : ''}`,
+        );
+        const accessToken = await this.getAccessToken(userId, shop);
+
+        const response = await fetch(queryParams.toString(), {
+          headers: {
+            'X-Shopify-Access-Token': accessToken,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new BadRequestException('Erro ao buscar produtos da Shopify');
+        }
+
+        const data = await response.json();
+        if (data.products && data.products.length > 0) {
+          allProducts = allProducts.concat(data.products);
+
+          // Extrair pagination do cursor do Header
+          const linkHeader = response.headers.get('link');
+          if (linkHeader) {
+            const match = linkHeader.match(/<[^>]+page_info=([^>]+)>; rel="next"/);
+            if (match) {
+              const urlParts = new URL(match[0].split(';')[0].slice(1, -1));
+              pageInfo = urlParts.searchParams.get('page_info') || undefined;
+            } else {
+              hasMore = false;
+            }
+          } else {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+      } catch (error) {
+        this.logger.error(`Erro ao sincronizar produtos da loja ${shop}:`, error);
+        hasMore = false;
+      }
+    }
+
+    let imported = 0;
+    let updated = 0;
+
+    for (const item of allProducts) {
+      const price = item.variants && item.variants.length > 0 ? parseFloat(item.variants[0].price) : 0;
+      const sku = item.variants && item.variants.length > 0 ? item.variants[0].sku : '';
+      const stock = item.variants && item.variants.length > 0 && item.variants[0].inventory_quantity ? item.variants[0].inventory_quantity : 0;
+      const name = item.title || 'Produto sem nome';
+      const imageSrc = item.images && item.images.length > 0 ? item.images[0].src : null;
+
+      let product = await this.productRepository.findOne({
+        where: [
+          { userId, name: name }
+        ]
+      });
+
+      if (!product) {
+        product = this.productRepository.create({
+          userId,
+          name: name,
+          sku: sku || '',
+          price: price,
+          stock: stock,
+          active: true,
+          coverPhoto: imageSrc,
+        });
+        await this.productRepository.save(product);
+        imported++;
+      } else {
+        product.price = price > 0 ? price : product.price;
+        product.stock = stock;
+        if (imageSrc && !product.coverPhoto) {
+          product.coverPhoto = imageSrc;
+        }
+        await this.productRepository.save(product);
+        updated++;
+      }
+    }
+
+    const connection = await this.getActiveConnection(userId, shop);
+    connection.lastSyncAt = new Date();
+    await this.shopifyConnectionRepository.save(connection);
+
+    return { imported, updated };
+  }
   /**
    * Cria um código de desconto na Shopify via GraphQL
    */

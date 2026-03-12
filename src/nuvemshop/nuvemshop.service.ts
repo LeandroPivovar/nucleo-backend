@@ -8,6 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
+import { Contact } from '../entities/contact.entity';
+import { Sale } from '../entities/sale.entity';
+import { Product } from '../entities/product.entity';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -21,6 +24,12 @@ export class NuvemshopService {
   constructor(
     @InjectRepository(NuvemshopConnection)
     private nuvemshopConnectionRepository: Repository<NuvemshopConnection>,
+    @InjectRepository(Contact)
+    private contactRepository: Repository<Contact>,
+    @InjectRepository(Sale)
+    private saleRepository: Repository<Sale>,
+    @InjectRepository(Product)
+    private productRepository: Repository<Product>,
     private configService: ConfigService,
   ) {
     this.clientId = this.configService.get<string>('NUVEMSHOP_CLIENT_ID') || '24731';
@@ -565,102 +574,276 @@ export class NuvemshopService {
       page?: number;
     },
   ): Promise<any[]> {
-    try {
-      const accessToken = await this.getAccessToken(userId, storeId);
+    const defaultParams = { limit: 200, page: 1 };
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.page) queryParams.append('page', params.page.toString());
 
-      if (!accessToken) {
-        throw new UnauthorizedException('Token de acesso não encontrado');
-      }
+    return await this.makeApiRequest(userId, storeId, `/products?${queryParams.toString()}`);
+  }
 
-      // Log detalhado do token que será usado (sem expor o token completo por segurança)
-      console.log('Preparando requisição getProducts:', {
-        userId,
-        storeId,
-        tokenLength: accessToken.length,
-        tokenPrefix: accessToken.substring(0, 20),
-        tokenSuffix: accessToken.substring(accessToken.length - 10),
-        tokenHasSpaces: accessToken.includes(' '),
-        tokenHasNewlines: accessToken.includes('\n'),
-      });
+  private async makeApiRequest(userId: number, storeId: string, path: string, method: string = 'GET', body?: any): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+    const url = `${this.apiBaseUrl}/${storeId}${path}`;
 
-      const queryParams = new URLSearchParams();
-      if (params?.limit) queryParams.append('limit', params.limit.toString());
-      if (params?.page) queryParams.append('page', params.page.toString());
-
-      const url = `${this.apiBaseUrl}/${storeId}/products${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-
-      console.log('URL da requisição:', url);
-      console.log('Headers da requisição:', {
-        'Authentication': `bearer ${accessToken.substring(0, 20)}...`,
+    const options: RequestInit = {
+      method,
+      headers: {
+        'Authentication': `bearer ${accessToken}`,
         'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+      },
+    };
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText || `Falha na requisição para ${path}` };
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        throw new UnauthorizedException(error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado');
+      }
+
+      throw new BadRequestException(error.error_description || error.message || error.error || `Falha na requisição (${response.status})`);
+    }
+
+    const data = await response.json();
+    if (Array.isArray(data)) return data;
+    if (data.products && Array.isArray(data.products)) return data.products;
+    if (data.data && Array.isArray(data.data)) return data.data;
+    if (data.orders && Array.isArray(data.orders)) return data.orders;
+    if (data.customers && Array.isArray(data.customers)) return data.customers;
+    return data;
+  }
+
+  /**
+   * Sincroniza clientes da Nuvemshop
+   */
+  async syncCustomers(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {
+    let allCustomers: any[] = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const customers = await this.makeApiRequest(userId, storeId, `/customers?per_page=200&page=${page}`);
+      if (!customers || !Array.isArray(customers) || customers.length === 0) {
+        hasMore = false;
+      } else {
+        allCustomers = allCustomers.concat(customers);
+        page++;
+      }
+    }
+
+    let imported = 0;
+    let updated = 0;
+
+    for (const sCustomer of allCustomers) {
+      if (!sCustomer.email) continue;
+
+      let contact = await this.contactRepository.findOne({
+        where: { userId, email: sCustomer.email },
       });
 
-      const response = await fetch(url, {
-        headers: {
-          'Authentication': `bearer ${accessToken}`,
-          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      });
+      if (contact) {
+        contact.name = contact.name || sCustomer.name?.split(' ')[0] || 'Sem Nome';
+        contact.lastName = contact.lastName || sCustomer.name?.split(' ').slice(1).join(' ') || '';
+        contact.phone = contact.phone || sCustomer.phone || '';
+        contact.city = contact.city || sCustomer.default_address?.city || '';
+        contact.state = contact.state || sCustomer.default_address?.province || '';
+        await this.contactRepository.save(contact);
+        updated++;
+      } else {
+        contact = this.contactRepository.create({
+          userId,
+          email: sCustomer.email,
+          name: sCustomer.name?.split(' ')[0] || 'Sem Nome',
+          lastName: sCustomer.name?.split(' ').slice(1).join(' ') || '',
+          phone: sCustomer.phone || '',
+          city: sCustomer.default_address?.city || '',
+          state: sCustomer.default_address?.province || '',
+          source: 'nuvemshop',
+          status: 'customer',
+        });
+        await this.contactRepository.save(contact);
+        imported++;
+      }
+    }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        let error;
-        try {
-          error = JSON.parse(errorText);
-        } catch {
-          error = { message: errorText || 'Falha ao buscar produtos' };
-        }
+    const connection = await this.getActiveConnection(userId, storeId);
+    connection.lastSyncAt = new Date();
+    await this.nuvemshopConnectionRepository.save(connection);
 
-        // Log para debug (remover em produção se necessário)
-        console.error('Erro ao buscar produtos da Nuvemshop:', {
-          status: response.status,
-          statusText: response.statusText,
-          error,
-          url,
+    return { imported, updated };
+  }
+
+  /**
+   * Sincroniza pedidos da Nuvemshop para o CRM
+   */
+  async syncOrders(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {
+    let allOrders: any[] = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const orders = await this.makeApiRequest(userId, storeId, `/orders?per_page=200&page=${page}`);
+      if (!orders || !Array.isArray(orders) || orders.length === 0) {
+        hasMore = false;
+      } else {
+        allOrders = allOrders.concat(orders);
+        page++;
+      }
+    }
+
+    let imported = 0;
+    let updated = 0;
+
+    for (const sOrder of allOrders) {
+      const customerEmail = sOrder.customer?.email;
+      if (!customerEmail) continue;
+
+      let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+      if (!contact && sOrder.customer) {
+        contact = this.contactRepository.create({
+          userId,
+          email: customerEmail,
+          name: sOrder.customer.name?.split(' ')[0] || 'Sem Nome',
+          lastName: sOrder.customer.name?.split(' ').slice(1).join(' ') || '',
+          source: 'nuvemshop',
+          status: 'customer',
+        });
+        await this.contactRepository.save(contact);
+      }
+
+      for (const item of sOrder.products || []) {
+        let product = await this.productRepository.findOne({
+          where: [
+            { userId, sku: item.sku },
+            { userId, name: item.name }
+          ]
         });
 
-        if (response.status === 401 || response.status === 403) {
-          // Verificar se o problema é escopo insuficiente
-          const connection = await this.getActiveConnection(userId, storeId);
-          if (connection.scope && !connection.scope.includes('read_products')) {
-            throw new UnauthorizedException(
-              'Token não possui o escopo "read_products" necessário para buscar produtos. ' +
-              'Por favor, reconecte a integração e certifique-se de que o app na Nuvemshop tenha o escopo "read_products" configurado no painel do desenvolvedor.',
-            );
-          }
-
-          throw new UnauthorizedException(
-            error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado',
-          );
+        if (!product) {
+          product = this.productRepository.create({
+            userId,
+            name: item.name,
+            sku: item.sku || '',
+            price: parseFloat(item.price),
+            stock: 0,
+            active: true,
+          });
+          await this.productRepository.save(product);
         }
 
-        throw new BadRequestException(
-          error.error_description || error.message || error.error || `Falha ao buscar produtos (${response.status})`,
-        );
-      }
+        const createdAt = new Date(sOrder.created_at);
+        const existingSale = await this.saleRepository.findOne({
+          where: {
+            userId,
+            productId: product.id,
+            contactId: contact?.id,
+            createdAt: createdAt,
+          }
+        });
 
-      const data = await response.json();
-      // A API da Nuvemshop pode retornar um array direto ou um objeto com propriedade products
-      if (Array.isArray(data)) {
-        return data;
-      } else if (data.products && Array.isArray(data.products)) {
-        return data.products;
-      } else if (data.data && Array.isArray(data.data)) {
-        return data.data;
+        if (!existingSale) {
+          const sale = this.saleRepository.create({
+            userId,
+            productId: product.id,
+            contactId: contact?.id,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.price),
+            totalValue: parseFloat(item.price) * item.quantity,
+            customerName: contact ? `${contact.name} ${contact.lastName}` : sOrder.customer?.name,
+            customerEmail: customerEmail,
+            channel: 'nuvemshop',
+            status: sOrder.status === 'paid' ? 'completed' : 'processing',
+            createdAt: createdAt,
+          });
+          await this.saleRepository.save(sale);
+          imported++;
+        } else {
+          updated++;
+        }
       }
-      return [];
-    } catch (error) {
-      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
-        throw error;
-      }
-      throw new BadRequestException(
-        error instanceof Error ? error.message : 'Falha ao buscar produtos da Nuvemshop',
-      );
     }
+
+    const connection = await this.getActiveConnection(userId, storeId);
+    connection.lastSyncAt = new Date();
+    await this.nuvemshopConnectionRepository.save(connection);
+
+    return { imported, updated };
+  }
+
+  /**
+   * Sincroniza produtos da Nuvemshop para o CRM
+   */
+  async syncProductsToCrm(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {
+    let allProducts: any[] = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const products = await this.makeApiRequest(userId, storeId, `/products?per_page=200&page=${page}`);
+      if (!products || !Array.isArray(products) || products.length === 0) {
+        hasMore = false;
+      } else {
+        allProducts = allProducts.concat(products);
+        page++;
+      }
+    }
+
+    let imported = 0;
+    let updated = 0;
+
+    for (const item of allProducts) {
+      const price = item.variants && item.variants.length > 0 ? parseFloat(item.variants[0].price) : 0;
+      const sku = item.variants && item.variants.length > 0 ? item.variants[0].sku : '';
+      const stock = item.variants && item.variants.length > 0 && item.variants[0].stock ? item.variants[0].stock : 0;
+      const name = item.name?.pt || item.name?.en || item.name?.es || 'Produto sem nome';
+
+      let product = await this.productRepository.findOne({
+        where: [
+          { userId, name: name }
+        ]
+      });
+
+      if (!product) {
+        product = this.productRepository.create({
+          userId,
+          name: name,
+          sku: sku || '',
+          price: price,
+          stock: stock,
+          active: true,
+          coverPhoto: item.images && item.images.length > 0 ? item.images[0].src : null,
+        });
+        await this.productRepository.save(product);
+        imported++;
+      } else {
+        product.price = price > 0 ? price : product.price;
+        product.stock = stock;
+        if (item.images && item.images.length > 0 && !product.coverPhoto) {
+          product.coverPhoto = item.images[0].src;
+        }
+        await this.productRepository.save(product);
+        updated++;
+      }
+    }
+
+    const connection = await this.getActiveConnection(userId, storeId);
+    connection.lastSyncAt = new Date();
+    await this.nuvemshopConnectionRepository.save(connection);
+
+    return { imported, updated };
   }
 
   /**

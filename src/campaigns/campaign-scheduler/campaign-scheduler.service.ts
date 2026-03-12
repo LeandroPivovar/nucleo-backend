@@ -122,11 +122,30 @@ export class CampaignSchedulerService {
 
                     if (campaign.complexity === 'advanced') {
                         const nodes = campaign.config?.workflow?.nodes || [];
+                        let activeCoupon: any = null;
 
                         for (const node of nodes) {
+                            if (node.type === 'coupon' || node.type === 'giftback') {
+                                activeCoupon = node.data;
+                                continue;
+                            }
+
                             if (node.type === 'email' && contact.email) {
                                 const subject = node.data?.subject || 'Nova Campanha';
-                                const content = node.data?.content || '';
+                                let content = node.data?.content || '';
+
+                                // Variable substitution
+                                if (activeCoupon) {
+                                    const value = activeCoupon.discountType === 'percentage'
+                                        ? `${activeCoupon.discountValue}%`
+                                        : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
+
+                                    content = content
+                                        .replace(/{{cupom_nome}}/g, activeCoupon.couponName || 'CUPOM')
+                                        .replace(/{{cupom_valor}}/g, value)
+                                        .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
+                                }
+
                                 try {
                                     await this.emailService.sendEmail({
                                         to: contact.email,
@@ -139,11 +158,37 @@ export class CampaignSchedulerService {
                                     this.logger.error(`Failed to send email to ${contact.email}`, e);
                                 }
                             } else if (node.type === 'sms' && contact.phone) {
-                                const content = node.data?.content || 'Olá! Temos uma novidade para você.';
+                                let content = node.data?.content || 'Olá! Temos uma novidade para você.';
+
+                                // Variable substitution
+                                if (activeCoupon) {
+                                    const value = activeCoupon.discountType === 'percentage'
+                                        ? `${activeCoupon.discountValue}%`
+                                        : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
+
+                                    content = content
+                                        .replace(/{{cupom_nome}}/g, activeCoupon.couponName || 'CUPOM')
+                                        .replace(/{{cupom_valor}}/g, value)
+                                        .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
+                                }
+
                                 const success = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, content);
                                 if (success) sentSmsCount++;
                             } else if (node.type === 'whatsapp' && contact.phone) {
-                                const content = node.data?.content || 'Olá! Temos uma novidade para você.';
+                                let content = node.data?.content || 'Olá! Temos uma novidade para você.';
+
+                                // Variable substitution
+                                if (activeCoupon) {
+                                    const value = activeCoupon.discountType === 'percentage'
+                                        ? `${activeCoupon.discountValue}%`
+                                        : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
+
+                                    content = content
+                                        .replace(/{{cupom_nome}}/g, activeCoupon.couponName || 'CUPOM')
+                                        .replace(/{{cupom_valor}}/g, value)
+                                        .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
+                                }
+
                                 const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, content);
                                 if (success) sentWhatsappCount++;
                             }

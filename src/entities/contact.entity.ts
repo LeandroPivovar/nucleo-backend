@@ -12,6 +12,7 @@ import { User } from './user.entity';
 import { ContactTag } from './contact-tag.entity';
 import { ContactSegmentation } from './contact-segmentation.entity';
 import { Group } from './group.entity';
+import { Sale } from './sale.entity';
 
 @Entity('contacts')
 export class Contact {
@@ -69,6 +70,9 @@ export class Contact {
 
   @OneToMany(() => ContactSegmentation, (contactSegmentation) => contactSegmentation.contact)
   contactSegmentations: ContactSegmentation[];
+
+  @OneToMany(() => Sale, (sale) => sale.contact)
+  sales: Sale[];
 
   @ManyToOne(() => Group, { nullable: true })
   @JoinColumn({ name: 'groupId' })

@@ -74,4 +74,3 @@ export class Sale {
   @CreateDateColumn()
   createdAt: Date;
 }
-

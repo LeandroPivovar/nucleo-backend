@@ -7,6 +7,7 @@ import { ContactSegmentation } from '../entities/contact-segmentation.entity';
 import { Tag } from '../entities/tag.entity';
 import { Group } from '../entities/group.entity';
 import { ContactPurchase } from '../entities/contact-purchase.entity';
+import { Sale } from '../entities/sale.entity';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { ImportContactRow } from './dto/import-contacts.dto';
@@ -36,6 +37,8 @@ export class ContactsService {
     private contactSegmentationsRepository: Repository<ContactSegmentation>,
     @InjectRepository(ContactPurchase)
     private contactPurchasesRepository: Repository<ContactPurchase>,
+    @InjectRepository(Sale)
+    private saleRepository: Repository<Sale>,
   ) { }
 
   async create(userId: number, createContactDto: CreateContactDto): Promise<Contact> {
@@ -105,7 +108,7 @@ export class ContactsService {
   async findOne(userId: number, id: number): Promise<Contact> {
     const contact = await this.contactsRepository.findOne({
       where: { id, userId },
-      relations: ['contactTags', 'contactTags.tag', 'contactSegmentations', 'group'],
+      relations: ['contactTags', 'contactTags.tag', 'contactSegmentations', 'group', 'sales', 'sales.product'],
     });
 
     if (!contact) {
@@ -313,19 +316,19 @@ export class ContactsService {
 
     const inactiveContacts = await this.contactsRepository
       .createQueryBuilder('contact')
-      .innerJoin(ContactPurchase, 'purchase', 'purchase.contactId = contact.id')
+      .innerJoin(Sale, 'sale', 'sale.contactId = contact.id')
       .where('contact.userId = :userId', { userId })
       .select('contact.id')
       .groupBy('contact.id')
-      .having('MAX(purchase.purchaseDate) < :ninetyDaysAgo', { ninetyDaysAgo })
+      .having('MAX(sale.createdAt) < :ninetyDaysAgo', { ninetyDaysAgo })
       .getRawMany();
 
     stats['inactive_customers'] = inactiveContacts.length;
 
-    // 5. Clientes por número de compras (Pelo menos 1 compra)
-    const buyers = await this.contactPurchasesRepository
-      .createQueryBuilder('purchase')
-      .innerJoin('purchase.contact', 'contact')
+    // 5. Clientes por número de compras (Pela menos 1 compra)
+    const buyers = await this.saleRepository
+      .createQueryBuilder('sale')
+      .innerJoin('sale.contact', 'contact')
       .where('contact.userId = :userId', { userId })
       .select('DISTINCT contact.id')
       .getRawMany();
@@ -333,13 +336,13 @@ export class ContactsService {
     stats['by_purchase_count'] = buyers.length;
 
     // 6. Ticket Médio Alto (Clientes com média > 500)
-    const highTicket = await this.contactPurchasesRepository
-      .createQueryBuilder('purchase')
-      .innerJoin('purchase.contact', 'contact')
+    const highTicket = await this.saleRepository
+      .createQueryBuilder('sale')
+      .innerJoin('sale.contact', 'contact')
       .where('contact.userId = :userId', { userId })
       .select('contact.id')
       .groupBy('contact.id')
-      .having('AVG(purchase.value) > :value', { value: 500 })
+      .having('AVG(sale.totalValue) > :value', { value: 500 })
       .getRawMany();
 
     stats['high_ticket'] = highTicket.length;
@@ -366,11 +369,11 @@ export class ContactsService {
 
     const noPurchase30Days = await this.contactsRepository
       .createQueryBuilder('contact')
-      .innerJoin(ContactPurchase, 'purchase', 'purchase.contactId = contact.id')
+      .innerJoin(Sale, 'sale', 'sale.contactId = contact.id')
       .where('contact.userId = :userId', { userId })
       .select('contact.id')
       .groupBy('contact.id')
-      .having('MAX(purchase.purchaseDate) < :thirtyDaysAgo', { thirtyDaysAgo })
+      .having('MAX(sale.createdAt) < :thirtyDaysAgo', { thirtyDaysAgo })
       .getRawMany();
 
     stats['no_purchase_x_days'] = noPurchase30Days.length;
@@ -436,9 +439,9 @@ export class ContactsService {
         const ninetyDaysAgo = new Date();
         ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - days);
 
-        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+        const subQuery = this.saleRepository.createQueryBuilder('p')
           .select('p.contactId')
-          .where('p.purchaseDate >= :nineDate', { nineDate: ninetyDaysAgo });
+          .where('p.createdAt >= :nineDate', { nineDate: ninetyDaysAgo });
 
         orConditions.push(`contact.id NOT IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
@@ -447,15 +450,15 @@ export class ContactsService {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - days);
 
-        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+        const subQuery = this.saleRepository.createQueryBuilder('p')
           .select('p.contactId')
-          .where('p.purchaseDate >= :thirtDate', { thirtDate: thirtyDaysAgo });
+          .where('p.createdAt >= :thirtDate', { thirtDate: thirtyDaysAgo });
 
         orConditions.push(`contact.id NOT IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'by_purchase_count') {
         const minPurchases = segParams.minPurchases !== undefined ? segParams.minPurchases : 1;
-        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+        const subQuery = this.saleRepository.createQueryBuilder('p')
           .select('p.contactId')
           .groupBy('p.contactId')
           .having('COUNT(*) >= :minPurchases', { minPurchases });
@@ -464,10 +467,10 @@ export class ContactsService {
         Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'high_ticket') {
         const minTicket = segParams.minTicket !== undefined ? segParams.minTicket : 500;
-        const subQuery = this.contactPurchasesRepository.createQueryBuilder('p')
+        const subQuery = this.saleRepository.createQueryBuilder('p')
           .select('p.contactId')
           .groupBy('p.contactId')
-          .having('AVG(p.value) > :minTicket', { minTicket });
+          .having('AVG(p.totalValue) > :minTicket', { minTicket });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());

@@ -568,7 +568,8 @@ export class ShopifyService {
       }
 
       // Processar itens do pedido
-      for (const item of sOrder.line_items) {
+      for (let index = 0; index < sOrder.line_items.length; index++) {
+        const item = sOrder.line_items[index];
         console.log(`[Shopify Sync] Pedido ${sOrder.name || sOrder.id} - Recebido item:`, { sku: item.sku, name: item.name, title: item.title, price: item.price, quantity: item.quantity });
 
         const itemName = item.name || item.title;
@@ -600,26 +601,45 @@ export class ShopifyService {
         }
 
         // Criar a venda
-        // Evitar duplicidade básica: mesma data e mesmo produto
+        // Evitar duplicidade usando externalId
         const createdAt = new Date(sOrder.created_at);
-
-        let existingSaleConditions: any = {
-          userId,
-          productId: product.id,
-          createdAt: createdAt,
-        };
-        if (customerEmail) {
-          existingSaleConditions.customerEmail = customerEmail;
-        }
+        const externalId = `shopify_${sOrder.id}_${item.id || item.variant_id || index}`;
 
         let existingSale = await this.saleRepository.findOne({
-          where: existingSaleConditions
+          where: { userId, externalId }
         });
 
-        if (existingSale && !existingSale.contactId && contact?.id) {
-          existingSale.contactId = contact.id;
-          await this.saleRepository.save(existingSale);
-          console.log(`[Shopify Sync] Venda atualizada no CRM. Produto ID: ${product.id}. Adicionado Contact ID: ${contact.id}`);
+        // Se não achou por externalId, tenta o fallback por data e produto (para vendas migradas/antigas)
+        if (!existingSale) {
+          let existingSaleConditions: any = {
+            userId,
+            productId: product.id,
+            createdAt: createdAt,
+          };
+          if (customerEmail) {
+            existingSaleConditions.customerEmail = customerEmail;
+          }
+
+          existingSale = await this.saleRepository.findOne({
+            where: existingSaleConditions
+          });
+        }
+
+        if (existingSale) {
+          let needsUpdate = false;
+          if (!existingSale.contactId && contact?.id) {
+            existingSale.contactId = contact.id;
+            needsUpdate = true;
+          }
+          if (!existingSale.externalId) {
+            existingSale.externalId = externalId;
+            needsUpdate = true;
+          }
+
+          if (needsUpdate) {
+            await this.saleRepository.save(existingSale);
+            console.log(`[Shopify Sync] Venda atualizada no CRM. ID: ${existingSale.id}. Produto: ${product.name}`);
+          }
         }
 
         if (!existingSale) {
@@ -636,6 +656,7 @@ export class ShopifyService {
             channel: 'shopify',
             status: sOrder.financial_status === 'paid' ? 'completed' : 'processing',
             createdAt: createdAt,
+            externalId: externalId,
           });
           await this.saleRepository.save(sale);
           imported++;

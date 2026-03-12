@@ -68,6 +68,9 @@ export class Sale {
   @Column({ length: 50, default: 'completed' })
   status: string; // 'completed', 'processing', 'cancelled'
 
+  @Column({ length: 255, nullable: true })
+  externalId: string;
+
   @CreateDateColumn()
   createdAt: Date;
 }

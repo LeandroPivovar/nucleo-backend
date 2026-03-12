@@ -724,7 +724,8 @@ export class NuvemshopService {
         await this.contactRepository.save(contact);
       }
 
-      for (const item of sOrder.products || []) {
+      for (let index = 0; index < (sOrder.products || []).length; index++) {
+        const item = sOrder.products[index];
         console.log(`[Nuvemshop Sync] Pedido ${sOrder.number || sOrder.id} - Recebido item:`, { sku: item.sku, name: item.name, price: item.price, quantity: item.quantity });
 
         // Nuvemshop often stores SKU as null or empty string. TypeORM where clause might match "null" weirdly.
@@ -756,24 +757,43 @@ export class NuvemshopService {
         }
 
         const createdAt = new Date(sOrder.created_at);
-
-        let existingSaleConditions: any = {
-          userId,
-          productId: product.id,
-          createdAt: createdAt,
-        };
-        if (customerEmail) {
-          existingSaleConditions.customerEmail = customerEmail;
-        }
+        const externalId = `nuvemshop_${sOrder.id}_${item.id || index}`;
 
         let existingSale = await this.saleRepository.findOne({
-          where: existingSaleConditions
+          where: { userId, externalId }
         });
 
-        if (existingSale && !existingSale.contactId && contact?.id) {
-          existingSale.contactId = contact.id;
-          await this.saleRepository.save(existingSale);
-          console.log(`[Nuvemshop Sync] Venda atualizada no CRM. Produto ID: ${product.id}. Adicionado Contact ID: ${contact.id}`);
+        // Se não achou por externalId, tenta o fallback por data e produto
+        if (!existingSale) {
+          let existingSaleConditions: any = {
+            userId,
+            productId: product.id,
+            createdAt: createdAt,
+          };
+          if (customerEmail) {
+            existingSaleConditions.customerEmail = customerEmail;
+          }
+
+          existingSale = await this.saleRepository.findOne({
+            where: existingSaleConditions
+          });
+        }
+
+        if (existingSale) {
+          let needsUpdate = false;
+          if (!existingSale.contactId && contact?.id) {
+            existingSale.contactId = contact.id;
+            needsUpdate = true;
+          }
+          if (!existingSale.externalId) {
+            existingSale.externalId = externalId;
+            needsUpdate = true;
+          }
+
+          if (needsUpdate) {
+            await this.saleRepository.save(existingSale);
+            console.log(`[Nuvemshop Sync] Venda atualizada no CRM. ID: ${existingSale.id}. Produto: ${product.name}`);
+          }
         }
 
         if (!existingSale) {
@@ -790,6 +810,7 @@ export class NuvemshopService {
             channel: 'nuvemshop',
             status: sOrder.status === 'paid' ? 'completed' : 'processing',
             createdAt: createdAt,
+            externalId: externalId,
           });
           await this.saleRepository.save(sale);
           imported++;

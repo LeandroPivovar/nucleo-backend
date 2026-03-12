@@ -106,7 +106,7 @@ export class SalesService {
   async findAll(userId: number): Promise<Sale[]> {
     return this.saleRepository.find({
       where: { userId },
-      relations: ['product'],
+      relations: ['product', 'contact'],
       order: { createdAt: 'DESC' },
     });
   }

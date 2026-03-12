@@ -313,4 +313,49 @@ export class ShopifyController {
       ...result,
     };
   }
+
+  /**
+   * Cria um cupom de forma isolada
+   */
+  @Post('coupons')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async createCoupon(
+    @Request() req,
+    @Body() body: {
+      shop?: string;
+      title: string;
+      code: string;
+      value: string;
+      valueType: 'percentage' | 'fixed';
+      endsAt?: string;
+    }
+  ) {
+    let shop = body.shop;
+    if (!shop) {
+      const connections = await this.shopifyService.getConnections(req.user.userId);
+      const activeConn = connections.find(c => c.isActive);
+      if (!activeConn) {
+        throw new Error('Nenhuma loja conectada ativa encontrada. É necessário fornecer { shop } no body ou ativar uma conexão.');
+      }
+      shop = activeConn.shop;
+    }
+
+    const result = await this.shopifyService.createDiscountCode(
+      req.user.userId,
+      shop,
+      {
+        title: body.title,
+        code: body.code,
+        value: body.value,
+        valueType: body.valueType,
+        endsAt: body.endsAt,
+      }
+    );
+
+    return {
+      success: true,
+      result
+    };
+  }
 }

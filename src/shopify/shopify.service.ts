@@ -733,7 +733,10 @@ export class ShopifyService {
       }
     }
 
-    return result.data?.discountCodeBasicCreate?.codeDiscountNode;
+    const codeNode = result.data?.discountCodeBasicCreate?.codeDiscountNode;
+    this.logger.log(`Cupom '${params.code}' gerado/validado com sucesso na loja ${shop}. Detalhes: ${JSON.stringify(codeNode)}`);
+
+    return codeNode;
   }
 
   /**

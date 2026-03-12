@@ -196,13 +196,43 @@ export class CampaignSchedulerService {
                     } else {
                         // Logic for 'simple' campaigns
                         let sent = false;
+                        let messageContent = campaign.config?.email?.content || 'Olá! Temos uma novidade para você.';
+
+                        // Variable substitution for simple campaign
+                        const campaignConfig = campaign.config?.campaignConfig;
+                        if (campaignConfig?.enableCoupon) {
+                            const coupon = campaignConfig.coupon;
+                            const value = coupon.discountType === 'percentage'
+                                ? `${coupon.discountValue}%`
+                                : `R$ ${coupon.discountValue}`;
+
+                            const validity = coupon.validityDate
+                                ? Math.ceil((new Date(coupon.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                                : 30;
+
+                            messageContent = messageContent
+                                .replace(/{{cupom_nome}}/g, coupon.couponName || 'CUPOM')
+                                .replace(/{{cupom_valor}}/g, value)
+                                .replace(/{{cupom_validade}}/g, validity.toString());
+                        } else if (campaignConfig?.enableGiftback) {
+                            const giftback = campaignConfig.giftback;
+                            const value = `R$ ${giftback.giftValue}`;
+
+                            const validity = giftback.validityDate
+                                ? Math.ceil((new Date(giftback.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                                : 30;
+
+                            messageContent = messageContent
+                                .replace(/{{cupom_nome}}/g, giftback.couponName || 'CASHBACK')
+                                .replace(/{{cupom_valor}}/g, value)
+                                .replace(/{{cupom_validade}}/g, validity.toString());
+                        }
+
                         if (campaign.channel === 'whatsapp' || campaign.channel === 'sms') {
                             if (!contact.phone) {
                                 this.logger.warn(`Contact ${contact.id} has no phone number. Skipping.`);
                                 return { sentEmailCount, sentSmsCount, sentWhatsappCount };
                             }
-
-                            const messageContent = campaign.config?.email?.content || 'Olá! Temos uma novidade para você.';
 
                             if (campaign.channel === 'whatsapp') {
                                 sent = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, messageContent);
@@ -218,14 +248,13 @@ export class CampaignSchedulerService {
                             }
 
                             const subject = campaign.config?.email?.subject || 'Nova Campanha';
-                            const content = campaign.config?.email?.content || '';
 
                             try {
                                 await this.emailService.sendEmail({
                                     to: contact.email,
                                     subject: subject,
-                                    html: content,
-                                    text: content.replace(/<[^>]*>?/gm, '')
+                                    html: messageContent,
+                                    text: messageContent.replace(/<[^>]*>?/gm, '')
                                 });
                                 sentEmailCount++;
                                 sent = true;

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -18,7 +19,8 @@ export class ShopifyService {
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly apiVersion: string = '2024-07';
-  private readonly scopes: string = 'write_products,read_orders,read_customers,read_checkouts';
+  private readonly scopes: string = 'write_products,read_orders,read_customers,read_checkouts,write_discounts,read_discounts,write_gift_cards,read_gift_cards';
+  private readonly logger = new Logger(ShopifyService.name);
 
   constructor(
     @InjectRepository(ShopifyConnection)
@@ -628,108 +630,195 @@ export class ShopifyService {
 
     return { imported, updated };
   }
-
   /**
-   * Cria uma Price Rule na Shopify
+   * Cria um código de desconto na Shopify via GraphQL
    */
-  async createPriceRule(userId: number, shop: string, data: any): Promise<any> {
+  async createDiscountCode(
+    userId: number,
+    shop: string,
+    params: {
+      title: string;
+      code: string;
+      value: string;
+      valueType: 'percentage' | 'fixed';
+      endsAt?: string;
+    }
+  ): Promise<any> {
     const accessToken = await this.getAccessToken(userId, shop);
 
+    const mutation = `
+      mutation discountCodeBasicCreate($basicCodeDiscount: DiscountCodeBasicInput!) {
+        discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
+          codeDiscountNode {
+            codeDiscount {
+              ... on DiscountCodeBasic {
+                title
+                codes(first: 10) {
+                  nodes {
+                    code
+                  }
+                }
+              }
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      basicCodeDiscount: {
+        title: params.title,
+        usageLimit: 1, // Um uso para garantir que não seja abusado
+        appliesOncePerCustomer: true,
+        codes: [
+          { code: params.code }
+        ],
+        customerGets: {
+          value: params.valueType === 'percentage'
+            ? { discountAmount: { amount: parseFloat(params.value), appliesOnEachItem: true } } // Percentage might need different structure but loosely assuming
+            : { discountAmount: { amount: parseFloat(params.value), appliesOnEachItem: false } },
+          items: {
+            all: true
+          }
+        },
+        customerSelection: {
+          all: true
+        },
+        appliesTo: {
+          products: {
+            all: true
+          }
+        },
+        ...(params.endsAt && { endsAt: params.endsAt })
+      }
+    };
+
+    // Ajuste para porcentagem no GraphQL (usa percentage: decimal_value)
+    if (params.valueType === 'percentage') {
+      const percentageDecimal = parseFloat(params.value) / 100;
+      variables.basicCodeDiscount.customerGets.value = {
+        percentage: percentageDecimal
+      } as any;
+    }
+
     const response = await fetch(
-      `https://${shop}/admin/api/${this.apiVersion}/price_rules.json`,
+      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Shopify-Access-Token': accessToken,
         },
-        body: JSON.stringify({ price_rule: data }),
+        body: JSON.stringify({
+          query: mutation,
+          variables,
+        }),
       },
     );
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new BadRequestException(
-        error.errors ? JSON.stringify(error.errors) : 'Falha ao criar Price Rule na Shopify',
-      );
+      throw new BadRequestException('Falha ao criar código de desconto na Shopify');
     }
 
     const result = await response.json();
-    return result.price_rule;
+
+    if (result.errors) {
+      throw new BadRequestException(result.errors[0].message);
+    }
+
+    if (result.data?.discountCodeBasicCreate?.userErrors?.length > 0) {
+      // Se for duplicado, podemos não lançar erro (apenas ignorar) ou tratar
+      const errorMessage = result.data.discountCodeBasicCreate.userErrors[0].message;
+      if (!errorMessage.toLowerCase().includes('already taken')) {
+        this.logger.warn(`Shopify Erro ao criar cupom: ${errorMessage}`);
+        // throw new BadRequestException(`Erro criando cupom Shopify: ${errorMessage}`);
+      }
+    }
+
+    return result.data?.discountCodeBasicCreate?.codeDiscountNode;
   }
 
   /**
-   * Cria um Discount Code na Shopify
+   * Cria um Gift Card na Shopify via GraphQL
    */
-  async createDiscountCode(userId: number, shop: string, priceRuleId: number, code: string): Promise<any> {
+  async createGiftCard(
+    userId: number,
+    shop: string,
+    params: {
+      initialValue: string;
+      note?: string;
+      customerId?: string; // GID from Shopify
+      endsAt?: string;
+    }
+  ): Promise<{ code: string }> {
     const accessToken = await this.getAccessToken(userId, shop);
 
+    const mutation = `
+      mutation giftCardCreate($input: GiftCardCreateInput!) {
+        giftCardCreate(input: $input) {
+          giftCard {
+            id
+            initialValue {
+              amount
+              currencyCode
+            }
+            code
+            expiresOn
+            note
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      input: {
+        initialValue: parseFloat(params.initialValue).toFixed(2),
+        ...(params.note && { note: params.note }),
+        ...(params.customerId && { customerId: params.customerId }),
+        ...(params.endsAt && { expiresOn: params.endsAt })
+      }
+    };
+
     const response = await fetch(
-      `https://${shop}/admin/api/${this.apiVersion}/price_rules/${priceRuleId}/discount_codes.json`,
+      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Shopify-Access-Token': accessToken,
         },
-        body: JSON.stringify({ discount_code: { code } }),
+        body: JSON.stringify({
+          query: mutation,
+          variables,
+        }),
       },
     );
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new BadRequestException(
-        error.errors ? JSON.stringify(error.errors) : 'Falha ao criar Discount Code na Shopify',
-      );
+      throw new BadRequestException('Falha ao criar Gift Card na Shopify');
     }
 
     const result = await response.json();
-    return result.discount_code;
-  }
 
-  /**
-   * Cria um Gift Card na Shopify
-   */
-  async createGiftCard(userId: number, shop: string, data: any): Promise<any> {
-    const accessToken = await this.getAccessToken(userId, shop);
+    if (result.errors) {
+      throw new BadRequestException(result.errors[0].message);
+    }
 
-    const response = await fetch(
-      `https://${shop}/admin/api/${this.apiVersion}/gift_cards.json`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken,
-        },
-        body: JSON.stringify({ gift_card: data }),
-      },
-    );
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+    if (result.data?.giftCardCreate?.userErrors?.length > 0) {
       throw new BadRequestException(
-        error.errors ? JSON.stringify(error.errors) : 'Falha ao criar Gift Card na Shopify',
+        result.data.giftCardCreate.userErrors[0].message,
       );
     }
 
-    const result = await response.json();
-    return result.gift_card;
-  }
-
-  /**
-   * Busca um cliente por e-mail na Shopify
-   */
-  async findCustomerByEmail(userId: number, shop: string, email: string): Promise<any> {
-    const accessToken = await this.getAccessToken(userId, shop);
-    const url = `https://${shop}/admin/api/${this.apiVersion}/customers/search.json?query=email:${email}`;
-
-    const response = await fetch(url, {
-      headers: { 'X-Shopify-Access-Token': accessToken },
-    });
-
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data.customers && data.customers.length > 0 ? data.customers[0] : null;
+    return result.data?.giftCardCreate?.giftCard;
   }
 }
 

@@ -675,6 +675,7 @@ export class ShopifyService {
         usageLimit: 1, // Um uso para garantir que não seja abusado
         appliesOncePerCustomer: true,
         code: params.code,
+        startsAt: new Date().toISOString(),
         customerGets: {
           value: params.valueType === 'percentage'
             ? { discountAmount: { amount: parseFloat(params.value), appliesOnEachItem: true } }

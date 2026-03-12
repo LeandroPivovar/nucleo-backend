@@ -10,6 +10,7 @@ import { UserUsage } from '../../entities/user-usage.entity';
 import { User } from '../../entities/user.entity';
 import { Subscription } from '../../entities/subscription.entity';
 import { Contact } from '../../entities/contact.entity';
+import { ShopifyService } from '../../shopify/shopify.service';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -26,7 +27,8 @@ export class CampaignSchedulerService {
         private subscriptionRepository: Repository<Subscription>,
         private zenviaService: ZenviaService,
         private contactsService: ContactsService,
-        private emailService: EmailService
+        private emailService: EmailService,
+        private shopifyService: ShopifyService
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -123,10 +125,33 @@ export class CampaignSchedulerService {
                     if (campaign.complexity === 'advanced') {
                         const nodes = campaign.config?.workflow?.nodes || [];
                         let activeCoupon: any = null;
+                        let shopifyBenefit: any = null;
 
                         for (const node of nodes) {
                             if (node.type === 'coupon' || node.type === 'giftback') {
                                 activeCoupon = node.data;
+
+                                // Shopify Integration for advanced campaigns
+                                const shopifyStore = campaign.config?.shopifyStore;
+                                if (shopifyStore && activeCoupon) {
+                                    try {
+                                        if (node.type === 'giftback') {
+                                            const shopifyCustomer = await this.shopifyService.findCustomerByEmail(campaign.userId, shopifyStore, contact.email);
+                                            const giftCardData = {
+                                                initial_value: activeCoupon.giftValue || activeCoupon.discountValue,
+                                                note: `Giftback da campanha: ${campaign.name}`,
+                                                customer_id: shopifyCustomer?.id
+                                            };
+                                            shopifyBenefit = await this.shopifyService.createGiftCard(campaign.userId, shopifyStore, giftCardData);
+                                        } else {
+                                            // Para cupons, poderíamos criar uma Price Rule uma vez e reutilizar o código.
+                                            // Por simplicidade nesta fase, vamos assumir que o benefício já existe ou criar um padrão.
+                                            // Idealmente o UI permitiria selecionar ou definir a regra.
+                                        }
+                                    } catch (e) {
+                                        this.logger.error(`Falha na integração Shopify: ${e.message}`);
+                                    }
+                                }
                                 continue;
                             }
 
@@ -140,8 +165,10 @@ export class CampaignSchedulerService {
                                         ? `${activeCoupon.discountValue}%`
                                         : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
 
+                                    const couponCode = shopifyBenefit?.code || activeCoupon.couponName || 'CUPOM';
+
                                     content = content
-                                        .replace(/{{cupom_nome}}/g, activeCoupon.couponName || 'CUPOM')
+                                        .replace(/{{cupom_nome}}/g, couponCode)
                                         .replace(/{{cupom_valor}}/g, value)
                                         .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
                                 }
@@ -166,8 +193,10 @@ export class CampaignSchedulerService {
                                         ? `${activeCoupon.discountValue}%`
                                         : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
 
+                                    const couponCode = shopifyBenefit?.code || activeCoupon.couponName || 'CUPOM';
+
                                     content = content
-                                        .replace(/{{cupom_nome}}/g, activeCoupon.couponName || 'CUPOM')
+                                        .replace(/{{cupom_nome}}/g, couponCode)
                                         .replace(/{{cupom_valor}}/g, value)
                                         .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
                                 }
@@ -183,8 +212,10 @@ export class CampaignSchedulerService {
                                         ? `${activeCoupon.discountValue}%`
                                         : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
 
+                                    const couponCode = shopifyBenefit?.code || activeCoupon.couponName || 'CUPOM';
+
                                     content = content
-                                        .replace(/{{cupom_nome}}/g, activeCoupon.couponName || 'CUPOM')
+                                        .replace(/{{cupom_nome}}/g, couponCode)
                                         .replace(/{{cupom_valor}}/g, value)
                                         .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
                                 }
@@ -200,6 +231,30 @@ export class CampaignSchedulerService {
 
                         // Variable substitution for simple campaign
                         const campaignConfig = campaign.config?.campaignConfig;
+                        let shopifyBenefit: any = null;
+
+                        // Shopify Integration for Simple Campaigns
+                        const shopifyStore = campaign.config?.shopifyStore;
+                        if (shopifyStore && (campaignConfig?.enableCoupon || campaignConfig?.enableGiftback)) {
+                            try {
+                                if (campaignConfig.enableGiftback) {
+                                    const giftback = campaignConfig.giftback;
+                                    const shopifyCustomer = await this.shopifyService.findCustomerByEmail(campaign.userId, shopifyStore, contact.email);
+                                    const giftCardData = {
+                                        initial_value: giftback.giftValue,
+                                        note: `Giftback da campanha: ${campaign.name}`,
+                                        customer_id: shopifyCustomer?.id
+                                    };
+                                    shopifyBenefit = await this.shopifyService.createGiftCard(campaign.userId, shopifyStore, giftCardData);
+                                } else if (campaignConfig.enableCoupon) {
+                                    // Para campanhas simples de cupom, poderíamos implementar a Price Rule aqui também.
+                                    // No momento vamos focar em gift cards que são mais personalizados.
+                                }
+                            } catch (e) {
+                                this.logger.error(`Falha na integração Shopify (Simple): ${e.message}`);
+                            }
+                        }
+
                         if (campaignConfig?.enableCoupon) {
                             const coupon = campaignConfig.coupon;
                             const value = coupon.discountType === 'percentage'
@@ -215,8 +270,10 @@ export class CampaignSchedulerService {
                                 messageContent += `\n\nCupom: {{cupom_nome}}\nValor: {{cupom_valor}}\nValidade: {{cupom_validade}} dias`;
                             }
 
+                            const couponCode = shopifyBenefit?.code || coupon.couponName || 'CUPOM';
+
                             messageContent = messageContent
-                                .replace(/{{cupom_nome}}/g, coupon.couponName || 'CUPOM')
+                                .replace(/{{cupom_nome}}/g, couponCode)
                                 .replace(/{{cupom_valor}}/g, value)
                                 .replace(/{{cupom_validade}}/g, validity.toString());
                         } else if (campaignConfig?.enableGiftback) {
@@ -232,8 +289,10 @@ export class CampaignSchedulerService {
                                 messageContent += `\n\nGiftback: {{cupom_nome}}\nValor: {{cupom_valor}}\nValidade: {{cupom_validade}} dias`;
                             }
 
+                            const couponCode = shopifyBenefit?.code || giftback.couponName || 'CASHBACK';
+
                             messageContent = messageContent
-                                .replace(/{{cupom_nome}}/g, giftback.couponName || 'CASHBACK')
+                                .replace(/{{cupom_nome}}/g, couponCode)
                                 .replace(/{{cupom_valor}}/g, value)
                                 .replace(/{{cupom_validade}}/g, validity.toString());
                         }

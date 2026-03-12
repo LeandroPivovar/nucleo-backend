@@ -628,5 +628,108 @@ export class ShopifyService {
 
     return { imported, updated };
   }
+
+  /**
+   * Cria uma Price Rule na Shopify
+   */
+  async createPriceRule(userId: number, shop: string, data: any): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, shop);
+
+    const response = await fetch(
+      `https://${shop}/admin/api/${this.apiVersion}/price_rules.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ price_rule: data }),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.errors ? JSON.stringify(error.errors) : 'Falha ao criar Price Rule na Shopify',
+      );
+    }
+
+    const result = await response.json();
+    return result.price_rule;
+  }
+
+  /**
+   * Cria um Discount Code na Shopify
+   */
+  async createDiscountCode(userId: number, shop: string, priceRuleId: number, code: string): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, shop);
+
+    const response = await fetch(
+      `https://${shop}/admin/api/${this.apiVersion}/price_rules/${priceRuleId}/discount_codes.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ discount_code: { code } }),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.errors ? JSON.stringify(error.errors) : 'Falha ao criar Discount Code na Shopify',
+      );
+    }
+
+    const result = await response.json();
+    return result.discount_code;
+  }
+
+  /**
+   * Cria um Gift Card na Shopify
+   */
+  async createGiftCard(userId: number, shop: string, data: any): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, shop);
+
+    const response = await fetch(
+      `https://${shop}/admin/api/${this.apiVersion}/gift_cards.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ gift_card: data }),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        error.errors ? JSON.stringify(error.errors) : 'Falha ao criar Gift Card na Shopify',
+      );
+    }
+
+    const result = await response.json();
+    return result.gift_card;
+  }
+
+  /**
+   * Busca um cliente por e-mail na Shopify
+   */
+  async findCustomerByEmail(userId: number, shop: string, email: string): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, shop);
+    const url = `https://${shop}/admin/api/${this.apiVersion}/customers/search.json?query=email:${email}`;
+
+    const response = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.customers && data.customers.length > 0 ? data.customers[0] : null;
+  }
 }
 

@@ -11,6 +11,7 @@ import { ZenviaModule } from '../zenvia/zenvia.module';
 import { ContactsModule } from '../contacts/contacts.module';
 import { EmailModule } from '../email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ShopifyModule } from '../shopify/shopify.module';
 
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -21,7 +22,8 @@ import { Subscription } from '../entities/subscription.entity';
         ZenviaModule,
         ContactsModule,
         EmailModule,
-        NotificationsModule
+        NotificationsModule,
+        ShopifyModule
     ],
     providers: [CampaignsService, CampaignSchedulerService],
     controllers: [CampaignsController],

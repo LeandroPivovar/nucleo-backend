@@ -210,6 +210,11 @@ export class CampaignSchedulerService {
                                 ? Math.ceil((new Date(coupon.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
                                 : 30;
 
+                            // Auto-append if placeholders are missing and it's not email
+                            if (!messageContent.includes('{{cupom_nome}}') && campaign.channel !== 'email') {
+                                messageContent += `\n\nCupom: {{cupom_nome}}\nValor: {{cupom_valor}}\nValidade: {{cupom_validade}} dias`;
+                            }
+
                             messageContent = messageContent
                                 .replace(/{{cupom_nome}}/g, coupon.couponName || 'CUPOM')
                                 .replace(/{{cupom_valor}}/g, value)
@@ -221,6 +226,11 @@ export class CampaignSchedulerService {
                             const validity = giftback.validityDate
                                 ? Math.ceil((new Date(giftback.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
                                 : 30;
+
+                            // Auto-append if placeholders are missing and it's not email
+                            if (!messageContent.includes('{{cupom_nome}}') && campaign.channel !== 'email') {
+                                messageContent += `\n\nGiftback: {{cupom_nome}}\nValor: {{cupom_valor}}\nValidade: {{cupom_validade}} dias`;
+                            }
 
                             messageContent = messageContent
                                 .replace(/{{cupom_nome}}/g, giftback.couponName || 'CASHBACK')

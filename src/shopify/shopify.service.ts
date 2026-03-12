@@ -605,9 +605,14 @@ export class ShopifyService {
         const createdAt = new Date(sOrder.created_at);
         const externalId = `shopify_${sOrder.id}_${item.id || item.variant_id || index}`;
 
-        let existingSale = await this.saleRepository.findOne({
-          where: { userId, externalId }
-        });
+        let existingSale: Sale | null = null;
+        try {
+          existingSale = await this.saleRepository.findOne({
+            where: { userId, externalId }
+          });
+        } catch (error) {
+          console.error(`[Shopify Sync] Erro ao buscar por externalId (${externalId}):`, error.message);
+        }
 
         // Se não achou por externalId, tenta o fallback por data e produto (para vendas migradas/antigas)
         if (!existingSale) {
@@ -623,11 +628,18 @@ export class ShopifyService {
           existingSale = await this.saleRepository.findOne({
             where: existingSaleConditions
           });
+
+          if (existingSale) {
+            console.log(`[Shopify Sync] Venda encontrada via fallback (Produto e Data). ID: ${existingSale.id}`);
+          }
         }
 
         if (existingSale) {
           let needsUpdate = false;
+          const statusMatch = sOrder.financial_status === 'paid' ? 'completed' : 'processing';
+
           if (!existingSale.contactId && contact?.id) {
+            console.log(`[Shopify Sync] Vinculando Contato ID ${contact.id} à Venda ID ${existingSale.id}`);
             existingSale.contactId = contact.id;
             needsUpdate = true;
           }
@@ -635,10 +647,14 @@ export class ShopifyService {
             existingSale.externalId = externalId;
             needsUpdate = true;
           }
+          if (existingSale.status !== statusMatch) {
+            existingSale.status = statusMatch;
+            needsUpdate = true;
+          }
 
           if (needsUpdate) {
             await this.saleRepository.save(existingSale);
-            console.log(`[Shopify Sync] Venda atualizada no CRM. ID: ${existingSale.id}. Produto: ${product.name}`);
+            console.log(`[Shopify Sync] Venda ID ${existingSale.id} atualizada com sucesso.`);
           }
         }
 

@@ -759,9 +759,14 @@ export class NuvemshopService {
         const createdAt = new Date(sOrder.created_at);
         const externalId = `nuvemshop_${sOrder.id}_${item.id || index}`;
 
-        let existingSale = await this.saleRepository.findOne({
-          where: { userId, externalId }
-        });
+        let existingSale: Sale | null = null;
+        try {
+          existingSale = await this.saleRepository.findOne({
+            where: { userId, externalId }
+          });
+        } catch (error) {
+          console.error(`[Nuvemshop Sync] Erro ao buscar por externalId (${externalId}):`, error.message);
+        }
 
         // Se não achou por externalId, tenta o fallback por data e produto
         if (!existingSale) {
@@ -777,11 +782,18 @@ export class NuvemshopService {
           existingSale = await this.saleRepository.findOne({
             where: existingSaleConditions
           });
+
+          if (existingSale) {
+            console.log(`[Nuvemshop Sync] Venda encontrada via fallback (Produto e Data). ID: ${existingSale.id}`);
+          }
         }
 
         if (existingSale) {
           let needsUpdate = false;
+          const statusMatch = sOrder.status === 'paid' ? 'completed' : 'processing';
+
           if (!existingSale.contactId && contact?.id) {
+            console.log(`[Nuvemshop Sync] Vinculando Contato ID ${contact.id} à Venda ID ${existingSale.id}`);
             existingSale.contactId = contact.id;
             needsUpdate = true;
           }
@@ -789,10 +801,14 @@ export class NuvemshopService {
             existingSale.externalId = externalId;
             needsUpdate = true;
           }
+          if (existingSale.status !== statusMatch) {
+            existingSale.status = statusMatch;
+            needsUpdate = true;
+          }
 
           if (needsUpdate) {
             await this.saleRepository.save(existingSale);
-            console.log(`[Nuvemshop Sync] Venda atualizada no CRM. ID: ${existingSale.id}. Produto: ${product.name}`);
+            console.log(`[Nuvemshop Sync] Venda ID ${existingSale.id} atualizada com sucesso.`);
           }
         }
 

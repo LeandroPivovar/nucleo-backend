@@ -674,12 +674,10 @@ export class ShopifyService {
         title: params.title,
         usageLimit: 1, // Um uso para garantir que não seja abusado
         appliesOncePerCustomer: true,
-        codes: [
-          { code: params.code }
-        ],
+        code: params.code,
         customerGets: {
           value: params.valueType === 'percentage'
-            ? { discountAmount: { amount: parseFloat(params.value), appliesOnEachItem: true } } // Percentage might need different structure but loosely assuming
+            ? { discountAmount: { amount: parseFloat(params.value), appliesOnEachItem: true } }
             : { discountAmount: { amount: parseFloat(params.value), appliesOnEachItem: false } },
           items: {
             all: true
@@ -687,11 +685,6 @@ export class ShopifyService {
         },
         customerSelection: {
           all: true
-        },
-        appliesTo: {
-          products: {
-            all: true
-          }
         },
         ...(params.endsAt && { endsAt: params.endsAt })
       }

@@ -712,12 +712,12 @@ export class NuvemshopService {
       if (!customerEmail) continue;
 
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-      if (!contact && sOrder.customer) {
+      if (!contact) {
         contact = this.contactRepository.create({
           userId,
           email: customerEmail,
-          name: sOrder.customer.name?.split(' ')[0] || 'Sem Nome',
-          lastName: sOrder.customer.name?.split(' ').slice(1).join(' ') || '',
+          name: sOrder.customer?.name?.split(' ')[0] || 'Sem Nome',
+          lastName: sOrder.customer?.name?.split(' ').slice(1).join(' ') || '',
           source: 'nuvemshop',
           status: 'customer',
         });
@@ -756,14 +756,25 @@ export class NuvemshopService {
         }
 
         const createdAt = new Date(sOrder.created_at);
-        const existingSale = await this.saleRepository.findOne({
-          where: {
-            userId,
-            productId: product.id,
-            contactId: contact?.id,
-            createdAt: createdAt,
-          }
+
+        let existingSaleConditions: any = {
+          userId,
+          productId: product.id,
+          createdAt: createdAt,
+        };
+        if (customerEmail) {
+          existingSaleConditions.customerEmail = customerEmail;
+        }
+
+        let existingSale = await this.saleRepository.findOne({
+          where: existingSaleConditions
         });
+
+        if (existingSale && !existingSale.contactId && contact?.id) {
+          existingSale.contactId = contact.id;
+          await this.saleRepository.save(existingSale);
+          console.log(`[Nuvemshop Sync] Venda atualizada no CRM. Produto ID: ${product.id}. Adicionado Contact ID: ${contact.id}`);
+        }
 
         if (!existingSale) {
           console.log(`[Nuvemshop Sync] Relacionando Venda ao Produto ID: ${product.id}`);

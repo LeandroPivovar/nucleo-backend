@@ -555,12 +555,12 @@ export class ShopifyService {
 
       // Buscar ou criar contato
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-      if (!contact && sOrder.customer) {
+      if (!contact) {
         contact = this.contactRepository.create({
           userId,
           email: customerEmail,
-          name: sOrder.customer.first_name || 'Sem Nome',
-          lastName: sOrder.customer.last_name || '',
+          name: sOrder.customer?.first_name || sOrder.customer?.name || 'Sem Nome',
+          lastName: sOrder.customer?.last_name || '',
           source: 'shopify',
           status: 'customer',
         });
@@ -600,16 +600,27 @@ export class ShopifyService {
         }
 
         // Criar a venda
-        // Evitar duplicidade básica: mesma data, mesmo produto, mesmo cliente
+        // Evitar duplicidade básica: mesma data e mesmo produto
         const createdAt = new Date(sOrder.created_at);
-        const existingSale = await this.saleRepository.findOne({
-          where: {
-            userId,
-            productId: product.id,
-            contactId: contact?.id,
-            createdAt: createdAt,
-          }
+
+        let existingSaleConditions: any = {
+          userId,
+          productId: product.id,
+          createdAt: createdAt,
+        };
+        if (customerEmail) {
+          existingSaleConditions.customerEmail = customerEmail;
+        }
+
+        let existingSale = await this.saleRepository.findOne({
+          where: existingSaleConditions
         });
+
+        if (existingSale && !existingSale.contactId && contact?.id) {
+          existingSale.contactId = contact.id;
+          await this.saleRepository.save(existingSale);
+          console.log(`[Shopify Sync] Venda atualizada no CRM. Produto ID: ${product.id}. Adicionado Contact ID: ${contact.id}`);
+        }
 
         if (!existingSale) {
           console.log(`[Shopify Sync] Relacionando Venda ao Produto ID: ${product.id}`);

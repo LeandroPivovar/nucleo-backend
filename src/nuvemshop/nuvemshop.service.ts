@@ -725,23 +725,34 @@ export class NuvemshopService {
       }
 
       for (const item of sOrder.products || []) {
-        let product = await this.productRepository.findOne({
-          where: [
-            { userId, sku: item.sku },
-            { userId, name: item.name }
-          ]
-        });
+        console.log(`[Nuvemshop Sync] Pedido ${sOrder.number || sOrder.id} - Recebido item:`, { sku: item.sku, name: item.name, price: item.price, quantity: item.quantity });
+
+        // Nuvemshop often stores SKU as null or empty string. TypeORM where clause might match "null" weirdly.
+        // Also it's better to log what we try to search.
+        const searchConditions: any[] = [];
+        if (item.sku) searchConditions.push({ userId, sku: item.sku });
+        if (item.name) searchConditions.push({ userId, name: item.name });
+
+        console.log(`[Nuvemshop Sync] Condições de busca para o produto:`, searchConditions);
+
+        let product = searchConditions.length > 0 ? await this.productRepository.findOne({
+          where: searchConditions
+        }) : null;
 
         if (!product) {
+          console.log(`[Nuvemshop Sync] Produto NÃO encontrado no CRM. Criando novo produto...`);
           product = this.productRepository.create({
             userId,
-            name: item.name,
+            name: item.name || 'Produto sem nome',
             sku: item.sku || '',
             price: parseFloat(item.price),
             stock: 0,
             active: true,
           });
           await this.productRepository.save(product);
+          console.log(`[Nuvemshop Sync] Novo produto criado. ID: ${product.id}, Nome: "${product.name}", SKU: "${product.sku}"`);
+        } else {
+          console.log(`[Nuvemshop Sync] Produto ENCONTRADO no CRM. ID: ${product.id}, Nome: "${product.name}", SKU: "${product.sku}"`);
         }
 
         const createdAt = new Date(sOrder.created_at);
@@ -755,6 +766,7 @@ export class NuvemshopService {
         });
 
         if (!existingSale) {
+          console.log(`[Nuvemshop Sync] Relacionando Venda ao Produto ID: ${product.id}`);
           const sale = this.saleRepository.create({
             userId,
             productId: product.id,
@@ -771,6 +783,7 @@ export class NuvemshopService {
           await this.saleRepository.save(sale);
           imported++;
         } else {
+          console.log(`[Nuvemshop Sync] Venda já existente no CRM para o Produto ID: ${product.id} e Data: ${createdAt}`);
           updated++;
         }
       }

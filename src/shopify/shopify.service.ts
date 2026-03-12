@@ -569,25 +569,34 @@ export class ShopifyService {
 
       // Processar itens do pedido
       for (const item of sOrder.line_items) {
-        // Tentar encontrar produto pelo SKU ou Nome
-        let product = await this.productRepository.findOne({
-          where: [
-            { userId, sku: item.sku },
-            { userId, name: item.name }
-          ]
-        });
+        console.log(`[Shopify Sync] Pedido ${sOrder.name || sOrder.id} - Recebido item:`, { sku: item.sku, name: item.name, title: item.title, price: item.price, quantity: item.quantity });
+
+        const itemName = item.name || item.title;
+        const searchConditions: any[] = [];
+        if (item.sku) searchConditions.push({ userId, sku: item.sku });
+        if (itemName) searchConditions.push({ userId, name: itemName });
+
+        console.log(`[Shopify Sync] Condições de busca para o produto:`, searchConditions);
+
+        let product = searchConditions.length > 0 ? await this.productRepository.findOne({
+          where: searchConditions
+        }) : null;
 
         if (!product) {
+          console.log(`[Shopify Sync] Produto NÃO encontrado no CRM. Criando novo produto...`);
           // Criar produto básico se não existir
           product = this.productRepository.create({
             userId,
-            name: item.name || item.title,
+            name: itemName || 'Produto sem nome',
             sku: item.sku || '',
             price: parseFloat(item.price),
             stock: 0,
             active: true,
           });
           await this.productRepository.save(product);
+          console.log(`[Shopify Sync] Novo produto criado. ID: ${product.id}, Nome: "${product.name}", SKU: "${product.sku}"`);
+        } else {
+          console.log(`[Shopify Sync] Produto ENCONTRADO no CRM. ID: ${product.id}, Nome: "${product.name}", SKU: "${product.sku}"`);
         }
 
         // Criar a venda
@@ -603,6 +612,7 @@ export class ShopifyService {
         });
 
         if (!existingSale) {
+          console.log(`[Shopify Sync] Relacionando Venda ao Produto ID: ${product.id}`);
           const sale = this.saleRepository.create({
             userId,
             productId: product.id,
@@ -619,6 +629,7 @@ export class ShopifyService {
           await this.saleRepository.save(sale);
           imported++;
         } else {
+          console.log(`[Shopify Sync] Venda já existente no CRM para o Produto ID: ${product.id} e Data: ${createdAt}`);
           updated++;
         }
       }

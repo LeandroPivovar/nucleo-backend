@@ -472,5 +472,56 @@ export class NuvemshopController {
       message: 'Conexão desativada com sucesso',
     };
   }
+
+  /**
+   * Cria um cupom de forma isolada
+   */
+  @Post('coupons')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async createCoupon(
+    @Request() req,
+    @Body() body: {
+      storeId?: string;
+      code: string;
+      type: 'percentage' | 'absolute' | 'shipping';
+      value?: string;
+      start_date?: string;
+      end_date?: string;
+      min_price?: string;
+      max_uses?: number;
+      first_consumer_purchase?: boolean;
+    }
+  ) {
+    let storeId = body.storeId;
+    if (!storeId) {
+      const connections = await this.nuvemshopService.getConnections(req.user.userId);
+      const activeConn = connections.find(c => c.isActive);
+      if (!activeConn) {
+        throw new BadRequestException('Nenhuma loja Nuvemshop conectada ativa encontrada.');
+      }
+      storeId = activeConn.storeId;
+    }
+
+    const coupon = await this.nuvemshopService.createCoupon(
+      req.user.userId,
+      storeId,
+      {
+        code: body.code,
+        type: body.type,
+        value: body.value,
+        start_date: body.start_date || new Date().toISOString(),
+        end_date: body.end_date,
+        min_price: body.min_price,
+        max_uses: body.max_uses,
+        first_consumer_purchase: body.first_consumer_purchase,
+      }
+    );
+
+    return {
+      success: true,
+      coupon,
+    };
+  }
 }
 

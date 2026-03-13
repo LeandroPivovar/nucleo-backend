@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -15,6 +16,7 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class NuvemshopService {
+  private readonly logger = new Logger(NuvemshopService.name);
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly apiBaseUrl: string = 'https://api.nuvemshop.com.br/v1';
@@ -1048,6 +1050,63 @@ export class NuvemshopService {
     const connection = await this.getActiveConnection(userId, storeId);
     connection.isActive = false;
     await this.nuvemshopConnectionRepository.save(connection);
+  }
+
+  /**
+   * Cria um cupom de desconto na Nuvemshop
+   */
+  async createCoupon(
+    userId: number,
+    storeId: string,
+    params: {
+      code: string;
+      type: 'percentage' | 'absolute' | 'shipping';
+      value?: string;
+      start_date?: string;
+      end_date?: string;
+      min_price?: string;
+      max_uses?: number;
+      first_consumer_purchase?: boolean;
+    }
+  ): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, storeId);
+
+    const response = await fetch(
+      `${this.apiBaseUrl}/${storeId}/coupons`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authentication': `bearer ${accessToken}`,
+          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
+        },
+        body: JSON.stringify(params),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let error;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText || 'Falha ao criar cupom na Nuvemshop' };
+      }
+
+      // Se for erro de código já existente, podemos tratar ou apenas logar
+      if (error.code === 400 && error.message?.toLowerCase().includes('already exists')) {
+        this.logger.warn(`Cupom '${params.code}' já existe na Nuvemshop.`);
+        return { code: params.code, alreadyExists: true };
+      }
+
+      throw new BadRequestException(
+        error.error_description || error.message || error.error || `Falha ao criar cupom (${response.status})`,
+      );
+    }
+
+    const data = await response.json();
+    console.log(`Cupom '${params.code}' criado com sucesso na Nuvemshop.`);
+    return data;
   }
 }
 

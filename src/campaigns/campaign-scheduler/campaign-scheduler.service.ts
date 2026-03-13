@@ -11,6 +11,7 @@ import { User } from '../../entities/user.entity';
 import { Subscription } from '../../entities/subscription.entity';
 import { Contact } from '../../entities/contact.entity';
 import { ShopifyService } from '../../shopify/shopify.service';
+import { NuvemshopService } from '../../nuvemshop/nuvemshop.service';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -28,7 +29,8 @@ export class CampaignSchedulerService {
         private zenviaService: ZenviaService,
         private contactsService: ContactsService,
         private emailService: EmailService,
-        private shopifyService: ShopifyService
+        private shopifyService: ShopifyService,
+        private nuvemshopService: NuvemshopService
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -120,36 +122,65 @@ export class CampaignSchedulerService {
                 // Ignore se não encontrar
             }
 
+            // Fetch active Nuvemshop Connection (if any)
+            let nuvemshopConnection: any = null;
+            try {
+                nuvemshopConnection = await this.nuvemshopService.getActiveConnection(campaign.userId);
+            } catch (e) {
+                // Ignore se não encontrar
+            }
+
             let generatedDiscountCode: string | null = null;
 
             // Tratamento geral para "Coupon" em rotas simples
-            if (campaign.complexity === 'simple' && shopifyConnection && campaign.config?.campaignConfig?.enableCoupon) {
+            if (campaign.complexity === 'simple' && campaign.config?.campaignConfig?.enableCoupon) {
                 const coupon = campaign.config.campaignConfig.coupon;
                 const endsAtDate = new Date();
                 endsAtDate.setDate(endsAtDate.getDate() + (coupon.validityDate ? Math.ceil((new Date(coupon.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 30));
 
-                try {
-                    const apiCode = coupon.couponName || 'CUPOM_NUCLEO_CRM';
-                    await this.shopifyService.createDiscountCode(
-                        campaign.userId,
-                        shopifyConnection.shop,
-                        {
-                            title: apiCode,
-                            code: apiCode,
-                            value: coupon.discountValue,
-                            valueType: coupon.discountType,
-                            endsAt: endsAtDate.toISOString()
-                        }
-                    );
-                    this.logger.log(`Created Shopify Discount Code: ${apiCode} for campaign ${campaign.id}`);
-                    generatedDiscountCode = apiCode;
-                } catch (error) {
-                    this.logger.error(`Failed to create Shopify Discount Code for campaign ${campaign.id}`, error);
+                const apiCode = coupon.couponName || 'CUPOM_NUCLEO_CRM';
+
+                if (shopifyConnection) {
+                    try {
+                        await this.shopifyService.createDiscountCode(
+                            campaign.userId,
+                            shopifyConnection.shop,
+                            {
+                                title: apiCode,
+                                code: apiCode,
+                                value: coupon.discountValue,
+                                valueType: coupon.discountType,
+                                endsAt: endsAtDate.toISOString()
+                            }
+                        );
+                        this.logger.log(`Created Shopify Discount Code: ${apiCode} for campaign ${campaign.id}`);
+                        generatedDiscountCode = apiCode;
+                    } catch (error) {
+                        this.logger.error(`Failed to create Shopify Discount Code for campaign ${campaign.id}`, error);
+                    }
+                } else if (nuvemshopConnection) {
+                    try {
+                        await this.nuvemshopService.createCoupon(
+                            campaign.userId,
+                            nuvemshopConnection.storeId,
+                            {
+                                code: apiCode,
+                                type: coupon.discountType === 'percentage' ? 'percentage' : 'absolute',
+                                value: coupon.discountValue,
+                                start_date: new Date().toISOString(),
+                                end_date: endsAtDate.toISOString(),
+                            }
+                        );
+                        this.logger.log(`Created Nuvemshop Coupon: ${apiCode} for campaign ${campaign.id}`);
+                        generatedDiscountCode = apiCode;
+                    } catch (error) {
+                        this.logger.error(`Failed to create Nuvemshop Coupon for campaign ${campaign.id}`, error);
+                    }
                 }
             }
 
             // Tratamento prévio para "Coupon" em fluxos avançados
-            if (campaign.complexity === 'advanced' && shopifyConnection) {
+            if (campaign.complexity === 'advanced') {
                 const nodes = campaign.config?.workflow?.nodes || [];
                 const couponNode = nodes.find((n: any) => n.type === 'coupon');
                 if (couponNode && couponNode.data) {
@@ -157,23 +188,44 @@ export class CampaignSchedulerService {
                     const endsAtDate = new Date();
                     endsAtDate.setDate(endsAtDate.getDate() + parseInt(couponData.expirationDays || '30'));
 
-                    try {
-                        const apiCode = couponData.couponName || 'CUPOM_NUCLEO_CRM';
-                        await this.shopifyService.createDiscountCode(
-                            campaign.userId,
-                            shopifyConnection.shop,
-                            {
-                                title: apiCode,
-                                code: apiCode,
-                                value: couponData.discountValue,
-                                valueType: couponData.discountType,
-                                endsAt: endsAtDate.toISOString()
-                            }
-                        );
-                        this.logger.log(`Created Shopify Discount Code (Advanced): ${apiCode} for campaign ${campaign.id}`);
-                        generatedDiscountCode = apiCode;
-                    } catch (error) {
-                        this.logger.error(`Failed to create Shopify Discount Code (Advanced) for campaign ${campaign.id}`, error);
+                    const apiCode = couponData.couponName || 'CUPOM_NUCLEO_CRM';
+
+                    if (shopifyConnection) {
+                        try {
+                            await this.shopifyService.createDiscountCode(
+                                campaign.userId,
+                                shopifyConnection.shop,
+                                {
+                                    title: apiCode,
+                                    code: apiCode,
+                                    value: couponData.discountValue,
+                                    valueType: couponData.discountType,
+                                    endsAt: endsAtDate.toISOString()
+                                }
+                            );
+                            this.logger.log(`Created Shopify Discount Code (Advanced): ${apiCode} for campaign ${campaign.id}`);
+                            generatedDiscountCode = apiCode;
+                        } catch (error) {
+                            this.logger.error(`Failed to create Shopify Discount Code (Advanced) for campaign ${campaign.id}`, error);
+                        }
+                    } else if (nuvemshopConnection) {
+                        try {
+                            await this.nuvemshopService.createCoupon(
+                                campaign.userId,
+                                nuvemshopConnection.storeId,
+                                {
+                                    code: apiCode,
+                                    type: couponData.discountType === 'percentage' ? 'percentage' : 'absolute',
+                                    value: couponData.discountValue,
+                                    start_date: new Date().toISOString(),
+                                    end_date: endsAtDate.toISOString(),
+                                }
+                            );
+                            this.logger.log(`Created Nuvemshop Coupon (Advanced): ${apiCode} for campaign ${campaign.id}`);
+                            generatedDiscountCode = apiCode;
+                        } catch (error) {
+                            this.logger.error(`Failed to create Nuvemshop Coupon (Advanced) for campaign ${campaign.id}`, error);
+                        }
                     }
                 }
             }
@@ -211,9 +263,34 @@ export class CampaignSchedulerService {
                                             }
                                         );
                                         activeCoupon._generatedCode = generatedGift.code;
-                                        this.logger.log(`Generated GC for contact ${contact.email || contact.phone}`);
+                                        this.logger.log(`Generated GC (Shopify) for contact ${contact.email || contact.phone}`);
                                     } catch (e) {
-                                        this.logger.error(`Error generating GC`, e);
+                                        this.logger.error(`Error generating GC (Shopify)`, e);
+                                    }
+                                } else if (node.type === 'giftback' && nuvemshopConnection) {
+                                    // Nuvemshop Giftback via Coupon (Dynamic)
+                                    const endsAtDate = new Date();
+                                    endsAtDate.setDate(endsAtDate.getDate() + parseInt(activeCoupon.expirationDays || '30'));
+                                    try {
+                                        const initialVal = activeCoupon.giftbackValue || '0';
+                                        const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+                                        const giftCode = `${activeCoupon.couponName || 'GIFT'}_${randomSuffix}`;
+                                        await this.nuvemshopService.createCoupon(
+                                            campaign.userId,
+                                            nuvemshopConnection.storeId,
+                                            {
+                                                code: giftCode,
+                                                type: 'absolute',
+                                                value: initialVal,
+                                                start_date: new Date().toISOString(),
+                                                end_date: endsAtDate.toISOString(),
+                                                max_uses: 1
+                                            }
+                                        );
+                                        activeCoupon._generatedCode = giftCode;
+                                        this.logger.log(`Generated GC (Nuvemshop) for contact ${contact.email || contact.phone}`);
+                                    } catch (e) {
+                                        this.logger.error(`Error generating GC (Nuvemshop)`, e);
                                     }
                                 }
                                 continue;
@@ -332,7 +409,29 @@ export class CampaignSchedulerService {
                                     );
                                     giftbackCode = generatedGift.code;
                                 } catch (e) {
-                                    this.logger.error('Error generating simple giftback GC', e);
+                                    this.logger.error('Error generating simple giftback GC (Shopify)', e);
+                                }
+                            } else if (nuvemshopConnection) {
+                                const endsAtDate = new Date();
+                                endsAtDate.setDate(endsAtDate.getDate() + validity);
+                                try {
+                                    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+                                    const generatedCode = `${giftbackCode}_${randomSuffix}`;
+                                    await this.nuvemshopService.createCoupon(
+                                        campaign.userId,
+                                        nuvemshopConnection.storeId,
+                                        {
+                                            code: generatedCode,
+                                            type: 'absolute',
+                                            value: giftback.giftValue,
+                                            start_date: new Date().toISOString(),
+                                            end_date: endsAtDate.toISOString(),
+                                            max_uses: 1
+                                        }
+                                    );
+                                    giftbackCode = generatedCode;
+                                } catch (e) {
+                                    this.logger.error('Error generating simple giftback GC (Nuvemshop)', e);
                                 }
                             }
 

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Contact } from '../entities/contact.entity';
 import { ContactTag } from '../entities/contact-tag.entity';
 import { ContactSegmentation } from '../entities/contact-segmentation.entity';
@@ -35,8 +35,6 @@ export class ContactsService {
     private groupsRepository: Repository<Group>,
     @InjectRepository(ContactSegmentation)
     private contactSegmentationsRepository: Repository<ContactSegmentation>,
-    @InjectRepository(ContactPurchase)
-    private contactPurchasesRepository: Repository<ContactPurchase>,
     @InjectRepository(Sale)
     private saleRepository: Repository<Sale>,
   ) { }
@@ -100,7 +98,7 @@ export class ContactsService {
   async findAll(userId: number): Promise<Contact[]> {
     return this.contactsRepository.find({
       where: { userId },
-      relations: ['contactTags', 'contactTags.tag', 'contactSegmentations', 'group'],
+      relations: ['contactTags', 'contactTags.tag', 'contactSegmentations', 'group', 'sales', 'sales.product'],
       order: { createdAt: 'DESC' },
     });
   }
@@ -413,6 +411,8 @@ export class ContactsService {
     const query = this.contactsRepository.createQueryBuilder('contact')
       .leftJoinAndSelect('contact.contactSegmentations', 'cs')
       .leftJoinAndSelect('contact.group', 'group')
+      .leftJoinAndSelect('contact.sales', 'sales')
+      .leftJoinAndSelect('sales.product', 'product')
       .where('contact.userId = :userId', { userId });
 
     const orConditions: string[] = [];

@@ -12,6 +12,7 @@ import { ContactsModule } from '../contacts/contacts.module';
 import { EmailModule } from '../email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ShopifyModule } from '../shopify/shopify.module';
+import { NuvemshopModule } from '../nuvemshop/nuvemshop.module';
 
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -23,7 +24,8 @@ import { Subscription } from '../entities/subscription.entity';
         ContactsModule,
         EmailModule,
         NotificationsModule,
-        ShopifyModule
+        ShopifyModule,
+        NuvemshopModule
     ],
     providers: [CampaignsService, CampaignSchedulerService],
     controllers: [CampaignsController],

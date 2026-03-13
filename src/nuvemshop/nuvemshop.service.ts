@@ -1071,10 +1071,23 @@ export class NuvemshopService {
     const accessToken = await this.getAccessToken(userId, storeId);
 
     // Converter valores string para number se necessário
+    // E formatar datas para YYYY-MM-DD
+    const formatDate = (dateStr?: string) => {
+      if (!dateStr) return undefined;
+      try {
+        const date = new Date(dateStr);
+        return date.toISOString().split('T')[0];
+      } catch {
+        return undefined;
+      }
+    };
+
     const formattedParams = {
       ...params,
       value: params.value ? parseFloat(params.value.toString()) : undefined,
       min_price: params.min_price ? parseFloat(params.min_price.toString()) : undefined,
+      start_date: formatDate(params.start_date),
+      end_date: formatDate(params.end_date),
     };
 
     const response = await fetch(

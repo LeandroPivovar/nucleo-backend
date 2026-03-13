@@ -21,7 +21,7 @@ export class NuvemshopService {
   private readonly clientSecret: string;
   private readonly apiBaseUrl: string = 'https://api.nuvemshop.com.br/v1';
   private readonly authBaseUrl: string = 'https://www.nuvemshop.com.br/apps';
-  private readonly scopes: string = 'read_products,write_products,read_orders,write_orders,read_checkouts,write_checkouts';
+  private readonly scopes: string = 'read_products,write_products,read_orders,write_orders,read_checkouts,write_checkouts,read_coupons,write_coupons';
 
   constructor(
     @InjectRepository(NuvemshopConnection)
@@ -45,8 +45,7 @@ export class NuvemshopService {
    * Os scopes são configurados no painel do desenvolvedor do app
    */
   generateAuthUrl(state: string): string {
-    // A Nuvemshop gerencia os scopes no painel do app, não na URL
-    return `${this.authBaseUrl}/${this.clientId}/authorize?state=${state}`;
+    return `${this.authBaseUrl}/${this.clientId}/authorize?state=${state}&scope=${encodeURIComponent(this.scopes)}`;
   }
 
   /**

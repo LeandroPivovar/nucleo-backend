@@ -494,7 +494,7 @@ export class NuvemshopService {
       {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8',
           'Authentication': `bearer ${accessToken}`,
           'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         },
@@ -540,7 +540,7 @@ export class NuvemshopService {
       {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8',
           'Authentication': `bearer ${accessToken}`,
           'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         },
@@ -962,7 +962,7 @@ export class NuvemshopService {
       {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8',
           'Authentication': `bearer ${accessToken}`,
           'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         },
@@ -1082,7 +1082,7 @@ export class NuvemshopService {
       {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8',
           'Authentication': `bearer ${accessToken}`,
           'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
         },

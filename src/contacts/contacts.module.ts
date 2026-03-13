@@ -8,9 +8,10 @@ import { ContactSegmentation } from '../entities/contact-segmentation.entity';
 import { Tag } from '../entities/tag.entity';
 import { Group } from '../entities/group.entity';
 import { ContactPurchase } from '../entities/contact-purchase.entity';
+import { Sale } from '../entities/sale.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Contact, ContactTag, ContactSegmentation, Tag, Group, ContactPurchase])],
+  imports: [TypeOrmModule.forFeature([Contact, ContactTag, ContactSegmentation, Tag, Group, ContactPurchase, Sale])],
   controllers: [ContactsController],
   providers: [ContactsService],
   exports: [ContactsService],

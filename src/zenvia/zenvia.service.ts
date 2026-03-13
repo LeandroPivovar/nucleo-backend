@@ -20,8 +20,7 @@ export class ZenviaService {
 
     private formatPhone(phone: string): string {
         let clean = phone.replace(/\D/g, '');
-        // If it's 10 or 11 digits, assume it's a Brazilian number missing the 55 country code
-        if (clean.length === 10 || clean.length === 11) {
+        if (!clean.startsWith('55')) {
             clean = '55' + clean;
         }
         return clean;

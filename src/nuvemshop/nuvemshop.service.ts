@@ -266,7 +266,7 @@ export class NuvemshopService {
     const connection = await this.getActiveConnection(userId, storeId);
 
     if (!connection || !connection.accessToken) {
-      throw new UnauthorizedException('Token de acesso não encontrado na conexão');
+      throw new BadRequestException('Token de acesso não encontrado na conexão');
     }
 
     try {
@@ -287,12 +287,12 @@ export class NuvemshopService {
       });
 
       if (!token || token.trim().length === 0) {
-        throw new UnauthorizedException('Token de acesso inválido ou vazio');
+        throw new BadRequestException('Token de acesso inválido ou vazio');
       }
 
       return token;
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
+      if (error instanceof BadRequestException) {
         throw error;
       }
       // Se houver erro na descriptografia, pode ser que o token esteja corrompido
@@ -302,7 +302,7 @@ export class NuvemshopService {
         storeId,
         encryptedTokenLength: connection.accessToken.length,
       });
-      throw new UnauthorizedException('Erro ao descriptografar token de acesso. Pode ser necessário reconectar a integração.');
+      throw new BadRequestException('Erro ao descriptografar token de acesso. Pode ser necessário reconectar a integração.');
     }
   }
 
@@ -612,7 +612,7 @@ export class NuvemshopService {
       }
 
       if (response.status === 401 || response.status === 403) {
-        throw new UnauthorizedException(error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado');
+        throw new BadRequestException(error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado');
       }
 
       throw new BadRequestException(error.error_description || error.message || error.error || `Falha na requisição (${response.status})`);

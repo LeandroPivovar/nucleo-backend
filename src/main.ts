@@ -28,6 +28,12 @@ async function bootstrap() {
       ADD COLUMN \`extraSmsBalance\` int DEFAULT 0
     `);
     logger.log('Fallback Migration: Colunas de plano e saldo extra adicionadas com sucesso.');
+
+    // AUTO-FIX: Garantir que usuários existentes sejam marcados como ativos
+    await dataSource.query(`
+      UPDATE \`users\` SET \`active\` = 1 WHERE \`active\` = 0
+    `);
+    logger.log('Fallback Migration: Todos os usuários marcados como ativos para evitar bloqueio.');
   } catch (err: any) {
     if (err.code === 'ER_DUP_FIELDNAME') {
       logger.log('Fallback Migration: Colunas de plano e saldo extra já existem.');

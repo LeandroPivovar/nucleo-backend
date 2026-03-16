@@ -11,6 +11,7 @@ import { Campaign } from '../entities/campaign.entity';
 import { Contact } from '../entities/contact.entity';
 import { PixelEvent } from '../entities/pixel-event.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { ImportSaleRow } from './dto/import-sales.dto';
 
 @Injectable()
 export class SalesService {
@@ -667,6 +668,90 @@ export class SalesService {
         loyal: segContacts.filter(c => parseInt(c.saleCount || '0') > 1).length
       };
     });
+  }
+
+  async importFromCSV(userId: number, rows: ImportSaleRow[]): Promise<{ created: number; errors: string[] }> {
+    const errors: string[] = [];
+    let created = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const lineNumber = i + 2;
+
+      try {
+        if (!row.email) {
+          errors.push(`Linha ${lineNumber}: Email do comprador é obrigatório`);
+          continue;
+        }
+
+        // 1. Buscar ou Vincular Contato
+        let contact = await this.contactRepository.findOne({
+          where: { email: row.email, userId },
+        });
+
+        if (!contact) {
+          contact = this.contactRepository.create({
+            email: row.email,
+            name: row.customerName || row.email.split('@')[0],
+            userId,
+            status: 'lead',
+          });
+          contact = await this.contactRepository.save(contact);
+        }
+
+        // 2. Buscar Produto
+        let product: Product | null = null;
+        if (row.sku) {
+          product = await this.productRepository.findOne({
+            where: { sku: row.sku, userId },
+          });
+        }
+
+        if (!product && row.productName) {
+          product = await this.productRepository.findOne({
+            where: { name: row.productName, userId },
+          });
+        }
+
+        if (!product) {
+          errors.push(`Linha ${lineNumber}: Produto "${row.productName || row.sku}" não encontrado`);
+          continue;
+        }
+
+        // 3. Processar Valores
+        const quantity = typeof row.quantity === 'string' ? parseFloat(row.quantity) : row.quantity || 1;
+        const totalValue = typeof row.totalValue === 'string' ? parseFloat(row.totalValue.replace('R$', '').replace(',', '.')) : row.totalValue || 0;
+        const unitPrice = row.unitPrice ? (typeof row.unitPrice === 'string' ? parseFloat(row.unitPrice.replace('R$', '').replace(',', '.')) : row.unitPrice) : (totalValue / quantity);
+
+        // 4. Criar Venda
+        const sale = this.saleRepository.create({
+          userId,
+          contactId: contact.id,
+          productId: product.id,
+          quantity,
+          unitPrice,
+          totalValue,
+          customerName: contact.name,
+          customerEmail: contact.email,
+          channel: row.channel || 'import',
+          status: row.status || 'completed',
+          paymentMethod: row.paymentMethod || 'other',
+          createdAt: row.date ? new Date(row.date) : new Date(),
+        });
+
+        await this.saleRepository.save(sale);
+
+        // 5. Atualizar Estoque
+        product.stock -= quantity;
+        await this.productRepository.save(product);
+
+        created++;
+      } catch (error) {
+        errors.push(`Linha ${lineNumber}: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+      }
+    }
+
+    return { created, errors };
   }
 }
 

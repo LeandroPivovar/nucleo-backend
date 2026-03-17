@@ -5,12 +5,14 @@ import { ProductsController, ProductsImageController } from './products.controll
 import { Product } from '../entities/product.entity';
 import { NuvemshopModule } from '../nuvemshop/nuvemshop.module';
 import { ShopifyModule } from '../shopify/shopify.module';
+import { CategoriesModule } from '../categories/categories.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Product]),
     NuvemshopModule,
     ShopifyModule,
+    CategoriesModule,
   ],
   controllers: [ProductsController, ProductsImageController],
   providers: [ProductsService],

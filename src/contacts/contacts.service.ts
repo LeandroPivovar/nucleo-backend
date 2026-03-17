@@ -425,9 +425,9 @@ export class ContactsService {
       const paramName = `seg_${i}`;
 
       if (segId === 'birthday') {
-        const currentMonth = new Date().getMonth() + 1;
-        orConditions.push(`EXTRACT(MONTH FROM contact.birthDate) = :month`);
-        parameters['month'] = currentMonth;
+        const targetMonth = segParams.month !== undefined ? segParams.month : new Date().getMonth() + 1;
+        orConditions.push(`EXTRACT(MONTH FROM contact.birthDate) = :${paramName}`);
+        parameters[paramName] = targetMonth;
       } else if (segId === 'gender_male') {
         orConditions.push(`contact.gender = 'M'`);
       } else if (segId === 'gender_female') {
@@ -479,6 +479,9 @@ export class ContactsService {
           const state = segId.replace('state_', '').toUpperCase();
           orConditions.push(`contact.state = :${paramName}`);
           parameters[paramName] = state;
+        } else if (segParams.state) {
+          orConditions.push(`contact.state = :${paramName}`);
+          parameters[paramName] = segParams.state;
         } else {
           orConditions.push(`contact.state IS NOT NULL`);
         }

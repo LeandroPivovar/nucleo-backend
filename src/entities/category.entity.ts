@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { User } from './user.entity';
 
 @Entity('categories')
 export class Category {
@@ -13,6 +14,13 @@ export class Category {
 
     @Column({ type: 'boolean', default: true })
     active: boolean;
+
+    @ManyToOne(() => User)
+    @JoinColumn({ name: 'userId' })
+    user: User;
+
+    @Column()
+    userId: number;
 
     @CreateDateColumn()
     createdAt: Date;

@@ -11,6 +11,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { NuvemshopService } from '../nuvemshop/nuvemshop.service';
 import { ShopifyService } from '../shopify/shopify.service';
+import { CategoriesService } from '../categories/categories.service';
 
 @Injectable()
 export class ProductsService {
@@ -21,9 +22,12 @@ export class ProductsService {
     private productRepository: Repository<Product>,
     private nuvemshopService: NuvemshopService,
     private shopifyService: ShopifyService,
+    private categoriesService: CategoriesService,
   ) { }
 
   async create(userId: number, createProductDto: CreateProductDto): Promise<Product> {
+    await this.resolveCategory(userId, createProductDto);
+
     const product = this.productRepository.create({
       ...createProductDto,
       userId,
@@ -55,6 +59,8 @@ export class ProductsService {
       externalIds: productData.externalIds,
       userId,
     });
+
+    await this.resolveCategory(userId, productData);
 
     // Verificar se produto já existe por SKU
     if (productData.sku) {
@@ -353,6 +359,8 @@ export class ProductsService {
     userId: number,
     updateProductDto: UpdateProductDto,
   ): Promise<Product> {
+    await this.resolveCategory(userId, updateProductDto);
+
     const product = await this.findOne(id, userId);
 
     Object.assign(product, updateProductDto);
@@ -734,6 +742,26 @@ export class ProductsService {
   async remove(id: number, userId: number): Promise<void> {
     const product = await this.findOne(id, userId);
     await this.productRepository.remove(product);
+  }
+
+  /**
+   * Helper method to auto-create category from a string definition during creation or update
+   */
+  private async resolveCategory(userId: number, dto: Partial<CreateProductDto | UpdateProductDto>): Promise<void> {
+    if (dto.category && !dto.categoryId) {
+      // O usuário informou o nome da categoria, mas não o ID. Vamos buscar ou criar.
+      const categoryName = dto.category.trim();
+      const userCategories = await this.categoriesService.findAll(userId);
+
+      let category = userCategories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
+
+      if (!category) {
+        this.logger.log(`Categoria "${categoryName}" não encontrada para o usuário ${userId}. Criando nova categoria.`);
+        category = await this.categoriesService.create(userId, { name: categoryName });
+      }
+
+      dto.categoryId = category.id;
+    }
   }
 }
 

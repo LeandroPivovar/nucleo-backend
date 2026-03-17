@@ -71,6 +71,9 @@ export class Sale {
   @Column({ name: 'externalId', length: 255, nullable: true })
   externalId: string;
 
+  @Column({ name: 'couponCode', length: 255, nullable: true })
+  couponCode: string;
+
   @CreateDateColumn()
   createdAt: Date;
 }

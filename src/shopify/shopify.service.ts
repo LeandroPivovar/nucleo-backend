@@ -673,6 +673,7 @@ export class ShopifyService {
             status: sOrder.financial_status === 'paid' ? 'completed' : 'processing',
             createdAt: createdAt,
             externalId: externalId,
+            couponCode: sOrder.discount_codes && sOrder.discount_codes.length > 0 ? sOrder.discount_codes[0].code : null,
           });
           await this.saleRepository.save(sale);
           imported++;

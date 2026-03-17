@@ -105,11 +105,61 @@ export class SalesService {
   }
 
   async findAll(userId: number): Promise<Sale[]> {
-    return this.saleRepository.find({
+    const sales = await this.saleRepository.find({
       where: { userId },
-      relations: ['product', 'contact'],
+      relations: ['product', 'contact', 'campaign'],
       order: { createdAt: 'DESC' },
     });
+
+    // Tentar vincular vendas órfãs com cupom às campanhas
+    let updatedAny = false;
+    for (const sale of sales) {
+      if (sale.couponCode && !sale.campaignId) {
+        const campaign = await this.findCampaignByCoupon(userId, sale.couponCode);
+        if (campaign) {
+          sale.campaignId = campaign.id;
+          sale.campaign = campaign;
+          await this.saleRepository.save(sale);
+
+          // Atualizar receita da campanha
+          campaign.revenue = (Number(campaign.revenue) || 0) + Number(sale.totalValue);
+          await this.campaignRepository.save(campaign);
+          updatedAny = true;
+        }
+      }
+    }
+
+    return sales;
+  }
+
+  private async findCampaignByCoupon(userId: number, couponCode: string): Promise<Campaign | null> {
+    // Buscar campanhas do usuário
+    const campaigns = await this.campaignRepository.find({
+      where: { userId }
+    });
+
+    for (const campaign of campaigns) {
+      if (!campaign.config) continue;
+
+      // Verificar em campanhas simples
+      if (campaign.complexity === 'simple' && campaign.config.campaignConfig?.enableCoupon) {
+        if (campaign.config.campaignConfig.coupon?.couponName === couponCode) {
+          return campaign;
+        }
+      }
+
+      // Verificar em campanhas avançadas (nós de cupom ou giftback)
+      if (campaign.complexity === 'advanced' && campaign.config.workflow?.nodes) {
+        const nodes = campaign.config.workflow.nodes;
+        const matchingNode = nodes.find((n: any) =>
+          (n.type === 'coupon' || n.type === 'giftback') &&
+          n.data?.couponName === couponCode
+        );
+        if (matchingNode) return campaign;
+      }
+    }
+
+    return null;
   }
 
   // Analytics Methods

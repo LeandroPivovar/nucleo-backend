@@ -194,7 +194,7 @@ export class SalesService {
       // Campaign Stats
       const campaignQb = this.campaignRepository.createQueryBuilder('campaign')
         .select('SUM(campaign.sentCount)', 'envios')
-        .addSelect('SUM(campaign.opensCount)', 'aberturas')
+        .addSelect('SUM(campaign.deliveredCount)', 'aberturas')
         .addSelect('SUM(campaign.clicksCount)', 'cliques')
         .where('campaign.userId = :userId', { userId })
         .andWhere('campaign.updatedAt BETWEEN :start AND :end', { start, end }); // Using updatedAt as proxy for activity
@@ -604,7 +604,7 @@ export class SalesService {
     // We filter campaigns updated (or created) in this period to approximate activity
     // Ideally we would have a 'CampaignEvent' table, but using Campaign aggregates is a good approximation
     const campaignStats = await this.campaignRepository.createQueryBuilder('campaign')
-      .select('SUM(campaign.opensCount)', 'opens')
+      .select('SUM(campaign.deliveredCount)', 'opens')
       .addSelect('SUM(campaign.clicksCount)', 'clicks')
       .where('campaign.userId = :userId', { userId })
       .andWhere('campaign.updatedAt BETWEEN :startDate AND :endDate', { startDate, endDate })

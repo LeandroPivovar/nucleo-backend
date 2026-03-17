@@ -62,6 +62,8 @@ export class EmailService {
       // A biblioteca antiga nodemailer aceitava content base64, path etc. 
       // A Zenvia exige fileUrl. Para envio transacional com anexos sem URL, isso precisaria ser adaptado gerando URLs, 
       // ignoraremos anexos que não mapeiam para a API da Zenvia (que requer fileUrl público)
+      let attachmentsUrl: any[] | undefined = undefined;
+
       if (options.attachments && options.attachments.length > 0) {
         const validAttachments = options.attachments.filter(a => !!a.path);
         const backendUrl = this.configService.get<string>('BACKEND_URL', 'http://localhost:3000');

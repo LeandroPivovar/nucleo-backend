@@ -52,6 +52,7 @@ import { UserUsage } from './entities/user-usage.entity';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
 import { CategoriesModule } from './categories/categories.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -98,7 +99,8 @@ import { CategoriesModule } from './categories/categories.module';
     WebhooksModule,
     SystemSettingsModule,
     NotificationsModule,
-    CategoriesModule
+    CategoriesModule,
+    UploadsModule
   ],
   controllers: [AppController],
   providers: [AppService],

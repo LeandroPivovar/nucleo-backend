@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CampaignsService } from './campaigns.service';
-import { CampaignsController } from './campaigns.controller';
+import { CampaignsController, CampaignsWebhookController } from './campaigns.controller';
 import { Campaign } from '../entities/campaign.entity';
 import { Contact } from '../entities/contact.entity';
 import { UserUsage } from '../entities/user-usage.entity';
@@ -28,7 +28,7 @@ import { Subscription } from '../entities/subscription.entity';
         NuvemshopModule
     ],
     providers: [CampaignsService, CampaignSchedulerService],
-    controllers: [CampaignsController],
+    controllers: [CampaignsController, CampaignsWebhookController],
     exports: [CampaignsService],
 })
 export class CampaignsModule { }

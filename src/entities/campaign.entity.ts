@@ -33,7 +33,7 @@ export class Campaign {
     sentCount: number;
 
     @Column({ type: 'int', default: 0 })
-    opensCount: number;
+    deliveredCount: number;
 
     @Column({ type: 'int', default: 0 })
     clicksCount: number;

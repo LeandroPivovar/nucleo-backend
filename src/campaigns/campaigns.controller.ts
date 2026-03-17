@@ -9,6 +9,8 @@ import {
     UseGuards,
     Request,
     Query,
+    HttpCode,
+    HttpStatus,
 } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -50,5 +52,17 @@ export class CampaignsController {
     @Delete(':id')
     remove(@Param('id') id: string, @Request() req) {
         return this.campaignsService.remove(+id, req.user.userId);
+    }
+}
+
+// Webhook público — sem autenticação JWT, recebe callbacks da Zenvia
+@Controller('campaigns/webhook')
+export class CampaignsWebhookController {
+    constructor(private readonly campaignsService: CampaignsService) { }
+
+    @Post('delivered')
+    @HttpCode(HttpStatus.OK)
+    handleDelivered(@Body() payload: any) {
+        return this.campaignsService.handleDeliveredWebhook(payload);
     }
 }

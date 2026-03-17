@@ -138,7 +138,7 @@ export class CampaignsService {
                 const date = new Date();
                 date.setMonth(date.getMonth() - i);
                 const monthName = monthNames[date.getMonth()];
-                monthsMap.set(monthName, { periodo: monthName, envios: 0, aberturas: 0, cliques: 0 });
+                monthsMap.set(monthName, { periodo: monthName, envios: 0, recebidos: 0, cliques: 0 });
             }
 
             campaigns.forEach(camp => {
@@ -146,7 +146,7 @@ export class CampaignsService {
                 if (monthsMap.has(monthName)) {
                     const data = monthsMap.get(monthName);
                     data.envios += camp.sentCount || 0;
-                    data.aberturas += camp.opensCount || 0;
+                    data.recebidos += camp.deliveredCount || 0;
                     data.cliques += camp.clicksCount || 0;
                 }
             });
@@ -163,7 +163,7 @@ export class CampaignsService {
                 date.setDate(date.getDate() - i);
                 const dayName = daysPT[date.getDay()];
                 if (!daysMap.has(dayName)) {
-                    daysMap.set(dayName, { periodo: dayName, envios: 0, aberturas: 0, cliques: 0, _date: date });
+                    daysMap.set(dayName, { periodo: dayName, envios: 0, recebidos: 0, cliques: 0, _date: date });
                 }
             }
 
@@ -172,7 +172,7 @@ export class CampaignsService {
                 if (daysMap.has(dayName)) {
                     const data = daysMap.get(dayName);
                     data.envios += camp.sentCount || 0;
-                    data.aberturas += camp.opensCount || 0;
+                    data.recebidos += camp.deliveredCount || 0;
                     data.cliques += camp.clicksCount || 0;
                 }
             });
@@ -190,7 +190,7 @@ export class CampaignsService {
                 const date = new Date(endDate);
                 date.setDate(date.getDate() - i);
                 const formattedDate = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
-                dateMap.set(formattedDate, { periodo: formattedDate, envios: 0, aberturas: 0, cliques: 0, _date: date });
+                dateMap.set(formattedDate, { periodo: formattedDate, envios: 0, recebidos: 0, cliques: 0, _date: date });
             }
 
             campaigns.forEach(camp => {
@@ -198,7 +198,7 @@ export class CampaignsService {
                 if (dateMap.has(formattedDate)) {
                     const data = dateMap.get(formattedDate);
                     data.envios += camp.sentCount || 0;
-                    data.aberturas += camp.opensCount || 0;
+                    data.recebidos += camp.deliveredCount || 0;
                     data.cliques += camp.clicksCount || 0;
                 }
             });
@@ -220,7 +220,7 @@ export class CampaignsService {
             type: camp.channel === 'email' ? 'E-mail' : camp.channel === 'sms' ? 'SMS' : 'WhatsApp',
             status: camp.status === 'ativa' ? 'Ativa' : camp.status === 'pausada' ? 'Pausada' : camp.status === 'agendada' ? 'Agendada' : camp.status === 'finalizada' ? 'Finalizada' : 'Rascunho',
             sent: camp.sentCount || 0,
-            opens: camp.opensCount || 0,
+            opens: camp.deliveredCount || 0,
             clicks: camp.clicksCount || 0
         }));
 
@@ -284,21 +284,21 @@ export class CampaignsService {
         });
 
         const channelPerformanceMap: Record<string, any> = {
-            whatsapp: { channel: 'whatsapp', envios: 0, aberturas: 0 },
-            email: { channel: 'email', envios: 0, aberturas: 0 },
-            sms: { channel: 'sms', envios: 0, aberturas: 0 }
+            whatsapp: { channel: 'whatsapp', envios: 0, recebidos: 0 },
+            email: { channel: 'email', envios: 0, recebidos: 0 },
+            sms: { channel: 'sms', envios: 0, recebidos: 0 }
         };
 
         recentMonthlyCampaigns.forEach(c => {
             if (channelPerformanceMap[c.channel]) {
                 channelPerformanceMap[c.channel].envios += c.sentCount || 0;
-                channelPerformanceMap[c.channel].aberturas += c.opensCount || 0;
+                channelPerformanceMap[c.channel].recebidos += c.deliveredCount || 0;
             }
         });
 
         const channelPerformance = Object.values(channelPerformanceMap).map(p => ({
             ...p,
-            taxaAbertura: p.envios > 0 ? (p.aberturas / p.envios) * 100 : 0
+            taxaEntrega: p.envios > 0 ? (p.recebidos / p.envios) * 100 : 0
         }));
 
         return {
@@ -307,6 +307,40 @@ export class CampaignsService {
             recentActivity,
             channelPerformance
         };
+    }
+
+    async handleDeliveredWebhook(payload: any): Promise<void> {
+        try {
+            const statusCode: string = payload?.messageStatus?.code;
+            if (statusCode !== 'DELIVERED') {
+                return; // Apenas processa eventos DELIVERED
+            }
+
+            const channel: string = payload?.channel; // 'sms' | 'email'
+            const messageId: string = payload?.messageId || payload?.message?.id;
+
+            this.logger.log(`Webhook DELIVERED recebido - canal: ${channel}, messageId: ${messageId}`);
+
+            // Localiza a campanha mais recente ativa/finalizada no canal correspondente
+            // Como o webhook não carrega campaignId, incrementamos a campanha mais recente do canal
+            const campaign = await this.campaignsRepository.findOne({
+                where: { channel },
+                order: { updatedAt: 'DESC' },
+            });
+
+            if (!campaign) {
+                this.logger.warn(`Nenhuma campanha encontrada para o canal ${channel}`);
+                return;
+            }
+
+            await this.campaignsRepository.update(campaign.id, {
+                deliveredCount: () => 'deliveredCount + 1',
+            } as any);
+
+            this.logger.log(`deliveredCount incrementado na campanha [ID: ${campaign.id}] - canal: ${channel}`);
+        } catch (error: any) {
+            this.logger.error(`Erro ao processar webhook de entrega: ${error.message}`);
+        }
     }
 
     async checkAndNotifyPerformance(userId: number) {
@@ -339,7 +373,7 @@ export class CampaignsService {
                 );
 
                 if (!alreadyNotified) {
-                    const openRate = camp.sentCount > 0 ? ((camp.opensCount / camp.sentCount) * 100).toFixed(1) : '0';
+                    const openRate = camp.sentCount > 0 ? ((camp.deliveredCount / camp.sentCount) * 100).toFixed(1) : '0';
                     const clickRate = camp.sentCount > 0 ? ((camp.clicksCount / camp.sentCount) * 100).toFixed(1) : '0';
 
                     await this.notificationsService.create({
@@ -347,7 +381,7 @@ export class CampaignsService {
                         title,
                         message: `Sua campanha "${camp.name}" foi finalizada com sucesso!\n\n` +
                             `✅ Envios: ${camp.sentCount}\n` +
-                            `👁️ Aberturas: ${camp.opensCount} (${openRate}%)\n` +
+                            `📬 Recebidos: ${camp.deliveredCount} (${openRate}%)\n` +
                             `🖱️ Cliques: ${camp.clicksCount} (${clickRate}%)\n` +
                             (camp.revenue > 0 ? `💰 Receita: R$ ${camp.revenue}\n` : '') +
                             `Consulte o relatório detalhado no menu de Campanhas.`,

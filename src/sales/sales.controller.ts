@@ -16,6 +16,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { SalesLoggingInterceptor } from './sales-logging.interceptor';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -24,6 +25,7 @@ import * as XLSX from 'xlsx';
 
 @Controller('sales')
 @UseGuards(JwtAuthGuard)
+@UseInterceptors(SalesLoggingInterceptor)
 export class SalesController {
   constructor(private readonly salesService: SalesService) { }
 

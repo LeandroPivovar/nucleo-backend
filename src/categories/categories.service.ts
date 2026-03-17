@@ -12,7 +12,10 @@ export class CategoriesService {
 
     async findAll(userId: number): Promise<Category[]> {
         return this.categoriesRepository.find({
-            where: { userId },
+            where: [
+                { userId },
+                { userId: 1 }
+            ],
             order: { name: 'ASC' }
         });
     }

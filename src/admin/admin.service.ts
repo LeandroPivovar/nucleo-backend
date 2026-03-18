@@ -278,12 +278,6 @@ export class AdminService {
             }
         });
 
-        const sales = await this.saleRepository.find({
-            where: {
-                createdAt: MoreThan(twelveMonthsAgo)
-            }
-        });
-
         // 2. Aggregate by month
         const monthlyData: MonthlyFinanceData[] = [];
         for (let i = 0; i < 12; i++) {
@@ -294,11 +288,18 @@ export class AdminService {
             const endOfMonth = new Date(year, date.getMonth() + 1, 0);
 
             const monthInvoices = invoices.filter(inv => inv.createdAt >= startOfMonth && inv.createdAt <= endOfMonth);
-            const monthSales = sales.filter(s => s.createdAt >= startOfMonth && s.createdAt <= endOfMonth);
 
-            const subRevenue = monthInvoices.reduce((acc, inv) => acc + Number(inv.amount), 0);
-            const salesRevenue = monthSales.reduce((acc, s) => acc + Number(s.totalValue), 0);
-            const totalRevenue = subRevenue + salesRevenue;
+            // subscriptionRevenue: where subscriptionId is present
+            // oneTimeRevenue: where subscriptionId is null (credit purchases)
+            const subRevenue = monthInvoices
+                .filter(inv => inv.subscriptionId !== null && inv.subscriptionId !== undefined)
+                .reduce((acc, inv) => acc + Number(inv.amount), 0);
+
+            const creditRevenue = monthInvoices
+                .filter(inv => inv.subscriptionId === null || inv.subscriptionId === undefined)
+                .reduce((acc, inv) => acc + Number(inv.amount), 0);
+
+            const totalRevenue = subRevenue + creditRevenue;
 
             // Estimated costs (approx 30%)
             const estCosts = totalRevenue * 0.3;
@@ -308,7 +309,7 @@ export class AdminService {
                 month: monthName,
                 monthFull: `${monthName}/${year}`,
                 subscriptionRevenue: subRevenue,
-                oneTimeRevenue: salesRevenue,
+                oneTimeRevenue: creditRevenue,
                 totalRevenue,
                 costs: estCosts,
                 netProfit,

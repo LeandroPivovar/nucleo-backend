@@ -100,8 +100,9 @@ export class CampaignsService {
     async addContactsToCampaign(userId: number, campaignId: number, contactIds: number[]): Promise<any> {
         const campaign = await this.findOne(campaignId, userId);
 
-        if (campaign.status !== 'ativa') {
-            throw new Error('A campanha não está ativa.');
+        const allowedStatuses = ['ativa', 'finalizada', 'agendada'];
+        if (!allowedStatuses.includes(campaign.status)) {
+            throw new Error(`A campanha está com status "${campaign.status}" e não permite adição manual.`);
         }
 
         if (!contactIds || contactIds.length === 0) {

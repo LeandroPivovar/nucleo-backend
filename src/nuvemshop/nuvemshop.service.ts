@@ -21,7 +21,7 @@ export class NuvemshopService {
   private readonly clientSecret: string;
   private readonly apiBaseUrl: string = 'https://api.nuvemshop.com.br/v1';
   private readonly authBaseUrl: string = 'https://www.nuvemshop.com.br/apps';
-  private readonly scopes: string = 'read_products,write_products,read_orders,write_orders,read_checkouts,write_checkouts,read_coupons,write_coupons';
+  private readonly scopes: string = 'read_products,write_products,read_orders,write_orders,read_checkouts,write_checkouts,read_coupons,write_coupons,read_customers,write_customers';
 
   constructor(
     @InjectRepository(NuvemshopConnection)
@@ -583,7 +583,7 @@ export class NuvemshopService {
     return await this.makeApiRequest(userId, storeId, `/products?${queryParams.toString()}`);
   }
 
-  private async makeApiRequest(userId: number, storeId: string, path: string, method: string = 'GET', body?: any): Promise<any> {
+  private async makeApiRequest(userId: number, storeId: string, path: string, method: string = 'GET', body?: any, ignorePagination404: boolean = false): Promise<any> {
     const accessToken = await this.getAccessToken(userId, storeId);
     const url = `${this.apiBaseUrl}/${storeId}${path}`;
 
@@ -614,8 +614,14 @@ export class NuvemshopService {
 
       console.error(`[Nuvemshop API Error] ${method} ${url} - Status: ${response.status}`, error);
 
+      // Tratar erro 404 de página inexistente ou loja sem dados (paginação)
+      if (ignorePagination404 && response.status === 404 && (error.description?.includes('Last page is') || error.message?.includes('Last page is'))) {
+        console.log(`[Nuvemshop API] Página não encontrada (fim dos dados ou lista vazia). Retornando array vazio.`);
+        return [];
+      }
+
       if (response.status === 401 || response.status === 403) {
-        throw new BadRequestException(error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado');
+        throw new BadRequestException(error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado. Pode ser necessário reconectar a loja.');
       }
 
       throw new BadRequestException(error.error_description || error.message || error.error || `Falha na requisição (${response.status})`);
@@ -640,7 +646,7 @@ export class NuvemshopService {
     let hasMore = true;
 
     while (hasMore) {
-      const customers = await this.makeApiRequest(userId, storeId, `/customers?per_page=200&page=${page}`);
+      const customers = await this.makeApiRequest(userId, storeId, `/customers?per_page=200&page=${page}`, 'GET', null, true);
       if (!customers || !Array.isArray(customers) || customers.length === 0) {
         hasMore = false;
       } else {
@@ -699,14 +705,23 @@ export class NuvemshopService {
     let page = 1;
     let hasMore = true;
 
-    while (hasMore) {
-      const orders = await this.makeApiRequest(userId, storeId, `/orders?per_page=200&page=${page}`);
-      if (!orders || !Array.isArray(orders) || orders.length === 0) {
-        hasMore = false;
-      } else {
-        allOrders = allOrders.concat(orders);
-        page++;
+    try {
+      while (hasMore) {
+        const orders = await this.makeApiRequest(userId, storeId, `/orders?per_page=200&page=${page}`, 'GET', null, true);
+        if (!orders || !Array.isArray(orders) || orders.length === 0) {
+          hasMore = false;
+        } else {
+          allOrders = allOrders.concat(orders);
+          page++;
+        }
       }
+    } catch (error) {
+      if (error instanceof BadRequestException && error.message.includes('read_orders')) {
+        console.warn(`[Nuvemshop Sync] Falha ao sincronizar pedidos: Sem permissão read_orders. O usuário precisa reconectar o app.`);
+        // Não lançamos erro aqui para permitir que clientes e produtos continuem sincronizando
+        return { imported: 0, updated: 0 };
+      }
+      throw error;
     }
 
     let imported = 0;
@@ -859,7 +874,7 @@ export class NuvemshopService {
     let hasMore = true;
 
     while (hasMore) {
-      const products = await this.makeApiRequest(userId, storeId, `/products?per_page=200&page=${page}`);
+      const products = await this.makeApiRequest(userId, storeId, `/products?per_page=200&page=${page}`, 'GET', null, true);
       if (!products || !Array.isArray(products) || products.length === 0) {
         hasMore = false;
       } else {

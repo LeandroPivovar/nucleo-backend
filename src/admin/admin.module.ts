@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AdminController } from './admin.controller';
+import { AdminStatsController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -16,7 +16,7 @@ import { Invoice } from '../entities/invoice.entity';
             Invoice,
         ]),
     ],
-    controllers: [AdminController],
+    controllers: [AdminStatsController],
     providers: [AdminService],
     exports: [AdminService],
 })

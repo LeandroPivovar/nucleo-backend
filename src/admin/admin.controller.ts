@@ -4,7 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('admin/stats')
 @UseGuards(JwtAuthGuard)
-export class AdminController {
+export class AdminStatsController {
     constructor(private readonly adminService: AdminService) { }
 
     @Get('global')

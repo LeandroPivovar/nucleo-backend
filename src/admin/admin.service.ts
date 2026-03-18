@@ -25,24 +25,31 @@ export class AdminService {
         const last30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         const last60d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
+        console.log('Fetching Admin Global Stats...');
+
         // 1. DAU / MAU (Approx via updatedAt)
         const dau = await this.usersRepository.count({
             where: { updatedAt: MoreThan(last24h) },
         });
+        console.log('DAU:', dau);
+
         const mau = await this.usersRepository.count({
             where: { updatedAt: MoreThan(last30d) },
         });
+        console.log('MAU:', mau);
 
         // 2. Active Companies
         const activeCompanies = await this.usersRepository.count({
             where: { subscriptionStatus: 'ACTIVE' },
         });
+        console.log('Active Companies:', activeCompanies);
 
         // 3. MRR Calculation
         const activeSubscriptions = await this.subscriptionRepository.find({
             where: { status: 'active' },
             relations: ['plan'],
         });
+        console.log('Active Subscriptions:', activeSubscriptions.length);
 
         let mrr = 0;
         activeSubscriptions.forEach((sub) => {

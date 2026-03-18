@@ -308,6 +308,7 @@ export class CampaignsService {
 
         const channelPerformance = Object.values(channelPerformanceMap).map(p => ({
             ...p,
+            taxaAbertura: p.envios > 0 ? (p.recebidos / p.envios) * 100 : 0,
             taxaEntrega: p.envios > 0 ? (p.recebidos / p.envios) * 100 : 0
         }));
 

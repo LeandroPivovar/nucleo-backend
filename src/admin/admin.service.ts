@@ -5,6 +5,7 @@ import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { Plan } from '../entities/plan.entity';
 import { Invoice } from '../entities/invoice.entity';
+import { Sale } from '../entities/sale.entity';
 
 import { Contact } from '../entities/contact.entity';
 import { Campaign } from '../entities/campaign.entity';
@@ -23,6 +24,8 @@ export class AdminService {
         private planRepository: Repository<Plan>,
         @InjectRepository(Invoice)
         private invoiceRepository: Repository<Invoice>,
+        @InjectRepository(Sale)
+        private saleRepository: Repository<Sale>,
         @InjectRepository(Contact)
         private contactRepository: Repository<Contact>,
         @InjectRepository(Campaign)
@@ -40,11 +43,13 @@ export class AdminService {
 
         if (!user) throw new Error('Usuário não encontrado');
 
-        const totalBilling = await this.invoiceRepository.find({
-            where: { userId, status: 'paid' },
-        });
+        const salesResult = await this.saleRepository
+            .createQueryBuilder('sale')
+            .select('SUM(sale.totalValue)', 'total')
+            .where('sale.userId = :userId', { userId })
+            .getRawOne();
 
-        const billingAmount = totalBilling.reduce((acc, inv) => acc + Number(inv.amount), 0);
+        const billingAmount = parseFloat(salesResult?.total || '0');
         const contactsCount = await this.contactRepository.count({ where: { userId } });
         const campaignsCount = await this.campaignRepository.count({ where: { userId } });
 

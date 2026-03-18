@@ -82,24 +82,21 @@ export class AdminService {
         return { tempPassword };
     }
 
-    async addCredits(userId: number, type: 'email' | 'sms' | 'whatsapp', amount: number) {
-        const now = new Date();
-        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    async addCredits(userId: number, type: 'email' | 'sms', amount: number) {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        if (!user) throw new Error('Usuário não encontrado');
 
-        let usage = await this.usageRepository.findOne({
-            where: { userId, monthYear },
-        });
-
-        if (!usage) {
-            usage = this.usageRepository.create({ userId, monthYear });
+        if (type === 'email') {
+            user.extraEmailsBalance = (user.extraEmailsBalance || 0) + amount;
+        } else if (type === 'sms') {
+            user.extraSmsBalance = (user.extraSmsBalance || 0) + amount;
         }
 
-        if (type === 'email') usage.emailsSent -= amount; // Reduce sent count to "add" credits
-        else if (type === 'sms') usage.smsSent -= amount;
-        else if (type === 'whatsapp') usage.whatsappSent -= amount;
-
-        await this.usageRepository.save(usage);
-        return usage;
+        await this.usersRepository.save(user);
+        return {
+            extraEmailsBalance: user.extraEmailsBalance,
+            extraSmsBalance: user.extraSmsBalance,
+        };
     }
 
     async impersonateUser(userId: number) {

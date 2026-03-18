@@ -28,7 +28,7 @@ export class AdminStatsController {
     @Post('users/:id/credits')
     async addCredits(
         @Param('id', ParseIntPipe) id: number,
-        @Body('type') type: 'email' | 'sms' | 'whatsapp',
+        @Body('type') type: 'email' | 'sms',
         @Body('amount') amount: number
     ) {
         return this.adminService.addCredits(id, type, amount);

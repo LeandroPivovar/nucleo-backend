@@ -6,6 +6,12 @@ import { Subscription } from '../entities/subscription.entity';
 import { Plan } from '../entities/plan.entity';
 import { Invoice } from '../entities/invoice.entity';
 
+import { Contact } from '../entities/contact.entity';
+import { Campaign } from '../entities/campaign.entity';
+import { UserUsage } from '../entities/user-usage.entity';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+
 @Injectable()
 export class AdminService {
     constructor(
@@ -17,7 +23,92 @@ export class AdminService {
         private planRepository: Repository<Plan>,
         @InjectRepository(Invoice)
         private invoiceRepository: Repository<Invoice>,
+        @InjectRepository(Contact)
+        private contactRepository: Repository<Contact>,
+        @InjectRepository(Campaign)
+        private campaignRepository: Repository<Campaign>,
+        @InjectRepository(UserUsage)
+        private usageRepository: Repository<UserUsage>,
+        private jwtService: JwtService,
     ) { }
+
+    async getUserStats(userId: number) {
+        const user = await this.usersRepository.findOne({
+            where: { id: userId },
+            relations: ['plan'],
+        });
+
+        if (!user) throw new Error('Usuário não encontrado');
+
+        const totalBilling = await this.invoiceRepository.find({
+            where: { userId, status: 'paid' },
+        });
+
+        const billingAmount = totalBilling.reduce((acc, inv) => acc + Number(inv.amount), 0);
+        const contactsCount = await this.contactRepository.count({ where: { userId } });
+        const campaignsCount = await this.campaignRepository.count({ where: { userId } });
+
+        const now = new Date();
+        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const usage = await this.usageRepository.findOne({
+            where: { userId, monthYear },
+        });
+
+        return {
+            billingAmount,
+            contactsCount,
+            campaignsCount,
+            usage: {
+                emailsSent: usage?.emailsSent || 0,
+                smsSent: usage?.smsSent || 0,
+                whatsappSent: usage?.whatsappSent || 0,
+            },
+            subscription: {
+                planName: user.plan?.name || 'Sem plano',
+                status: user.subscriptionStatus || 'Inativo',
+                createdAt: user.createdAt,
+            }
+        };
+    }
+
+    async resetUserPassword(userId: number, newPassword?: string) {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        if (!user) throw new Error('Usuário não encontrado');
+
+        const tempPassword = newPassword || Math.random().toString(36).slice(-8);
+        user.password = await bcrypt.hash(tempPassword, 10);
+        await this.usersRepository.save(user);
+
+        return { tempPassword };
+    }
+
+    async addCredits(userId: number, type: 'email' | 'sms' | 'whatsapp', amount: number) {
+        const now = new Date();
+        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        let usage = await this.usageRepository.findOne({
+            where: { userId, monthYear },
+        });
+
+        if (!usage) {
+            usage = this.usageRepository.create({ userId, monthYear });
+        }
+
+        if (type === 'email') usage.emailsSent -= amount; // Reduce sent count to "add" credits
+        else if (type === 'sms') usage.smsSent -= amount;
+        else if (type === 'whatsapp') usage.whatsappSent -= amount;
+
+        await this.usageRepository.save(usage);
+        return usage;
+    }
+
+    async impersonateUser(userId: number) {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        if (!user) throw new Error('Usuário não encontrado');
+
+        const token = this.jwtService.sign({ sub: user.id, email: user.email });
+        return { token };
+    }
 
     async getGlobalStats() {
         const now = new Date();

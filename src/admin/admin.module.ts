@@ -1,11 +1,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AdminStatsController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { Plan } from '../entities/plan.entity';
 import { Invoice } from '../entities/invoice.entity';
+import { Contact } from '../entities/contact.entity';
+import { Campaign } from '../entities/campaign.entity';
+import { UserUsage } from '../entities/user-usage.entity';
 
 @Module({
     imports: [
@@ -14,7 +19,18 @@ import { Invoice } from '../entities/invoice.entity';
             Subscription,
             Plan,
             Invoice,
+            Contact,
+            Campaign,
+            UserUsage,
         ]),
+        JwtModule.registerAsync({
+            imports: [ConfigModule],
+            useFactory: async (configService: ConfigService) => ({
+                secret: configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production',
+                signOptions: { expiresIn: '7d' },
+            }),
+            inject: [ConfigService],
+        }),
     ],
     controllers: [AdminStatsController],
     providers: [AdminService],

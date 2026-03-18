@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Plan } from './plan.entity';
 
 @Entity('users')
 export class User {
@@ -52,6 +55,10 @@ export class User {
 
   @Column({ length: 50, nullable: true })
   asaasCustomerId: string;
+
+  @ManyToOne(() => Plan)
+  @JoinColumn({ name: 'planId' })
+  plan: Plan;
 
   @Column({ nullable: true })
   planId: number;

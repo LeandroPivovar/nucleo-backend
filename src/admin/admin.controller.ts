@@ -12,6 +12,11 @@ export class AdminController {
         return this.adminService.getGlobalStats();
     }
 
+    @Get('finance/stats')
+    async getFinanceStats() {
+        return this.adminService.getFinanceStats();
+    }
+
     @Get('users/:id')
     async getUserStats(@Param('id', ParseIntPipe) id: number) {
         return this.adminService.getUserStats(id);

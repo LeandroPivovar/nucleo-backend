@@ -13,6 +13,24 @@ import { UserUsage } from '../entities/user-usage.entity';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
+export interface MonthlyFinanceData {
+    month: string;
+    monthFull: string;
+    subscriptionRevenue: number;
+    oneTimeRevenue: number;
+    totalRevenue: number;
+    costs: number;
+    netProfit: number;
+    margin: number;
+}
+
+export interface ProjectionData {
+    month: string;
+    revenue: number;
+    profit: number;
+}
+
+
 @Injectable()
 export class AdminService {
     constructor(
@@ -246,5 +264,100 @@ export class AdminService {
         // Usually it's better to just de-activate to avoid breaking existing subscriptions' relations
         await this.planRepository.update(id, { active: false });
         return { success: true };
+    }
+
+    async getFinanceStats() {
+        const now = new Date();
+        const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
+        // 1. Get all relevant data (last year)
+        const invoices = await this.invoiceRepository.find({
+            where: {
+                createdAt: MoreThan(twelveMonthsAgo),
+                status: 'paid'
+            }
+        });
+
+        const sales = await this.saleRepository.find({
+            where: {
+                createdAt: MoreThan(twelveMonthsAgo)
+            }
+        });
+
+        // 2. Aggregate by month
+        const monthlyData: MonthlyFinanceData[] = [];
+        for (let i = 0; i < 12; i++) {
+            const date = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+            const monthName = date.toLocaleString('pt-BR', { month: 'short' });
+            const year = date.getFullYear();
+            const startOfMonth = new Date(year, date.getMonth(), 1);
+            const endOfMonth = new Date(year, date.getMonth() + 1, 0);
+
+            const monthInvoices = invoices.filter(inv => inv.createdAt >= startOfMonth && inv.createdAt <= endOfMonth);
+            const monthSales = sales.filter(s => s.createdAt >= startOfMonth && s.createdAt <= endOfMonth);
+
+            const subRevenue = monthInvoices.reduce((acc, inv) => acc + Number(inv.amount), 0);
+            const salesRevenue = monthSales.reduce((acc, s) => acc + Number(s.totalValue), 0);
+            const totalRevenue = subRevenue + salesRevenue;
+
+            // Estimated costs (approx 30%)
+            const estCosts = totalRevenue * 0.3;
+            const netProfit = totalRevenue - estCosts;
+
+            monthlyData.push({
+                month: monthName,
+                monthFull: `${monthName}/${year}`,
+                subscriptionRevenue: subRevenue,
+                oneTimeRevenue: salesRevenue,
+                totalRevenue,
+                costs: estCosts,
+                netProfit,
+                margin: totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
+            });
+        }
+
+        // 3. Current MRR and Growth
+        // (Reuse logic from getGlobalStats but simplified)
+        const activeSubs = await this.subscriptionRepository.find({
+            where: { status: 'active' },
+            relations: ['plan']
+        });
+
+        let currentMrr = 0;
+        activeSubs.forEach(sub => {
+            const price = Number(sub.plan?.price) || 0;
+            currentMrr += sub.plan?.interval === 'yearly' ? price / 12 : price;
+        });
+
+        // 4. Projections (Simple linear projection)
+        const projections: ProjectionData[] = [];
+        // Calculate average growth rate from last 3 months
+        const last3Months = monthlyData.slice(-3);
+        let avgGrowth = 0.05; // Default 5% if data is scarce
+        if (last3Months.length >= 2) {
+            const growth1 = last3Months[0].totalRevenue > 0 ? (last3Months[1].totalRevenue - last3Months[0].totalRevenue) / last3Months[0].totalRevenue : 0.05;
+            const growth2 = last3Months[1].totalRevenue > 0 ? (last3Months[2].totalRevenue - last3Months[1].totalRevenue) / last3Months[1].totalRevenue : 0.05;
+            avgGrowth = (growth1 + growth2) / 2;
+        }
+
+        let projectedRevenue = monthlyData[monthlyData.length - 1].totalRevenue;
+        for (let i = 1; i <= 6; i++) {
+            const date = new Date(now.getFullYear(), now.getMonth() + i, 1);
+            projectedRevenue = projectedRevenue * (1 + avgGrowth);
+            projections.push({
+                month: date.toLocaleString('pt-BR', { month: 'short' }),
+                revenue: projectedRevenue,
+                profit: projectedRevenue * 0.7 // Assuming fixed margin
+            });
+        }
+
+        return {
+            monthlyData,
+            projections,
+            currentMrr,
+            ytdRevenue: monthlyData.reduce((acc, d) => acc + d.totalRevenue, 0),
+            avgMargin: monthlyData.reduce((acc, d) => acc + d.margin, 0) / monthlyData.length,
+            growthRate: avgGrowth * 100
+        };
     }
 }

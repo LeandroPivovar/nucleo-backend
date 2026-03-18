@@ -428,10 +428,14 @@ export class ContactsService {
         const targetMonth = segParams.month !== undefined ? segParams.month : new Date().getMonth() + 1;
         orConditions.push(`EXTRACT(MONTH FROM contact.birthDate) = :${paramName}`);
         parameters[paramName] = targetMonth;
-      } else if (segId === 'gender_male') {
-        orConditions.push(`contact.gender = 'M'`);
-      } else if (segId === 'gender_female') {
-        orConditions.push(`contact.gender = 'F'`);
+      } else if (segId === 'gender') {
+        if (segParams.gender === 'M' || segParams.gender === 'F') {
+          orConditions.push(`contact.gender = :${paramName}`);
+          parameters[paramName] = segParams.gender;
+        } else {
+          // Se 'gender' for Ambos ou vazio, não aplicamos filtro de gênero no banco,
+          // permitindo que todos os contatos (incluindo NULL) sejam trazidos.
+        }
       } else if (segId === 'lead_captured') {
         orConditions.push(`contact.status = 'lead'`);
       } else if (segId === 'inactive_customers') {

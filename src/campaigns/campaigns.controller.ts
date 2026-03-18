@@ -41,6 +41,15 @@ export class CampaignsController {
         return this.campaignsService.create(req.user.userId, campaignData);
     }
 
+    @Post(':id/add-contacts')
+    addContacts(
+        @Param('id') id: string,
+        @Request() req,
+        @Body() body: { contactIds: number[] }
+    ) {
+        return this.campaignsService.addContactsToCampaign(req.user.userId, +id, body.contactIds);
+    }
+
     @Patch(':id')
     update(
         @Param('id') id: string,

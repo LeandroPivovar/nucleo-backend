@@ -97,6 +97,49 @@ export class CampaignsService {
         await this.campaignsRepository.remove(campaign);
     }
 
+    async addContactsToCampaign(userId: number, campaignId: number, contactIds: number[]): Promise<any> {
+        const campaign = await this.findOne(campaignId, userId);
+
+        if (campaign.status !== 'ativa') {
+            throw new Error('A campanha não está ativa.');
+        }
+
+        if (!contactIds || contactIds.length === 0) {
+            throw new Error('Nenhum contato selecionado.');
+        }
+
+        const contacts = await this.contactsRepository.find({
+            where: {
+                userId,
+                id: In(contactIds)
+            }
+        });
+
+        if (contacts.length === 0) {
+            throw new Error('Nenhum contato válido encontrado.');
+        }
+
+        // Salvar tracking 
+        if (!campaign.config) campaign.config = {};
+        if (!campaign.config.manualContacts) campaign.config.manualContacts = [];
+
+        // Evitar duplicidades lógicas se desejar, mas vamos apenas adicionar
+        const existingSet = new Set(campaign.config.manualContacts);
+        contacts.forEach((c: { id: number }) => existingSet.add(c.id));
+        campaign.config.manualContacts = Array.from(existingSet);
+
+        await this.campaignsRepository.save(campaign);
+
+        // Disparar envio apenas para os contatos fornecidos
+        const successCount = await this.campaignSchedulerService.executeCampaignFlow(campaign, contacts);
+
+        return {
+            success: true,
+            successCount,
+            message: `${successCount} mensagens enviadas para os leads adicionados.`
+        };
+    }
+
     async trackClick(id: number): Promise<Campaign> {
         const campaign = await this.campaignsRepository.findOne({ where: { id } });
         if (!campaign) {

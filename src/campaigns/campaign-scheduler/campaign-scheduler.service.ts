@@ -92,55 +92,123 @@ export class CampaignSchedulerService {
 
             this.logger.log(`Campaign [${campaign.id}] has ${targetContacts.length} target contacts.`);
 
-            let successCount = 0;
-            const BATCH_SIZE = 50;
+            if (targetContacts.length > 0) {
+                await this.executeCampaignFlow(campaign, targetContacts);
+            }
 
-            // Pré-carrega Usage e Assinatura para atualizar incrementalmente
-            const currentMonthYear = new Date().toISOString().slice(0, 7);
-            let usage = await this.userUsageRepository.findOne({
-                where: { userId: campaign.userId, monthYear: currentMonthYear }
+            if (campaign.complexity !== 'advanced') {
+                campaign.status = 'finalizada'; // Mark as done when all batches are processed
+                await this.campaignsRepository.save(campaign);
+            }
+
+            this.logger.log(`Campaign [${campaign.id}] finished overall.`);
+
+        } catch (error: any) {
+            this.logger.error(`Error processing campaign [ID: ${campaign.id}]: ${error.message}`);
+            // If failed brutally, leave it as 'ativa' or set to 'erro' (not in enum though)
+        }
+    }
+
+    async executeCampaignFlow(campaign: Campaign, targetContacts: Contact[]) {
+        let successCount = 0;
+        const BATCH_SIZE = 50;
+
+        // Pré-carrega Usage e Assinatura para atualizar incrementalmente
+        const currentMonthYear = new Date().toISOString().slice(0, 7);
+        let usage = await this.userUsageRepository.findOne({
+            where: { userId: campaign.userId, monthYear: currentMonthYear }
+        });
+        if (!usage) {
+            usage = this.userUsageRepository.create({
+                userId: campaign.userId,
+                monthYear: currentMonthYear,
             });
-            if (!usage) {
-                usage = this.userUsageRepository.create({
-                    userId: campaign.userId,
-                    monthYear: currentMonthYear,
-                });
-                await this.userUsageRepository.save(usage);
+            await this.userUsageRepository.save(usage);
+        }
+
+        const subscription = await this.subscriptionRepository.findOne({
+            where: { userId: campaign.userId, status: 'active' },
+            relations: ['plan'],
+        });
+        const planEmailsLimit = subscription?.plan?.limits?.emails || 0;
+        const planSmsLimit = subscription?.plan?.limits?.sms || 0;
+        const user = await this.userRepository.findOne({ where: { id: campaign.userId } });
+
+        // Fetch active Shopify Connection (if any)
+        let shopifyConnection: any = null;
+        try {
+            shopifyConnection = await this.shopifyService.getActiveConnection(campaign.userId);
+        } catch (e) {
+            // Ignore se não encontrar
+        }
+
+        // Fetch active Nuvemshop Connection (if any)
+        let nuvemshopConnection: any = null;
+        try {
+            nuvemshopConnection = await this.nuvemshopService.getActiveConnection(campaign.userId);
+        } catch (e) {
+            // Ignore se não encontrar
+        }
+
+        let generatedDiscountCode: string | null = null;
+
+        // Tratamento prévio para "Coupon" em campanhas simples
+        if (campaign.complexity === 'simple' && campaign.config?.campaignConfig?.enableCoupon) {
+            const coupon = campaign.config.campaignConfig.coupon;
+            const endsAtDate = new Date();
+            endsAtDate.setDate(endsAtDate.getDate() + (coupon.validityDate ? Math.ceil((new Date(coupon.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 30));
+
+            const apiCode = coupon.couponName || 'CUPOM_NUCLEO_CRM';
+
+            if (shopifyConnection) {
+                try {
+                    await this.shopifyService.createDiscountCode(
+                        campaign.userId,
+                        shopifyConnection.shop,
+                        {
+                            title: apiCode,
+                            code: apiCode,
+                            value: coupon.discountValue,
+                            valueType: coupon.discountType,
+                            endsAt: endsAtDate.toISOString()
+                        }
+                    );
+                    this.logger.log(`Created Shopify Discount Code: ${apiCode} for campaign ${campaign.id}`);
+                    generatedDiscountCode = apiCode;
+                } catch (error) {
+                    this.logger.error(`Failed to create Shopify Discount Code for campaign ${campaign.id}`, error);
+                }
+            } else if (nuvemshopConnection) {
+                try {
+                    await this.nuvemshopService.createCoupon(
+                        campaign.userId,
+                        nuvemshopConnection.storeId,
+                        {
+                            code: apiCode,
+                            type: coupon.discountType === 'percentage' ? 'percentage' : 'absolute',
+                            value: coupon.discountValue,
+                            start_date: new Date().toISOString(),
+                            end_date: endsAtDate.toISOString(),
+                        }
+                    );
+                    this.logger.log(`Created Nuvemshop Coupon: ${apiCode} for campaign ${campaign.id}`);
+                    generatedDiscountCode = apiCode;
+                } catch (error) {
+                    this.logger.error(`Failed to create Nuvemshop Coupon for campaign ${campaign.id}`, error);
+                }
             }
+        }
 
-            const subscription = await this.subscriptionRepository.findOne({
-                where: { userId: campaign.userId, status: 'active' },
-                relations: ['plan'],
-            });
-            const planEmailsLimit = subscription?.plan?.limits?.emails || 0;
-            const planSmsLimit = subscription?.plan?.limits?.sms || 0;
-            const user = await this.userRepository.findOne({ where: { id: campaign.userId } });
-
-            // Fetch active Shopify Connection (if any)
-            let shopifyConnection: any = null;
-            try {
-                shopifyConnection = await this.shopifyService.getActiveConnection(campaign.userId);
-            } catch (e) {
-                // Ignore se não encontrar
-            }
-
-            // Fetch active Nuvemshop Connection (if any)
-            let nuvemshopConnection: any = null;
-            try {
-                nuvemshopConnection = await this.nuvemshopService.getActiveConnection(campaign.userId);
-            } catch (e) {
-                // Ignore se não encontrar
-            }
-
-            let generatedDiscountCode: string | null = null;
-
-            // Tratamento geral para "Coupon" em rotas simples
-            if (campaign.complexity === 'simple' && campaign.config?.campaignConfig?.enableCoupon) {
-                const coupon = campaign.config.campaignConfig.coupon;
+        // Tratamento prévio para "Coupon" em fluxos avançados
+        if (campaign.complexity === 'advanced') {
+            const nodes = campaign.config?.workflow?.nodes || [];
+            const couponNode = nodes.find((n: any) => n.type === 'coupon');
+            if (couponNode && couponNode.data) {
+                const couponData = couponNode.data;
                 const endsAtDate = new Date();
-                endsAtDate.setDate(endsAtDate.getDate() + (coupon.validityDate ? Math.ceil((new Date(coupon.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 30));
+                endsAtDate.setDate(endsAtDate.getDate() + parseInt(couponData.expirationDays || '30'));
 
-                const apiCode = coupon.couponName || 'CUPOM_NUCLEO_CRM';
+                const apiCode = couponData.couponName || 'CUPOM_NUCLEO_CRM';
 
                 if (shopifyConnection) {
                     try {
@@ -150,15 +218,15 @@ export class CampaignSchedulerService {
                             {
                                 title: apiCode,
                                 code: apiCode,
-                                value: coupon.discountValue,
-                                valueType: coupon.discountType,
+                                value: couponData.discountValue,
+                                valueType: couponData.discountType,
                                 endsAt: endsAtDate.toISOString()
                             }
                         );
-                        this.logger.log(`Created Shopify Discount Code: ${apiCode} for campaign ${campaign.id}`);
+                        this.logger.log(`Created Shopify Discount Code (Advanced): ${apiCode} for campaign ${campaign.id}`);
                         generatedDiscountCode = apiCode;
                     } catch (error) {
-                        this.logger.error(`Failed to create Shopify Discount Code for campaign ${campaign.id}`, error);
+                        this.logger.error(`Failed to create Shopify Discount Code (Advanced) for campaign ${campaign.id}`, error);
                     }
                 } else if (nuvemshopConnection) {
                     try {
@@ -167,413 +235,359 @@ export class CampaignSchedulerService {
                             nuvemshopConnection.storeId,
                             {
                                 code: apiCode,
-                                type: coupon.discountType === 'percentage' ? 'percentage' : 'absolute',
-                                value: coupon.discountValue,
+                                type: couponData.discountType === 'percentage' ? 'percentage' : 'absolute',
+                                value: couponData.discountValue,
                                 start_date: new Date().toISOString(),
                                 end_date: endsAtDate.toISOString(),
                             }
                         );
-                        this.logger.log(`Created Nuvemshop Coupon: ${apiCode} for campaign ${campaign.id}`);
+                        this.logger.log(`Created Nuvemshop Coupon (Advanced): ${apiCode} for campaign ${campaign.id}`);
                         generatedDiscountCode = apiCode;
                     } catch (error) {
-                        this.logger.error(`Failed to create Nuvemshop Coupon for campaign ${campaign.id}`, error);
+                        this.logger.error(`Failed to create Nuvemshop Coupon (Advanced) for campaign ${campaign.id}`, error);
                     }
                 }
             }
+        }
 
-            // Tratamento prévio para "Coupon" em fluxos avançados
-            if (campaign.complexity === 'advanced') {
-                const nodes = campaign.config?.workflow?.nodes || [];
-                const couponNode = nodes.find((n: any) => n.type === 'coupon');
-                if (couponNode && couponNode.data) {
-                    const couponData = couponNode.data;
-                    const endsAtDate = new Date();
-                    endsAtDate.setDate(endsAtDate.getDate() + parseInt(couponData.expirationDays || '30'));
+        // Processar em Lotes
+        for (let i = 0; i < targetContacts.length; i += BATCH_SIZE) {
+            const batch = targetContacts.slice(i, i + BATCH_SIZE);
+            let batchSuccessCount = 0;
 
-                    const apiCode = couponData.couponName || 'CUPOM_NUCLEO_CRM';
+            const batchPromises = batch.map(async (contact) => {
+                let sentEmailCount = 0;
+                let sentSmsCount = 0;
+                let sentWhatsappCount = 0;
 
-                    if (shopifyConnection) {
-                        try {
-                            await this.shopifyService.createDiscountCode(
-                                campaign.userId,
-                                shopifyConnection.shop,
-                                {
-                                    title: apiCode,
-                                    code: apiCode,
-                                    value: couponData.discountValue,
-                                    valueType: couponData.discountType,
-                                    endsAt: endsAtDate.toISOString()
-                                }
-                            );
-                            this.logger.log(`Created Shopify Discount Code (Advanced): ${apiCode} for campaign ${campaign.id}`);
-                            generatedDiscountCode = apiCode;
-                        } catch (error) {
-                            this.logger.error(`Failed to create Shopify Discount Code (Advanced) for campaign ${campaign.id}`, error);
-                        }
-                    } else if (nuvemshopConnection) {
-                        try {
-                            await this.nuvemshopService.createCoupon(
-                                campaign.userId,
-                                nuvemshopConnection.storeId,
-                                {
-                                    code: apiCode,
-                                    type: couponData.discountType === 'percentage' ? 'percentage' : 'absolute',
-                                    value: couponData.discountValue,
-                                    start_date: new Date().toISOString(),
-                                    end_date: endsAtDate.toISOString(),
-                                }
-                            );
-                            this.logger.log(`Created Nuvemshop Coupon (Advanced): ${apiCode} for campaign ${campaign.id}`);
-                            generatedDiscountCode = apiCode;
-                        } catch (error) {
-                            this.logger.error(`Failed to create Nuvemshop Coupon (Advanced) for campaign ${campaign.id}`, error);
-                        }
-                    }
-                }
-            }
+                if (campaign.complexity === 'advanced') {
+                    const nodes = campaign.config?.workflow?.nodes || [];
+                    let activeCoupon: any = null;
 
-            // Processar em Lotes
-            for (let i = 0; i < targetContacts.length; i += BATCH_SIZE) {
-                const batch = targetContacts.slice(i, i + BATCH_SIZE);
-                let batchSuccessCount = 0;
-
-                const batchPromises = batch.map(async (contact) => {
-                    let sentEmailCount = 0;
-                    let sentSmsCount = 0;
-                    let sentWhatsappCount = 0;
-
-                    if (campaign.complexity === 'advanced') {
-                        const nodes = campaign.config?.workflow?.nodes || [];
-                        let activeCoupon: any = null;
-
-                        for (const node of nodes) {
-                            if (node.type === 'coupon' || node.type === 'giftback') {
-                                activeCoupon = { ...node.data, _type: node.type };
-                                // Gerar Gift Card individual caso suporte shopify
-                                if (node.type === 'giftback' && shopifyConnection) {
-                                    const endsAtDate = new Date();
-                                    endsAtDate.setDate(endsAtDate.getDate() + parseInt(activeCoupon.expirationDays || '30'));
-                                    try {
-                                        const initialVal = activeCoupon.giftbackValue || '0';
-                                        const generatedGift = await this.shopifyService.createGiftCard(
-                                            campaign.userId,
-                                            shopifyConnection.shop,
-                                            {
-                                                initialValue: initialVal,
-                                                note: activeCoupon.couponName || 'GIFTBACK',
-                                                endsAt: endsAtDate.toISOString()
-                                            }
-                                        );
-                                        activeCoupon._generatedCode = generatedGift.code;
-                                        this.logger.log(`Generated GC (Shopify) for contact ${contact.email || contact.phone}`);
-                                    } catch (e) {
-                                        this.logger.error(`Error generating GC (Shopify)`, e);
-                                    }
-                                } else if (node.type === 'giftback' && nuvemshopConnection) {
-                                    // Nuvemshop Giftback via Coupon (Dynamic)
-                                    const endsAtDate = new Date();
-                                    endsAtDate.setDate(endsAtDate.getDate() + parseInt(activeCoupon.expirationDays || '30'));
-                                    try {
-                                        const initialVal = activeCoupon.giftbackValue || '0';
-                                        const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-                                        const giftCode = `${activeCoupon.couponName || 'GIFT'}_${randomSuffix}`;
-                                        await this.nuvemshopService.createCoupon(
-                                            campaign.userId,
-                                            nuvemshopConnection.storeId,
-                                            {
-                                                code: giftCode,
-                                                type: 'absolute',
-                                                value: initialVal,
-                                                start_date: new Date().toISOString(),
-                                                end_date: endsAtDate.toISOString(),
-                                                max_uses: 1
-                                            }
-                                        );
-                                        activeCoupon._generatedCode = giftCode;
-                                        this.logger.log(`Generated GC (Nuvemshop) for contact ${contact.email || contact.phone}`);
-                                    } catch (e) {
-                                        this.logger.error(`Error generating GC (Nuvemshop)`, e);
-                                    }
-                                }
-                                continue;
-                            }
-
-                            if (node.type === 'email' && contact.email) {
-                                const subject = node.data?.subject || 'Nova Campanha';
-                                let content = node.data?.content || '';
-
-                                // Variable substitution
-                                if (activeCoupon) {
-                                    const value = activeCoupon.discountType === 'percentage'
-                                        ? `${activeCoupon.discountValue}%`
-                                        : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
-
-                                    content = content
-                                        .replace(/{{cupom_nome}}/g, activeCoupon._generatedCode || generatedDiscountCode || activeCoupon.couponName || 'CUPOM')
-                                        .replace(/{{cupom_valor}}/g, value)
-                                        .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
-                                }
-
-                                // Link Rastreio Substitution
-                                const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
-                                content = content.replace(/{{link_rastreio}}/g, trackingLink);
-
-                                try {
-                                    await this.emailService.sendEmail({
-                                        to: contact.email,
-                                        subject: subject,
-                                        html: content,
-                                        text: content.replace(/<[^>]*>?/gm, '')
-                                    });
-                                    sentEmailCount++;
-                                } catch (e) {
-                                    this.logger.error(`Failed to send email to ${contact.email}`, e);
-                                }
-                            } else if (node.type === 'sms' && contact.phone) {
-                                let content = node.data?.content || 'Olá! Temos uma novidade para você.';
-
-                                // Variable substitution
-                                if (activeCoupon) {
-                                    const value = activeCoupon.discountType === 'percentage'
-                                        ? `${activeCoupon.discountValue}%`
-                                        : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
-
-                                    content = content
-                                        .replace(/{{cupom_nome}}/g, activeCoupon._generatedCode || generatedDiscountCode || activeCoupon.couponName || 'CUPOM')
-                                        .replace(/{{cupom_valor}}/g, value)
-                                        .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
-                                }
-
-                                // Link Rastreio Substitution
-                                const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
-                                content = content.replace(/{{link_rastreio}}/g, trackingLink);
-
-                                const success = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, content);
-                                if (success) sentSmsCount++;
-                            } else if (node.type === 'whatsapp' && contact.phone) {
-                                let content = node.data?.content || 'Olá! Temos uma novidade para você.';
-
-                                // Variable substitution
-                                if (activeCoupon) {
-                                    const value = activeCoupon.discountType === 'percentage'
-                                        ? `${activeCoupon.discountValue}%`
-                                        : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
-
-                                    content = content
-                                        .replace(/{{cupom_nome}}/g, activeCoupon._generatedCode || generatedDiscountCode || activeCoupon.couponName || 'CUPOM')
-                                        .replace(/{{cupom_valor}}/g, value)
-                                        .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
-                                }
-
-                                // Link Rastreio Substitution
-                                const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
-                                content = content.replace(/{{link_rastreio}}/g, trackingLink);
-
-                                const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, content);
-                                if (success) sentWhatsappCount++;
-                            }
-                        }
-                    } else {
-                        // Logic for 'simple' campaigns
-                        let sent = false;
-                        let messageContent = campaign.config?.email?.content || 'Olá! Temos uma novidade para você.';
-
-                        // Variable substitution for simple campaign
-                        const campaignConfig = campaign.config?.campaignConfig;
-                        if (campaignConfig?.enableCoupon) {
-                            const coupon = campaignConfig.coupon;
-                            const value = coupon.discountType === 'percentage'
-                                ? `${coupon.discountValue}%`
-                                : `R$ ${coupon.discountValue}`;
-
-                            const validity = coupon.validityDate
-                                ? Math.ceil((new Date(coupon.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-                                : 30;
-
-                            // Auto-append if placeholders are missing and it's not email
-                            if (!messageContent.includes('{{cupom_nome}}') && campaign.channel !== 'email') {
-                                messageContent += `\n\nCupom: {{cupom_nome}}\nValor: {{cupom_valor}}\nValidade: {{cupom_validade}} dias`;
-                            }
-
-                            messageContent = messageContent
-                                .replace(/{{cupom_nome}}/g, generatedDiscountCode || coupon.couponName || 'CUPOM')
-                                .replace(/{{cupom_valor}}/g, value)
-                                .replace(/{{cupom_validade}}/g, validity.toString());
-                        } else if (campaignConfig?.enableGiftback) {
-                            const giftback = campaignConfig.giftback;
-                            const value = `R$ ${giftback.giftValue}`;
-
-                            const validity = giftback.validityDate
-                                ? Math.ceil((new Date(giftback.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-                                : 30;
-
-                            let giftbackCode = giftback.couponName || 'CASHBACK';
-                            if (shopifyConnection) {
+                    for (const node of nodes) {
+                        if (node.type === 'coupon' || node.type === 'giftback') {
+                            activeCoupon = { ...node.data, _type: node.type };
+                            // Gerar Gift Card individual caso suporte shopify
+                            if (node.type === 'giftback' && shopifyConnection) {
                                 const endsAtDate = new Date();
-                                endsAtDate.setDate(endsAtDate.getDate() + validity);
+                                endsAtDate.setDate(endsAtDate.getDate() + parseInt(activeCoupon.expirationDays || '30'));
                                 try {
+                                    const initialVal = activeCoupon.giftbackValue || '0';
                                     const generatedGift = await this.shopifyService.createGiftCard(
                                         campaign.userId,
                                         shopifyConnection.shop,
                                         {
-                                            initialValue: giftback.giftValue,
-                                            note: giftbackCode,
+                                            initialValue: initialVal,
+                                            note: activeCoupon.couponName || 'GIFTBACK',
                                             endsAt: endsAtDate.toISOString()
                                         }
                                     );
-                                    giftbackCode = generatedGift.code;
+                                    activeCoupon._generatedCode = generatedGift.code;
+                                    this.logger.log(`Generated GC (Shopify) for contact ${contact.email || contact.phone}`);
                                 } catch (e) {
-                                    this.logger.error('Error generating simple giftback GC (Shopify)', e);
+                                    this.logger.error(`Error generating GC (Shopify)`, e);
                                 }
-                            } else if (nuvemshopConnection) {
+                            } else if (node.type === 'giftback' && nuvemshopConnection) {
+                                // Nuvemshop Giftback via Coupon (Dynamic)
                                 const endsAtDate = new Date();
-                                endsAtDate.setDate(endsAtDate.getDate() + validity);
+                                endsAtDate.setDate(endsAtDate.getDate() + parseInt(activeCoupon.expirationDays || '30'));
                                 try {
+                                    const initialVal = activeCoupon.giftbackValue || '0';
                                     const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-                                    const generatedCode = `${giftbackCode}_${randomSuffix}`;
+                                    const giftCode = `${activeCoupon.couponName || 'GIFT'}_${randomSuffix}`;
                                     await this.nuvemshopService.createCoupon(
                                         campaign.userId,
                                         nuvemshopConnection.storeId,
                                         {
-                                            code: generatedCode,
+                                            code: giftCode,
                                             type: 'absolute',
-                                            value: giftback.giftValue,
+                                            value: initialVal,
                                             start_date: new Date().toISOString(),
                                             end_date: endsAtDate.toISOString(),
                                             max_uses: 1
                                         }
                                     );
-                                    giftbackCode = generatedCode;
+                                    activeCoupon._generatedCode = giftCode;
+                                    this.logger.log(`Generated GC (Nuvemshop) for contact ${contact.email || contact.phone}`);
                                 } catch (e) {
-                                    this.logger.error('Error generating simple giftback GC (Nuvemshop)', e);
+                                    this.logger.error(`Error generating GC (Nuvemshop)`, e);
                                 }
                             }
-
-                            // Auto-append if placeholders are missing and it's not email
-                            if (!messageContent.includes('{{cupom_nome}}') && campaign.channel !== 'email') {
-                                messageContent += `\n\nGiftback: {{cupom_nome}}\nValor: {{cupom_valor}}\nValidade: {{cupom_validade}} dias`;
-                            }
-
-                            messageContent = messageContent
-                                .replace(/{{cupom_nome}}/g, giftbackCode)
-                                .replace(/{{cupom_valor}}/g, value)
-                                .replace(/{{cupom_validade}}/g, validity.toString());
+                            continue;
                         }
 
-                        // Link Rastreio Substitution for Simple Campaign
-                        const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
-                        messageContent = messageContent.replace(/{{link_rastreio}}/g, trackingLink);
+                        if (node.type === 'email' && contact.email) {
+                            const subject = node.data?.subject || 'Nova Campanha';
+                            let content = node.data?.content || '';
 
-                        if (campaign.channel === 'whatsapp' || campaign.channel === 'sms') {
-                            if (!contact.phone) {
-                                this.logger.warn(`Contact ${contact.id} has no phone number. Skipping.`);
-                                return { sentEmailCount, sentSmsCount, sentWhatsappCount };
+                            // Variable substitution
+                            if (activeCoupon) {
+                                const value = activeCoupon.discountType === 'percentage'
+                                    ? `${activeCoupon.discountValue}%`
+                                    : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
+
+                                content = content
+                                    .replace(/{{cupom_nome}}/g, activeCoupon._generatedCode || generatedDiscountCode || activeCoupon.couponName || 'CUPOM')
+                                    .replace(/{{cupom_valor}}/g, value)
+                                    .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
                             }
 
-                            if (campaign.channel === 'whatsapp') {
-                                sent = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, messageContent);
-                                if (sent) sentWhatsappCount++;
-                            } else if (campaign.channel === 'sms') {
-                                sent = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, messageContent);
-                                if (sent) sentSmsCount++;
-                            }
-                        } else if (campaign.channel === 'email') {
-                            if (!contact.email) {
-                                this.logger.warn(`Contact ${contact.id} has no email address. Skipping.`);
-                                return { sentEmailCount, sentSmsCount, sentWhatsappCount };
-                            }
-
-                            const subject = campaign.config?.email?.subject || 'Nova Campanha';
+                            // Link Rastreio Substitution
+                            const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
+                            content = content.replace(/{{link_rastreio}}/g, trackingLink);
 
                             try {
                                 await this.emailService.sendEmail({
                                     to: contact.email,
                                     subject: subject,
-                                    html: messageContent,
-                                    text: messageContent.replace(/<[^>]*>?/gm, '')
+                                    html: content,
+                                    text: content.replace(/<[^>]*>?/gm, '')
                                 });
                                 sentEmailCount++;
-                                sent = true;
                             } catch (e) {
                                 this.logger.error(`Failed to send email to ${contact.email}`, e);
                             }
+                        } else if (node.type === 'sms' && contact.phone) {
+                            let content = node.data?.content || 'Olá! Temos uma novidade para você.';
+
+                            // Variable substitution
+                            if (activeCoupon) {
+                                const value = activeCoupon.discountType === 'percentage'
+                                    ? `${activeCoupon.discountValue}%`
+                                    : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
+
+                                content = content
+                                    .replace(/{{cupom_nome}}/g, activeCoupon._generatedCode || generatedDiscountCode || activeCoupon.couponName || 'CUPOM')
+                                    .replace(/{{cupom_valor}}/g, value)
+                                    .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
+                            }
+
+                            // Link Rastreio Substitution
+                            const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
+                            content = content.replace(/{{link_rastreio}}/g, trackingLink);
+
+                            const success = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, content);
+                            if (success) sentSmsCount++;
+                        } else if (node.type === 'whatsapp' && contact.phone) {
+                            let content = node.data?.content || 'Olá! Temos uma novidade para você.';
+
+                            // Variable substitution
+                            if (activeCoupon) {
+                                const value = activeCoupon.discountType === 'percentage'
+                                    ? `${activeCoupon.discountValue}%`
+                                    : (activeCoupon.discountValue ? `R$ ${activeCoupon.discountValue}` : `R$ ${activeCoupon.giftbackValue}`);
+
+                                content = content
+                                    .replace(/{{cupom_nome}}/g, activeCoupon._generatedCode || generatedDiscountCode || activeCoupon.couponName || 'CUPOM')
+                                    .replace(/{{cupom_valor}}/g, value)
+                                    .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
+                            }
+
+                            // Link Rastreio Substitution
+                            const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
+                            content = content.replace(/{{link_rastreio}}/g, trackingLink);
+
+                            const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, content);
+                            if (success) sentWhatsappCount++;
                         }
                     }
+                } else {
+                    // Logic for 'simple' campaigns
+                    let sent = false;
+                    let messageContent = campaign.config?.email?.content || 'Olá! Temos uma novidade para você.';
 
-                    return { sentEmailCount, sentSmsCount, sentWhatsappCount };
-                });
+                    // Variable substitution for simple campaign
+                    const campaignConfig = campaign.config?.campaignConfig;
+                    if (campaignConfig?.enableCoupon) {
+                        const coupon = campaignConfig.coupon;
+                        const value = coupon.discountType === 'percentage'
+                            ? `${coupon.discountValue}%`
+                            : `R$ ${coupon.discountValue}`;
 
-                // Espera o lote terminar (seja sucesso ou erro isolado)
-                const results = await Promise.allSettled(batchPromises);
+                        const validity = coupon.validityDate
+                            ? Math.ceil((new Date(coupon.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                            : 30;
 
-                let batchEmailSuccessCount = 0;
-                let batchSmsSuccessCount = 0;
-                let batchWhatsappSuccessCount = 0;
+                        // Auto-append if placeholders are missing and it's not email
+                        if (!messageContent.includes('{{cupom_nome}}') && campaign.channel !== 'email') {
+                            messageContent += `\n\nCupom: {{cupom_nome}}\nValor: {{cupom_valor}}\nValidade: {{cupom_validade}} dias`;
+                        }
 
-                results.forEach((result) => {
-                    if (result.status === 'fulfilled') {
-                        batchEmailSuccessCount += result.value.sentEmailCount;
-                        batchSmsSuccessCount += result.value.sentSmsCount;
-                        batchWhatsappSuccessCount += result.value.sentWhatsappCount;
+                        messageContent = messageContent
+                            .replace(/{{cupom_nome}}/g, generatedDiscountCode || coupon.couponName || 'CUPOM')
+                            .replace(/{{cupom_valor}}/g, value)
+                            .replace(/{{cupom_validade}}/g, validity.toString());
+                    } else if (campaignConfig?.enableGiftback) {
+                        const giftback = campaignConfig.giftback;
+                        const value = `R$ ${giftback.giftValue}`;
+
+                        const validity = giftback.validityDate
+                            ? Math.ceil((new Date(giftback.validityDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                            : 30;
+
+                        let giftbackCode = giftback.couponName || 'CASHBACK';
+                        if (shopifyConnection) {
+                            const endsAtDate = new Date();
+                            endsAtDate.setDate(endsAtDate.getDate() + validity);
+                            try {
+                                const generatedGift = await this.shopifyService.createGiftCard(
+                                    campaign.userId,
+                                    shopifyConnection.shop,
+                                    {
+                                        initialValue: giftback.giftValue,
+                                        note: giftbackCode,
+                                        endsAt: endsAtDate.toISOString()
+                                    }
+                                );
+                                giftbackCode = generatedGift.code;
+                            } catch (e) {
+                                this.logger.error('Error generating simple giftback GC (Shopify)', e);
+                            }
+                        } else if (nuvemshopConnection) {
+                            const endsAtDate = new Date();
+                            endsAtDate.setDate(endsAtDate.getDate() + validity);
+                            try {
+                                const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+                                const generatedCode = `${giftbackCode}_${randomSuffix}`;
+                                await this.nuvemshopService.createCoupon(
+                                    campaign.userId,
+                                    nuvemshopConnection.storeId,
+                                    {
+                                        code: generatedCode,
+                                        type: 'absolute',
+                                        value: giftback.giftValue,
+                                        start_date: new Date().toISOString(),
+                                        end_date: endsAtDate.toISOString(),
+                                        max_uses: 1
+                                    }
+                                );
+                                giftbackCode = generatedCode;
+                            } catch (e) {
+                                this.logger.error('Error generating simple giftback GC (Nuvemshop)', e);
+                            }
+                        }
+
+                        // Auto-append if placeholders are missing and it's not email
+                        if (!messageContent.includes('{{cupom_nome}}') && campaign.channel !== 'email') {
+                            messageContent += `\n\nGiftback: {{cupom_nome}}\nValor: {{cupom_valor}}\nValidade: {{cupom_validade}} dias`;
+                        }
+
+                        messageContent = messageContent
+                            .replace(/{{cupom_nome}}/g, giftbackCode)
+                            .replace(/{{cupom_valor}}/g, value)
+                            .replace(/{{cupom_validade}}/g, validity.toString());
                     }
-                });
 
-                const totalBatchSuccessCount = batchEmailSuccessCount + batchSmsSuccessCount + batchWhatsappSuccessCount;
-                successCount += totalBatchSuccessCount;
+                    // Link Rastreio Substitution for Simple Campaign
+                    const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
+                    messageContent = messageContent.replace(/{{link_rastreio}}/g, trackingLink);
 
-                // Atualizar campanha incrementalmente
-                campaign.sentCount = (campaign.sentCount || 0) + totalBatchSuccessCount;
-                campaign.recipientsCount = targetContacts.length;
-                await this.campaignsRepository.save(campaign);
+                    if (campaign.channel === 'whatsapp' || campaign.channel === 'sms') {
+                        if (!contact.phone) {
+                            this.logger.warn(`Contact ${contact.id} has no phone number. Skipping.`);
+                            return { sentEmailCount, sentSmsCount, sentWhatsappCount };
+                        }
 
-                // Atualizar Usage incrementalmente
-                let usageChanged = false;
-                if (batchEmailSuccessCount > 0) {
-                    const currentUsage = Number(usage.emailsSent) || 0;
-                    const newUsage = currentUsage + batchEmailSuccessCount;
-                    if (newUsage > planEmailsLimit && user && user.extraEmailsBalance > 0) {
-                        const exceededAmount = newUsage - Math.max(currentUsage, planEmailsLimit);
-                        user.extraEmailsBalance = Math.max(0, user.extraEmailsBalance - exceededAmount);
-                        await this.userRepository.save(user);
+                        if (campaign.channel === 'whatsapp') {
+                            sent = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, messageContent);
+                            if (sent) sentWhatsappCount++;
+                        } else if (campaign.channel === 'sms') {
+                            sent = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, messageContent);
+                            if (sent) sentSmsCount++;
+                        }
+                    } else if (campaign.channel === 'email') {
+                        if (!contact.email) {
+                            this.logger.warn(`Contact ${contact.id} has no email address. Skipping.`);
+                            return { sentEmailCount, sentSmsCount, sentWhatsappCount };
+                        }
+
+                        const subject = campaign.config?.email?.subject || 'Nova Campanha';
+
+                        try {
+                            await this.emailService.sendEmail({
+                                to: contact.email,
+                                subject: subject,
+                                html: messageContent,
+                                text: messageContent.replace(/<[^>]*>?/gm, '')
+                            });
+                            sentEmailCount++;
+                            sent = true;
+                        } catch (e) {
+                            this.logger.error(`Failed to send email to ${contact.email}`, e);
+                        }
                     }
-                    usage.emailsSent = newUsage;
-                    usageChanged = true;
                 }
 
-                if (batchSmsSuccessCount > 0) {
-                    const currentUsage = Number(usage.smsSent) || 0;
-                    const newUsage = currentUsage + batchSmsSuccessCount;
-                    if (newUsage > planSmsLimit && user && user.extraSmsBalance > 0) {
-                        const exceededAmount = newUsage - Math.max(currentUsage, planSmsLimit);
-                        user.extraSmsBalance = Math.max(0, user.extraSmsBalance - exceededAmount);
-                        await this.userRepository.save(user);
-                    }
-                    usage.smsSent = newUsage;
-                    usageChanged = true;
-                }
+                return { sentEmailCount, sentSmsCount, sentWhatsappCount };
+            });
 
-                if (batchWhatsappSuccessCount > 0) {
-                    usage.whatsappSent = (Number(usage.whatsappSent) || 0) + batchWhatsappSuccessCount;
-                    usageChanged = true;
-                }
+            // Espera o lote terminar (seja sucesso ou erro isolado)
+            const results = await Promise.allSettled(batchPromises);
 
-                if (usageChanged) {
-                    await this.userUsageRepository.save(usage);
-                }
+            let batchEmailSuccessCount = 0;
+            let batchSmsSuccessCount = 0;
+            let batchWhatsappSuccessCount = 0;
 
-                this.logger.log(`Lote ${Math.floor(i / BATCH_SIZE) + 1} de campanhas finalizado: ${totalBatchSuccessCount} enviados com sucesso.`);
+            results.forEach((result) => {
+                if (result.status === 'fulfilled') {
+                    batchEmailSuccessCount += result.value.sentEmailCount;
+                    batchSmsSuccessCount += result.value.sentSmsCount;
+                    batchWhatsappSuccessCount += result.value.sentWhatsappCount;
+                }
+            });
+
+            const totalBatchSuccessCount = batchEmailSuccessCount + batchSmsSuccessCount + batchWhatsappSuccessCount;
+            successCount += totalBatchSuccessCount;
+
+            // Atualizar campanha incrementalmente
+            campaign.sentCount = (campaign.sentCount || 0) + totalBatchSuccessCount;
+            // Incrementar recipientsCount caso targetContacts tenham sido adicionados manualmente no fluxo!
+            // Wait: the manualContacts are already inside targetContacts, but processCampaign initially sets it to total. 
+            // We just update the overall count, or just increment it instead of overwriting it?
+            // Since we want to support incremental, we shouldn't overwrite it with `targetContacts.length`.
+            // Because targetContacts represents ONLY the batch added now! No, targetContacts is the whole list... Wait, processCampaign has all targetContacts.
+            campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
+            await this.campaignsRepository.save(campaign);
+
+            // Atualizar Usage incrementalmente
+            let usageChanged = false;
+            if (batchEmailSuccessCount > 0) {
+                const currentUsage = Number(usage.emailsSent) || 0;
+                const newUsage = currentUsage + batchEmailSuccessCount;
+                if (newUsage > planEmailsLimit && user && user.extraEmailsBalance > 0) {
+                    const exceededAmount = newUsage - Math.max(currentUsage, planEmailsLimit);
+                    user.extraEmailsBalance = Math.max(0, user.extraEmailsBalance - exceededAmount);
+                    await this.userRepository.save(user);
+                }
+                usage.emailsSent = newUsage;
+                usageChanged = true;
             }
 
-            if (campaign.complexity !== 'advanced') {
-                campaign.status = 'finalizada'; // Mark as done when all batches are processed
-                await this.campaignsRepository.save(campaign);
+            if (batchSmsSuccessCount > 0) {
+                const currentUsage = Number(usage.smsSent) || 0;
+                const newUsage = currentUsage + batchSmsSuccessCount;
+                if (newUsage > planSmsLimit && user && user.extraSmsBalance > 0) {
+                    const exceededAmount = newUsage - Math.max(currentUsage, planSmsLimit);
+                    user.extraSmsBalance = Math.max(0, user.extraSmsBalance - exceededAmount);
+                    await this.userRepository.save(user);
+                }
+                usage.smsSent = newUsage;
+                usageChanged = true;
             }
 
-            this.logger.log(`Campaign [${campaign.id}] finished overall. Successfully sent: ${successCount} total messages.`);
+            if (batchWhatsappSuccessCount > 0) {
+                usage.whatsappSent = (Number(usage.whatsappSent) || 0) + batchWhatsappSuccessCount;
+                usageChanged = true;
+            }
 
-        } catch (error: any) {
-            this.logger.error(`Error processing campaign [ID: ${campaign.id}]: ${error.message}`);
-            // If failed brutally, leave it as 'ativa' or set to 'erro' (not in enum though)
+            if (usageChanged) {
+                await this.userUsageRepository.save(usage);
+            }
+
+            this.logger.log(`Lote ${Math.floor(i / BATCH_SIZE) + 1} finalizado: ${totalBatchSuccessCount} enviados com sucesso.`);
         }
+
+        return successCount;
     }
 }
+

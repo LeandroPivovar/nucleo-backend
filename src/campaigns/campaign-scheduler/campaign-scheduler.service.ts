@@ -260,6 +260,10 @@ export class CampaignSchedulerService {
                     let activeCoupon: any = null;
 
                     for (const node of nodes) {
+                        // 0. Check Limits before any metered send
+                        const currentEmailsSent = (Number(usage.emailsSent) || 0) + sentEmailCount;
+                        const currentSmsSent = (Number(usage.smsSent) || 0) + sentSmsCount;
+
                         if (node.type === 'coupon' || node.type === 'giftback') {
                             activeCoupon = { ...node.data, _type: node.type };
                             // Gerar Gift Card individual caso suporte shopify
@@ -312,6 +316,13 @@ export class CampaignSchedulerService {
                         }
 
                         if (node.type === 'email' && contact.email) {
+                            // Check Email Limit
+                            const totalEmailBalance = planEmailsLimit + (user?.extraEmailsBalance || 0);
+                            if (currentEmailsSent >= totalEmailBalance) {
+                                this.logger.warn(`Email limit reached for user ${campaign.userId}. Skipping node ${node.id} for contact ${contact.email}`);
+                                continue;
+                            }
+
                             const subject = node.data?.subject || 'Nova Campanha';
                             let content = node.data?.content || '';
 
@@ -343,6 +354,13 @@ export class CampaignSchedulerService {
                                 this.logger.error(`Failed to send email to ${contact.email}`, e);
                             }
                         } else if (node.type === 'sms' && contact.phone) {
+                            // Check SMS Limit
+                            const totalSmsBalance = planSmsLimit + (user?.extraSmsBalance || 0);
+                            if (currentSmsSent >= totalSmsBalance) {
+                                this.logger.warn(`SMS limit reached for user ${campaign.userId}. Skipping node ${node.id} for contact ${contact.phone}`);
+                                continue;
+                            }
+
                             let content = node.data?.content || 'Olá! Temos uma novidade para você.';
 
                             // Variable substitution

@@ -1,13 +1,13 @@
-import { Controller, Get, Post, Body, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-@Controller('admin/stats')
+@Controller('admin')
 @UseGuards(JwtAuthGuard)
-export class AdminStatsController {
+export class AdminController {
     constructor(private readonly adminService: AdminService) { }
 
-    @Get('global')
+    @Get('stats/global')
     async getGlobalStats() {
         return this.adminService.getGlobalStats();
     }
@@ -37,5 +37,26 @@ export class AdminStatsController {
     @Post('users/:id/impersonate')
     async impersonate(@Param('id', ParseIntPipe) id: number) {
         return this.adminService.impersonateUser(id);
+    }
+
+    // --- Plan Management ---
+    @Get('plans')
+    async getAllPlans() {
+        return this.adminService.getAllPlans();
+    }
+
+    @Post('plans')
+    async createPlan(@Body() data: any) {
+        return this.adminService.createPlan(data);
+    }
+
+    @Patch('plans/:id')
+    async updatePlan(@Param('id', ParseIntPipe) id: number, @Body() data: any) {
+        return this.adminService.updatePlan(id, data);
+    }
+
+    @Delete('plans/:id')
+    async deletePlan(@Param('id', ParseIntPipe) id: number) {
+        return this.adminService.deletePlan(id);
     }
 }

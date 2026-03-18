@@ -224,4 +224,27 @@ export class AdminService {
             ticketByPlan,
         };
     }
+
+    // --- Plan Management ---
+    async getAllPlans() {
+        return this.planRepository.find({ order: { price: 'ASC' } });
+    }
+
+    async createPlan(data: Partial<Plan>) {
+        const plan = this.planRepository.create(data);
+        return this.planRepository.save(plan);
+    }
+
+    async updatePlan(id: number, data: Partial<Plan>) {
+        await this.planRepository.update(id, data);
+        return this.planRepository.findOne({ where: { id } });
+    }
+
+    async deletePlan(id: number) {
+        // We could do a soft delete or just de-activate
+        // Let's do a real delete for now, or de-activate?
+        // Usually it's better to just de-activate to avoid breaking existing subscriptions' relations
+        await this.planRepository.update(id, { active: false });
+        return { success: true };
+    }
 }

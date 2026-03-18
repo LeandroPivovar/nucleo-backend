@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { AdminStatsController } from './admin.controller';
+import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -34,7 +34,7 @@ import { Sale } from '../entities/sale.entity';
             inject: [ConfigService],
         }),
     ],
-    controllers: [AdminStatsController],
+    controllers: [AdminController],
     providers: [AdminService],
     exports: [AdminService],
 })

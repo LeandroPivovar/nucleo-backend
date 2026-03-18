@@ -600,6 +600,7 @@ export class NuvemshopService {
       options.body = JSON.stringify(body);
     }
 
+    console.log(`[Nuvemshop API Request] ${method} ${url}`);
     const response = await fetch(url, options);
 
     if (!response.ok) {
@@ -610,6 +611,8 @@ export class NuvemshopService {
       } catch {
         error = { message: errorText || `Falha na requisição para ${path}` };
       }
+
+      console.error(`[Nuvemshop API Error] ${method} ${url} - Status: ${response.status}`, error);
 
       if (response.status === 401 || response.status === 403) {
         throw new BadRequestException(error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado');
@@ -631,6 +634,7 @@ export class NuvemshopService {
    * Sincroniza clientes da Nuvemshop
    */
   async syncCustomers(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {
+    console.log(`[Nuvemshop Sync] Iniciando sincronização de clientes para loja ${storeId}`);
     let allCustomers: any[] = [];
     let page = 1;
     let hasMore = true;

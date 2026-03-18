@@ -828,6 +828,7 @@ export class NuvemshopService {
             status: sOrder.status === 'paid' ? 'completed' : 'processing',
             createdAt: createdAt,
             externalId: externalId,
+            couponCode: sOrder.coupon && sOrder.coupon.length > 0 ? sOrder.coupon[0].code : null,
           });
           await this.saleRepository.save(sale);
           imported++;
@@ -871,12 +872,28 @@ export class NuvemshopService {
       const sku = item.variants && item.variants.length > 0 ? item.variants[0].sku : '';
       const stock = item.variants && item.variants.length > 0 && item.variants[0].stock ? item.variants[0].stock : 0;
       const name = item.name?.pt || item.name?.en || item.name?.es || 'Produto sem nome';
+      const externalId = item.id.toString();
 
-      let product = await this.productRepository.findOne({
-        where: [
-          { userId, name: name }
-        ]
-      });
+      // 1. Tentar buscar por ID Externo
+      const jsonPath = `$.nuvemshop."${storeId}"`;
+      let product = await this.productRepository.createQueryBuilder('product')
+        .where('product.userId = :userId', { userId })
+        .andWhere(`JSON_EXTRACT(product.externalIds, :jsonPath) = :externalId`, { jsonPath, externalId })
+        .getOne();
+
+      // 2. Tentar buscar por SKU
+      if (!product && sku) {
+        product = await this.productRepository.findOne({
+          where: { userId, sku }
+        });
+      }
+
+      // 3. Tentar buscar por Nome (Fallback)
+      if (!product) {
+        product = await this.productRepository.findOne({
+          where: { userId, name }
+        });
+      }
 
       if (!product) {
         product = this.productRepository.create({
@@ -887,10 +904,24 @@ export class NuvemshopService {
           stock: stock,
           active: true,
           coverPhoto: item.images && item.images.length > 0 ? item.images[0].src : null,
+          externalIds: {
+            nuvemshop: { [storeId]: externalId }
+          }
         });
         await this.productRepository.save(product);
         imported++;
       } else {
+        // Atualizar ID externo se não estiver presente
+        const currentExternalIds = product.externalIds || {};
+        const nuvemshopIds = currentExternalIds.nuvemshop || {};
+
+        if (nuvemshopIds[storeId] !== externalId) {
+          product.externalIds = {
+            ...currentExternalIds,
+            nuvemshop: { ...nuvemshopIds, [storeId]: externalId }
+          };
+        }
+
         product.price = price > 0 ? price : product.price;
         product.stock = stock;
         if (item.images && item.images.length > 0 && !product.coverPhoto) {

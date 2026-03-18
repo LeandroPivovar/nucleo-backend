@@ -753,12 +753,28 @@ export class ShopifyService {
       const stock = item.variants && item.variants.length > 0 && item.variants[0].inventory_quantity ? item.variants[0].inventory_quantity : 0;
       const name = item.title || 'Produto sem nome';
       const imageSrc = item.images && item.images.length > 0 ? item.images[0].src : null;
+      const externalId = item.id.toString();
 
-      let product = await this.productRepository.findOne({
-        where: [
-          { userId, name: name }
-        ]
-      });
+      // 1. Tentar buscar por ID Externo
+      const jsonPath = `$.shopify."${shop}"`;
+      let product = await this.productRepository.createQueryBuilder('product')
+        .where('product.userId = :userId', { userId })
+        .andWhere(`JSON_EXTRACT(product.externalIds, :jsonPath) = :externalId`, { jsonPath, externalId })
+        .getOne();
+
+      // 2. Tentar buscar por SKU
+      if (!product && sku) {
+        product = await this.productRepository.findOne({
+          where: { userId, sku }
+        });
+      }
+
+      // 3. Tentar buscar por Nome (Fallback)
+      if (!product) {
+        product = await this.productRepository.findOne({
+          where: { userId, name }
+        });
+      }
 
       if (!product) {
         product = this.productRepository.create({
@@ -769,10 +785,24 @@ export class ShopifyService {
           stock: stock,
           active: true,
           coverPhoto: imageSrc,
+          externalIds: {
+            shopify: { [shop]: externalId }
+          }
         });
         await this.productRepository.save(product);
         imported++;
       } else {
+        // Atualizar ID externo se não estiver presente
+        const currentExternalIds = product.externalIds || {};
+        const shopifyIds = currentExternalIds.shopify || {};
+
+        if (shopifyIds[shop] !== externalId) {
+          product.externalIds = {
+            ...currentExternalIds,
+            shopify: { ...shopifyIds, [shop]: externalId }
+          };
+        }
+
         product.price = price > 0 ? price : product.price;
         product.stock = stock;
         if (imageSrc && !product.coverPhoto) {

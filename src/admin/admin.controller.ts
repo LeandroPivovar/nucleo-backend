@@ -17,6 +17,20 @@ export class AdminController {
         return this.adminService.getFinanceStats();
     }
 
+    @Get('settings')
+    async getSettings() {
+        return this.adminService.getSystemSettings();
+    }
+
+    @Patch('settings/:key')
+    async updateSetting(
+        @Param('key') key: string,
+        @Body('value') value: string,
+        @Body('description') description?: string
+    ) {
+        return this.adminService.updateSystemSetting(key, value, description);
+    }
+
     @Get('users/:id')
     async getUserStats(@Param('id', ParseIntPipe) id: number) {
         return this.adminService.getUserStats(id);

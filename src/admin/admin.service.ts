@@ -10,6 +10,7 @@ import { Sale } from '../entities/sale.entity';
 import { Contact } from '../entities/contact.entity';
 import { Campaign } from '../entities/campaign.entity';
 import { UserUsage } from '../entities/user-usage.entity';
+import { SystemSetting } from '../entities/system-setting.entity';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
@@ -50,8 +51,26 @@ export class AdminService {
         private campaignRepository: Repository<Campaign>,
         @InjectRepository(UserUsage)
         private usageRepository: Repository<UserUsage>,
+        @InjectRepository(SystemSetting)
+        private systemSettingRepository: Repository<SystemSetting>,
         private jwtService: JwtService,
     ) { }
+
+    async getSystemSettings() {
+        return this.systemSettingRepository.find();
+    }
+
+    async updateSystemSetting(key: string, value: string, description?: string) {
+        let setting = await this.systemSettingRepository.findOne({ where: { key } });
+        if (setting) {
+            setting.value = value;
+            if (description) setting.description = description;
+            return this.systemSettingRepository.save(setting);
+        } else {
+            setting = this.systemSettingRepository.create({ key, value, description });
+            return this.systemSettingRepository.save(setting);
+        }
+    }
 
     async getUserStats(userId: number) {
         const user = await this.usersRepository.findOne({
@@ -270,7 +289,13 @@ export class AdminService {
         const now = new Date();
         const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
 
-        // 1. Get all relevant data (last year)
+        // 1. Get Settings for Costs
+        const costSmsSetting = await this.systemSettingRepository.findOne({ where: { key: 'COST_SMS' } });
+        const costEmailSetting = await this.systemSettingRepository.findOne({ where: { key: 'COST_EMAIL' } });
+        const costSms = parseFloat(costSmsSetting?.value || '0.05');
+        const costEmail = parseFloat(costEmailSetting?.value || '0.01');
+
+        // 2. Get all relevant data (last year)
         const invoices = await this.invoiceRepository.find({
             where: {
                 createdAt: MoreThan(twelveMonthsAgo),
@@ -278,16 +303,24 @@ export class AdminService {
             }
         });
 
-        // 2. Aggregate by month
+        const usages = await this.usageRepository.find({
+            where: {
+                createdAt: MoreThan(twelveMonthsAgo)
+            }
+        });
+
+        // 3. Aggregate by month
         const monthlyData: MonthlyFinanceData[] = [];
         for (let i = 0; i < 12; i++) {
             const date = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
             const monthName = date.toLocaleString('pt-BR', { month: 'short' });
             const year = date.getFullYear();
+            const monthKey = `${year}-${String(date.getMonth() + 1).padStart(2, '0')}`;
             const startOfMonth = new Date(year, date.getMonth(), 1);
             const endOfMonth = new Date(year, date.getMonth() + 1, 0);
 
             const monthInvoices = invoices.filter(inv => inv.createdAt >= startOfMonth && inv.createdAt <= endOfMonth);
+            const monthUsages = usages.filter(u => u.monthYear === monthKey);
 
             // subscriptionRevenue: where subscriptionId is present
             // oneTimeRevenue: where subscriptionId is null (credit purchases)
@@ -301,9 +334,15 @@ export class AdminService {
 
             const totalRevenue = subRevenue + creditRevenue;
 
-            // Estimated costs (approx 30%)
-            const estCosts = totalRevenue * 0.3;
-            const netProfit = totalRevenue - estCosts;
+            // Calculate actual usage costs
+            const totalEmails = monthUsages.reduce((acc, u) => acc + (u.emailsSent || 0), 0);
+            const totalSms = monthUsages.reduce((acc, u) => acc + (u.smsSent || 0), 0);
+
+            const usageCosts = (totalEmails * costEmail) + (totalSms * costSms);
+            const baseFees = totalRevenue * 0.05; // 5% for Asaas + Taxes
+
+            const totalCosts = usageCosts + baseFees;
+            const netProfit = totalRevenue - totalCosts;
 
             monthlyData.push({
                 month: monthName,
@@ -311,7 +350,7 @@ export class AdminService {
                 subscriptionRevenue: subRevenue,
                 oneTimeRevenue: creditRevenue,
                 totalRevenue,
-                costs: estCosts,
+                costs: totalCosts,
                 netProfit,
                 margin: totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
             });
@@ -357,8 +396,12 @@ export class AdminService {
             projections,
             currentMrr,
             ytdRevenue: monthlyData.reduce((acc, d) => acc + d.totalRevenue, 0),
-            avgMargin: monthlyData.reduce((acc, d) => acc + d.margin, 0) / monthlyData.length,
-            growthRate: avgGrowth * 100
+            avgMargin: monthlyData.length > 0 ? monthlyData.reduce((acc, d) => acc + d.margin, 0) / monthlyData.length : 0,
+            growthRate: avgGrowth * 100,
+            settings: {
+                costSms,
+                costEmail
+            }
         };
     }
 }

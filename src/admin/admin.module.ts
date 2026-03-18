@@ -12,6 +12,7 @@ import { Contact } from '../entities/contact.entity';
 import { Campaign } from '../entities/campaign.entity';
 import { UserUsage } from '../entities/user-usage.entity';
 import { Sale } from '../entities/sale.entity';
+import { SystemSetting } from '../entities/system-setting.entity';
 
 @Module({
     imports: [
@@ -24,6 +25,7 @@ import { Sale } from '../entities/sale.entity';
             Campaign,
             UserUsage,
             Sale,
+            SystemSetting,
         ]),
         JwtModule.registerAsync({
             imports: [ConfigModule],

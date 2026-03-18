@@ -340,7 +340,7 @@ export class AdminService {
             avgGrowth = (growth1 + growth2) / 2;
         }
 
-        let projectedRevenue = monthlyData[monthlyData.length - 1].totalRevenue;
+        let projectedRevenue = monthlyData.length > 0 ? monthlyData[monthlyData.length - 1].totalRevenue : 0;
         for (let i = 1; i <= 6; i++) {
             const date = new Date(now.getFullYear(), now.getMonth() + i, 1);
             projectedRevenue = projectedRevenue * (1 + avgGrowth);

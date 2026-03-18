@@ -218,7 +218,7 @@ export class EmailService {
 
   async sendPasswordResetCodeEmail(to: string, code: string, name?: string): Promise<void> {
     const year = new Date().getFullYear();
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://nucleo.com.br';
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://nucleocrm.com.br';
     const supportEmail = 'contato@nucleocrm.com.br';
 
     const html = `
@@ -266,7 +266,7 @@ export class EmailService {
                 <tr>
                   <td class="footer">
                     ©️ ${year} Núcleo CRM<br/>
-                    <a href="${frontendUrl}">${frontendUrl}</a> · 
+                    <a href="${frontendUrl}">${frontendUrl.replace('https://', '')}</a> · 
                     <a href="mailto:${supportEmail}">${supportEmail}</a>
                   </td>
                 </tr>
@@ -287,8 +287,8 @@ export class EmailService {
 
   async sendEmailVerificationEmail(to: string, token: string, name?: string): Promise<void> {
     const year = new Date().getFullYear();
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://nucleo.com.br';
-    const baseUrl = frontendUrl.includes('localhost') ? frontendUrl : 'https://nucleo.com.br';
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://nucleocrm.com.br';
+    const baseUrl = frontendUrl;
     const verificationUrl = `${baseUrl}/auth/verify-email?token=${token}`;
     const supportEmail = 'contato@nucleocrm.com.br';
 
@@ -339,7 +339,7 @@ export class EmailService {
                 <tr>
                   <td class="footer">
                     ©️ ${year} Núcleo CRM<br/>
-                    <a href="${frontendUrl}">${frontendUrl}</a> · 
+                    <a href="${frontendUrl}">${frontendUrl.replace('https://', '')}</a> · 
                     <a href="mailto:${supportEmail}">${supportEmail}</a>
                   </td>
                 </tr>

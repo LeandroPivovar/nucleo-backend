@@ -41,7 +41,7 @@ export class CampaignsController {
         return this.campaignsService.create(req.user.userId, campaignData);
     }
 
-    @Post(':id/add-contacts')
+    @Post(':id/contacts')
     addContacts(
         @Param('id') id: string,
         @Request() req,

@@ -106,6 +106,7 @@ export class ShopifyController {
   @Get('connections')
   @UseGuards(JwtAuthGuard)
   async getConnections(@Request() req) {
+    console.log(`[Shopify API] Buscando conexões para usuário ${req.user.userId}`);
     const connections = await this.shopifyService.getConnections(req.user.userId);
     return connections.map(conn => ({
       id: conn.id,

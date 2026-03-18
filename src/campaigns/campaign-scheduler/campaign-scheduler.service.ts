@@ -96,11 +96,6 @@ export class CampaignSchedulerService {
                 await this.executeCampaignFlow(campaign, targetContacts);
             }
 
-            if (campaign.complexity !== 'advanced') {
-                campaign.status = 'finalizada'; // Mark as done when all batches are processed
-                await this.campaignsRepository.save(campaign);
-            }
-
             this.logger.log(`Campaign [${campaign.id}] finished overall.`);
 
         } catch (error: any) {

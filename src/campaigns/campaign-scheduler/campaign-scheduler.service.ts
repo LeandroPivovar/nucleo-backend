@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Campaign } from '../../entities/campaign.entity';
 import { ZenviaService } from '../../zenvia/zenvia.service';
 import { ContactsService } from '../../contacts/contacts.service';
@@ -30,7 +31,8 @@ export class CampaignSchedulerService {
         private contactsService: ContactsService,
         private emailService: EmailService,
         private shopifyService: ShopifyService,
-        private nuvemshopService: NuvemshopService
+        private nuvemshopService: NuvemshopService,
+        private configService: ConfigService
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -312,6 +314,10 @@ export class CampaignSchedulerService {
                                         .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
                                 }
 
+                                // Link Rastreio Substitution
+                                const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
+                                content = content.replace(/{{link_rastreio}}/g, trackingLink);
+
                                 try {
                                     await this.emailService.sendEmail({
                                         to: contact.email,
@@ -338,6 +344,10 @@ export class CampaignSchedulerService {
                                         .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
                                 }
 
+                                // Link Rastreio Substitution
+                                const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
+                                content = content.replace(/{{link_rastreio}}/g, trackingLink);
+
                                 const success = await this.zenviaService.sendSms(contact.name || 'Contato CRM', contact.phone, content);
                                 if (success) sentSmsCount++;
                             } else if (node.type === 'whatsapp' && contact.phone) {
@@ -354,6 +364,10 @@ export class CampaignSchedulerService {
                                         .replace(/{{cupom_valor}}/g, value)
                                         .replace(/{{cupom_validade}}/g, activeCoupon.expirationDays || '30');
                                 }
+
+                                // Link Rastreio Substitution
+                                const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
+                                content = content.replace(/{{link_rastreio}}/g, trackingLink);
 
                                 const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato CRM', contact.phone, content);
                                 if (success) sentWhatsappCount++;
@@ -445,6 +459,10 @@ export class CampaignSchedulerService {
                                 .replace(/{{cupom_valor}}/g, value)
                                 .replace(/{{cupom_validade}}/g, validity.toString());
                         }
+
+                        // Link Rastreio Substitution for Simple Campaign
+                        const trackingLink = `${this.configService.get('BACKEND_URL', 'http://localhost:3000')}/api/campaigns/track/${campaign.id}`;
+                        messageContent = messageContent.replace(/{{link_rastreio}}/g, trackingLink);
 
                         if (campaign.channel === 'whatsapp' || campaign.channel === 'sms') {
                             if (!contact.phone) {

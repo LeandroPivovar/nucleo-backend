@@ -11,6 +11,7 @@ import {
     Query,
     HttpCode,
     HttpStatus,
+    Res,
 } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -64,5 +65,34 @@ export class CampaignsWebhookController {
     @HttpCode(HttpStatus.OK)
     handleDelivered(@Body() payload: any) {
         return this.campaignsService.handleDeliveredWebhook(payload);
+    }
+}
+
+// Controller público para rastreamento de cliques
+@Controller('campaigns/track')
+export class CampaignsTrackingController {
+    constructor(private readonly campaignsService: CampaignsService) { }
+
+    @Get(':id')
+    async track(
+        @Param('id') id: string,
+        @Res() res: any
+    ) {
+        try {
+            const campaign = await this.campaignsService.trackClick(+id);
+            const destination = campaign.config?.tracking?.destinationUrl || '/';
+
+            if (res && typeof res.redirect === 'function') {
+                return res.redirect(destination);
+            }
+
+            return { url: destination };
+        } catch (error) {
+            console.error('Erro no rastreamento de clique:', error);
+            if (res && typeof res.redirect === 'function') {
+                return res.redirect('/');
+            }
+            return { url: '/' };
+        }
     }
 }

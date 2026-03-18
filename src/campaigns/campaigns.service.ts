@@ -97,6 +97,16 @@ export class CampaignsService {
         await this.campaignsRepository.remove(campaign);
     }
 
+    async trackClick(id: number): Promise<Campaign> {
+        const campaign = await this.campaignsRepository.findOne({ where: { id } });
+        if (!campaign) {
+            throw new NotFoundException(`Campanha com ID ${id} não encontrada`);
+        }
+
+        campaign.clicksCount = (Number(campaign.clicksCount) || 0) + 1;
+        return this.campaignsRepository.save(campaign);
+    }
+
     private getDateRange(period: string) {
         const endDate = new Date();
         const startDate = new Date();

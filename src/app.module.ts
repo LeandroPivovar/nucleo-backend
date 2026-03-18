@@ -53,6 +53,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
 import { CategoriesModule } from './categories/categories.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -100,7 +101,8 @@ import { UploadsModule } from './uploads/uploads.module';
     SystemSettingsModule,
     NotificationsModule,
     CategoriesModule,
-    UploadsModule
+    UploadsModule,
+    AdminModule
   ],
   controllers: [AppController],
   providers: [AppService],

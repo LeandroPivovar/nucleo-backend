@@ -812,6 +812,8 @@ export class NuvemshopService {
           let needsUpdate = false;
           const statusMatch = sOrder.payment_status === 'paid' ? 'completed' : 'processing';
 
+          const paymentMethod = sOrder.gateway_name || sOrder.payment_details?.method || null;
+
           if (!existingSale.contactId && contact?.id) {
             console.log(`[Nuvemshop Sync] Vinculando Contato ID ${contact.id} à Venda ID ${existingSale.id}`);
             existingSale.contactId = contact.id;
@@ -823,6 +825,10 @@ export class NuvemshopService {
           }
           if (existingSale.status !== statusMatch) {
             existingSale.status = statusMatch;
+            needsUpdate = true;
+          }
+          if (paymentMethod && !existingSale.paymentMethod) {
+            existingSale.paymentMethod = paymentMethod;
             needsUpdate = true;
           }
 
@@ -845,6 +851,7 @@ export class NuvemshopService {
             customerEmail: customerEmail,
             channel: 'nuvemshop',
             status: sOrder.payment_status === 'paid' ? 'completed' : 'processing',
+            paymentMethod: sOrder.gateway_name || sOrder.payment_details?.method || null,
             createdAt: createdAt,
             externalId: externalId,
             couponCode: sOrder.coupon && sOrder.coupon.length > 0 ? sOrder.coupon[0].code : null,

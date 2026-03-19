@@ -638,6 +638,8 @@ export class ShopifyService {
           let needsUpdate = false;
           const statusMatch = sOrder.financial_status === 'paid' ? 'completed' : 'processing';
 
+          const paymentMethod = sOrder.gateway || (sOrder.payment_gateway_names && sOrder.payment_gateway_names.length > 0 ? sOrder.payment_gateway_names[0] : null);
+
           if (!existingSale.contactId && contact?.id) {
             console.log(`[Shopify Sync] Vinculando Contato ID ${contact.id} à Venda ID ${existingSale.id}`);
             existingSale.contactId = contact.id;
@@ -649,6 +651,10 @@ export class ShopifyService {
           }
           if (existingSale.status !== statusMatch) {
             existingSale.status = statusMatch;
+            needsUpdate = true;
+          }
+          if (paymentMethod && !existingSale.paymentMethod) {
+            existingSale.paymentMethod = paymentMethod;
             needsUpdate = true;
           }
 
@@ -671,6 +677,7 @@ export class ShopifyService {
             customerEmail: customerEmail,
             channel: 'shopify',
             status: sOrder.financial_status === 'paid' ? 'completed' : 'processing',
+            paymentMethod: sOrder.gateway || (sOrder.payment_gateway_names && sOrder.payment_gateway_names.length > 0 ? sOrder.payment_gateway_names[0] : null),
             createdAt: createdAt,
             externalId: externalId,
             couponCode: sOrder.discount_codes && sOrder.discount_codes.length > 0 ? sOrder.discount_codes[0].code : null,

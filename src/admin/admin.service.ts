@@ -107,8 +107,23 @@ export class AdminService {
         const extraEmails = user.extraEmailsBalance || 0;
         const extraSms = user.extraSmsBalance || 0;
 
+        // --- NEW: Profit Calculation ---
+        const costSmsSetting = await this.systemSettingRepository.findOne({ where: { key: 'COST_SMS' } });
+        const costEmailSetting = await this.systemSettingRepository.findOne({ where: { key: 'COST_EMAIL' } });
+        const costSms = parseFloat(costSmsSetting?.value || '0.05');
+        const costEmail = parseFloat(costEmailSetting?.value || '0.01');
+
+        const allUsages = await this.usageRepository.find({ where: { userId } });
+        const totalLifetimeEmails = allUsages.reduce((acc, u) => acc + u.emailsSent, 0);
+        const totalLifetimeSms = allUsages.reduce((acc, u) => acc + u.smsSent, 0);
+
+        const lifetimeCosts = (totalLifetimeEmails * costEmail) + (totalLifetimeSms * costSms);
+        const lifetimeProfit = (billingAmount || 0) - lifetimeCosts;
+        // ------------------------------
+
         return {
-            billingAmount,
+            billingAmount: billingAmount || 0,
+            lifetimeProfit,
             contactsCount,
             campaignsCount,
             usage: {

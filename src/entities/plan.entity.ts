@@ -11,6 +11,9 @@ export class Plan {
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     price: number;
 
+    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+    priceYearly: number;
+
     @Column({ length: 20, default: 'monthly' })
     interval: string; // 'monthly', 'yearly'
 
@@ -23,6 +26,7 @@ export class Plan {
         emails: number;
         whatsapp: boolean;
         sms: number;
+        internalUsers?: number; // Added: Limit for registered clients/internal users
         advancedCampaigns?: number; // -1 for unlimited
     };
 

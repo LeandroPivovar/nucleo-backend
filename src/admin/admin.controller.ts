@@ -37,12 +37,12 @@ export class AdminController {
         return this.adminService.updateSystemSetting(key, value, description);
     }
 
-    @Get('users/:id')
+    @Get('stats/users/:id')
     async getUserStats(@Param('id', ParseIntPipe) id: number) {
         return this.adminService.getUserStats(id);
     }
 
-    @Post('users/:id/reset-password')
+    @Post('stats/users/:id/reset-password')
     async resetPassword(
         @Param('id', ParseIntPipe) id: number,
         @Body('newPassword') newPassword?: string
@@ -50,7 +50,7 @@ export class AdminController {
         return this.adminService.resetUserPassword(id, newPassword);
     }
 
-    @Post('users/:id/credits')
+    @Post('stats/users/:id/credits')
     async addCredits(
         @Param('id', ParseIntPipe) id: number,
         @Body('type') type: 'email' | 'sms',
@@ -59,7 +59,7 @@ export class AdminController {
         return this.adminService.addCredits(id, type, amount);
     }
 
-    @Post('users/:id/impersonate')
+    @Post('stats/users/:id/impersonate')
     async impersonate(@Param('id', ParseIntPipe) id: number) {
         return this.adminService.impersonateUser(id);
     }

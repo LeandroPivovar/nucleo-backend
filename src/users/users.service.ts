@@ -112,8 +112,14 @@ export class UsersService {
 
   // --- ADMIN METHODS ---
 
-  async findAllAdmin(): Promise<any[]> {
+  async findAllAdmin(planId?: number): Promise<any[]> {
+    const where: any = {};
+    if (planId) {
+      where.planId = planId;
+    }
+
     const users = await this.userRepository.find({
+      where,
       order: { createdAt: 'DESC' },
     });
 

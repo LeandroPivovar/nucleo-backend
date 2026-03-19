@@ -5,7 +5,8 @@ import {
     Post,
     Body,
     Param,
-    ParseIntPipe
+    ParseIntPipe,
+    Query
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
@@ -15,8 +16,8 @@ export class AdminController {
     constructor(private readonly usersService: UsersService) { }
 
     @Get()
-    async findAll() {
-        return this.usersService.findAllAdmin();
+    async findAll(@Query('planId') planId?: string) {
+        return this.usersService.findAllAdmin(planId ? parseInt(planId) : undefined);
     }
 
     @Patch(':id')

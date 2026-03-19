@@ -456,10 +456,71 @@ export class AdminService {
             });
         }
 
+        // 5. New Detailed Reports
+        // 5.1 Revenue by Plan
+        const paidInvoicesDetailed = await this.invoiceRepository.find({
+            where: { status: 'paid' },
+            relations: ['subscription', 'subscription.plan']
+        });
+
+        const revByPlanMap: { [key: string]: number } = {};
+        paidInvoicesDetailed.forEach(inv => {
+            const planName = inv.subscription?.plan?.name || 'Extra/Créditos';
+            revByPlanMap[planName] = (revByPlanMap[planName] || 0) + Number(inv.amount);
+        });
+
+        const revenueByPlan = Object.entries(revByPlanMap).map(([name, value]) => ({
+            name,
+            value
+        }));
+
+        // 5.2 Inadimplency
+        const pendingInvoices = await this.invoiceRepository.find({
+            where: [
+                { status: 'open' },
+                { status: 'past_due' },
+                { status: 'uncollectible' }
+            ],
+            relations: ['user'],
+            order: { createdAt: 'DESC' },
+            take: 10
+        });
+
+        const inadimplency = {
+            totalAmount: pendingInvoices.reduce((acc, inv) => acc + Number(inv.amount), 0),
+            count: pendingInvoices.length,
+            recentInvoices: pendingInvoices.map(inv => ({
+                id: inv.id,
+                userName: inv.user ? `${inv.user.firstName} ${inv.user.lastName}` : 'Usuário Desconhecido',
+                amount: Number(inv.amount),
+                status: inv.status,
+                date: inv.createdAt
+            }))
+        };
+
+        // 5.3 Cancellations by Reason
+        const cancelledSubs = await this.subscriptionRepository.find({
+            where: { status: 'canceled' }
+        });
+
+        const cancelReasonMap: { [key: string]: number } = {};
+        cancelledSubs.forEach(sub => {
+            const reason = sub.cancellationReason || 'Outros / Não Informado';
+            cancelReasonMap[reason] = (cancelReasonMap[reason] || 0) + 1;
+        });
+
+        const cancellationsByReason = Object.entries(cancelReasonMap).map(([reason, count]) => ({
+            reason,
+            count
+        }));
+
         return {
             monthlyData,
             projections,
             currentMrr,
+            revenueByPlan,
+            inadimplency,
+            cancellationsByReason,
             ytdRevenue: monthlyData.reduce((acc, d) => acc + d.totalRevenue, 0),
             avgMargin: monthlyData.length > 0 ? monthlyData.reduce((acc, d) => acc + d.margin, 0) / monthlyData.length : 0,
             growthRate: avgGrowth * 100,

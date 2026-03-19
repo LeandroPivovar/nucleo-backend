@@ -34,6 +34,9 @@ export class Subscription {
     @Column({ default: false })
     cancelAtPeriodEnd: boolean;
 
+    @Column({ length: 255, nullable: true })
+    cancellationReason: string;
+
     @Column({ nullable: true })
     stripeSubscriptionId: string; // For future Stripe integration
 

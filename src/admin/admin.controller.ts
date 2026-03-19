@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, UseGuards, Query } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -8,8 +8,14 @@ export class AdminController {
     constructor(private readonly adminService: AdminService) { }
 
     @Get('stats/global')
-    async getGlobalStats() {
-        return this.adminService.getGlobalStats();
+    async getGlobalStats(
+        @Query('month') month?: string,
+        @Query('year') year?: string
+    ) {
+        return this.adminService.getGlobalStats(
+            month ? parseInt(month) : undefined,
+            year ? parseInt(year) : undefined
+        );
     }
 
     @Get('finance/stats')

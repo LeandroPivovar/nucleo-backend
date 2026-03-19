@@ -149,37 +149,49 @@ export class AdminService {
         return { token };
     }
 
-    async getGlobalStats() {
+    async getGlobalStats(month?: number, year?: number) {
         const now = new Date();
+        const filterYear = year || now.getFullYear();
+        const filterMonth = month !== undefined ? (month === 0 ? now.getMonth() + 1 : month) : now.getMonth() + 1;
+
+        const startDate = new Date(filterYear, filterMonth - 1, 1);
+        const endDate = new Date(filterYear, filterMonth, 0, 23, 59, 59);
+
+        // Constants for standard periods (still useful for some metrics or comparison)
         const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const last30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         const last60d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-        console.log('Fetching Admin Global Stats...');
+        console.log(`Fetching Admin Global Stats for period: ${startDate.toISOString()} to ${endDate.toISOString()}...`);
 
         // 1. DAU / MAU (Approx via updatedAt)
+        // If filtering current month, use standard DAU/MAU logic
+        const isCurrentMonth = filterYear === now.getFullYear() && filterMonth === (now.getMonth() + 1);
+
         const dau = await this.usersRepository.count({
-            where: { updatedAt: MoreThan(last24h) },
+            where: { updatedAt: MoreThan(isCurrentMonth ? last24h : startDate) },
         });
-        console.log('DAU:', dau);
 
         const mau = await this.usersRepository.count({
-            where: { updatedAt: MoreThan(last30d) },
+            where: { updatedAt: MoreThan(isCurrentMonth ? last30d : startDate) },
         });
-        console.log('MAU:', mau);
 
-        // 2. Active Companies
+        // 2. Active Companies (at the end of the period)
         const activeCompanies = await this.usersRepository.count({
-            where: { subscriptionStatus: 'ACTIVE' },
+            where: {
+                subscriptionStatus: 'ACTIVE',
+                createdAt: MoreThan(startDate) // This is a simplification
+            },
         });
-        console.log('Active Companies:', activeCompanies);
 
-        // 3. MRR Calculation
+        // 3. MRR Calculation (Sum of plans of active subscriptions in the period)
         const activeSubscriptions = await this.subscriptionRepository.find({
-            where: { status: 'active' },
+            where: {
+                status: 'active',
+                createdAt: MoreThan(startDate) // This is a simplification
+            },
             relations: ['plan'],
         });
-        console.log('Active Subscriptions:', activeSubscriptions.length);
 
         let mrr = 0;
         activeSubscriptions.forEach((sub) => {
@@ -191,16 +203,19 @@ export class AdminService {
             }
         });
 
-        // 4. Growth (MoM) - Using Revenue approximation
+        // 4. Growth (MoM)
+        const prevMonthStart = new Date(filterYear, filterMonth - 2, 1);
+        const prevMonthEnd = new Date(filterYear, filterMonth - 1, 0, 23, 59, 59);
+
         const prevMonthInvoices = await this.invoiceRepository.find({
             where: {
-                createdAt: Between(last60d, last30d),
+                createdAt: Between(prevMonthStart, prevMonthEnd),
                 status: 'paid',
             },
         });
         const currMonthInvoices = await this.invoiceRepository.find({
             where: {
-                createdAt: MoreThan(last30d),
+                createdAt: Between(startDate, endDate),
                 status: 'paid',
             },
         });
@@ -209,34 +224,39 @@ export class AdminService {
         const currRevenue = currMonthInvoices.reduce((acc, inv) => acc + Number(inv.amount), 0);
         const growthMoM = prevRevenue > 0 ? ((currRevenue - prevRevenue) / prevRevenue) * 100 : 0;
 
-        // 5. Churn Rate
-        const canceledInLast30d = await this.subscriptionRepository.count({
+        // 5. Churn Rate (Canceled in this month)
+        const canceledInPeriod = await this.subscriptionRepository.count({
             where: {
                 status: 'canceled',
-                updatedAt: MoreThan(last30d),
+                updatedAt: Between(startDate, endDate),
             },
         });
-        const totalActiveAtStart = activeSubscriptions.length + canceledInLast30d;
-        const churnRate = totalActiveAtStart > 0 ? (canceledInLast30d / totalActiveAtStart) * 100 : 0;
+        const totalActiveAtStart = activeSubscriptions.length + canceledInPeriod;
+        const churnRate = totalActiveAtStart > 0 ? (canceledInPeriod / totalActiveAtStart) * 100 : 0;
 
-        // 6. Default Rate (Inadimplência)
-        const openInvoices30d = await this.invoiceRepository.find({
+        // 6. Default Rate (Inadimplência in this month)
+        const openInvoicesInPeriod = await this.invoiceRepository.find({
             where: {
-                createdAt: MoreThan(last30d),
+                createdAt: Between(startDate, endDate),
                 status: 'open',
             },
         });
-        const paidInvoices30d = currMonthInvoices;
+        const paidInvoicesInPeriod = currMonthInvoices;
 
-        const openAmount = openInvoices30d.reduce((acc, inv) => acc + Number(inv.amount), 0);
-        const paidAmount = paidInvoices30d.reduce((acc, inv) => acc + Number(inv.amount), 0);
+        const openAmount = openInvoicesInPeriod.reduce((acc, inv) => acc + Number(inv.amount), 0);
+        const paidAmount = paidInvoicesInPeriod.reduce((acc, inv) => acc + Number(inv.amount), 0);
         const totalInvoiced = openAmount + paidAmount;
         const defaultRate = totalInvoiced > 0 ? (openAmount / totalInvoiced) * 100 : 0;
 
-        // 7. LTV Médio
-        const allPaidInvoices = await this.invoiceRepository.find({ where: { status: 'paid' } });
-        const totalPaidAmount = allPaidInvoices.reduce((acc, inv) => acc + Number(inv.amount), 0);
-        const uniquePayingUsers = new Set(allPaidInvoices.map(inv => inv.userId)).size;
+        // 7. LTV Médio (Cumulative up to end of period)
+        const ltvInvoices = await this.invoiceRepository.find({
+            where: {
+                status: 'paid',
+                createdAt: MoreThan(startDate) // Approx
+            }
+        });
+        const totalPaidAmount = ltvInvoices.reduce((acc, inv) => acc + Number(inv.amount), 0);
+        const uniquePayingUsers = new Set(ltvInvoices.map(inv => inv.userId)).size;
         const averageLtv = uniquePayingUsers > 0 ? totalPaidAmount / uniquePayingUsers : 0;
 
         // 8. Ticket Médio por Plano
@@ -247,6 +267,9 @@ export class AdminService {
             const planTotal = planSubs.length > 0 ? planSubs.reduce((acc, s) => acc + Number(s.plan.price), 0) : 0;
             ticketByPlan[plan.name] = planSubs.length > 0 ? planTotal / planSubs.length : 0;
         }
+
+        // 9. Ticket Médio Global (Combined)
+        const totalAverageTicket = activeSubscriptions.length > 0 ? mrr / activeSubscriptions.length : 0;
 
         return {
             dau,
@@ -259,6 +282,7 @@ export class AdminService {
             averageLtv,
             cac: 50, // Mock fixed value for now
             ticketByPlan,
+            totalAverageTicket,
         };
     }
 

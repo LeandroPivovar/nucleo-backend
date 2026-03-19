@@ -23,8 +23,25 @@ export class CampaignsController {
     constructor(private readonly campaignsService: CampaignsService) { }
 
     @Get()
-    findAll(@Request() req) {
-        return this.campaignsService.findAll(req.user.userId);
+    findAll(
+        @Request() req,
+        @Query('startDate') startDate?: string,
+        @Query('endDate') endDate?: string,
+        @Query('minSends', new ParseIntPipe({ optional: true })) minSends?: number,
+        @Query('maxSends', new ParseIntPipe({ optional: true })) maxSends?: number,
+        @Query('channel') channel?: string,
+        @Query('minRevenue', new ParseIntPipe({ optional: true })) minRevenue?: number,
+        @Query('maxRevenue', new ParseIntPipe({ optional: true })) maxRevenue?: number,
+    ) {
+        return this.campaignsService.findAll(req.user.userId, {
+            startDate,
+            endDate,
+            minSends,
+            maxSends,
+            channel,
+            minRevenue,
+            maxRevenue
+        });
     }
 
     @Get('dashboard/performance')

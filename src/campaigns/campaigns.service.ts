@@ -23,11 +23,48 @@ export class CampaignsService {
         private notificationsService: NotificationsService
     ) { }
 
-    async findAll(userId: number): Promise<Campaign[]> {
-        return this.campaignsRepository.find({
-            where: { userId },
-            order: { createdAt: 'DESC' },
-        });
+    async findAll(userId: number, filters: {
+        startDate?: string;
+        endDate?: string;
+        minSends?: number;
+        maxSends?: number;
+        channel?: string;
+        minRevenue?: number;
+        maxRevenue?: number;
+    } = {}): Promise<Campaign[]> {
+        const query = this.campaignsRepository.createQueryBuilder('campaign')
+            .where('campaign.userId = :userId', { userId });
+
+        if (filters.startDate && filters.endDate) {
+            query.andWhere('campaign.createdAt BETWEEN :start AND :end', {
+                start: filters.startDate,
+                end: filters.endDate
+            });
+        } else if (filters.startDate) {
+            query.andWhere('campaign.createdAt >= :start', { start: filters.startDate });
+        } else if (filters.endDate) {
+            query.andWhere('campaign.createdAt <= :end', { end: filters.endDate });
+        }
+
+        if (filters.channel) {
+            query.andWhere('campaign.channel = :channel', { channel: filters.channel });
+        }
+
+        if (filters.minSends !== undefined) {
+            query.andWhere('campaign.sentCount >= :minSends', { minSends: filters.minSends });
+        }
+        if (filters.maxSends !== undefined) {
+            query.andWhere('campaign.sentCount <= :maxSends', { maxSends: filters.maxSends });
+        }
+
+        if (filters.minRevenue !== undefined) {
+            query.andWhere('campaign.revenue >= :minRevenue', { minRevenue: filters.minRevenue });
+        }
+        if (filters.maxRevenue !== undefined) {
+            query.andWhere('campaign.revenue <= :maxRevenue', { maxRevenue: filters.maxRevenue });
+        }
+
+        return query.orderBy('campaign.createdAt', 'DESC').getMany();
     }
 
     async findOne(id: number, userId: number): Promise<Campaign> {

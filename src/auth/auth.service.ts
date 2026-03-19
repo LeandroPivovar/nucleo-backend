@@ -237,6 +237,9 @@ export class AuthService {
       }
 
       // Sucesso sem 2FA
+      user.lastLoginAt = new Date();
+      await this.userRepository.save(user);
+
       await this.recordAttempt(user.id, email, ip || 'unknown', geo, true, false);
 
       // Verificar faturas pendentes de forma assíncrona para não atrasar o login
@@ -296,9 +299,10 @@ export class AuthService {
       throw new UnauthorizedException('Código de segurança expirado');
     }
 
-    // Limpar código após uso bem-sucedido
+    // Limpar código após uso bem-sucedido e atualizar último login
     user.twoFactorCode = null;
     user.twoFactorExpires = null;
+    user.lastLoginAt = new Date();
     await this.userRepository.save(user);
 
     // Sucesso com 2FA

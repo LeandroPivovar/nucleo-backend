@@ -81,6 +81,9 @@ export class User {
   @Column({ type: 'datetime', nullable: true })
   twoFactorExpires: Date | null;
 
+  @Column({ type: 'datetime', nullable: true })
+  lastLoginAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -96,14 +96,40 @@ export class AdminService {
             where: { userId, monthYear },
         });
 
+        const emailLimit = user.plan?.limits?.emails || 0;
+        const smsLimit = user.plan?.limits?.sms || 0;
+        const whatsappUnlimited = !!user.plan?.limits?.whatsapp;
+
+        const emailsUsed = usage?.emailsSent || 0;
+        const smsUsed = usage?.smsSent || 0;
+        const whatsappUsed = usage?.whatsappSent || 0;
+
+        const extraEmails = user.extraEmailsBalance || 0;
+        const extraSms = user.extraSmsBalance || 0;
+
         return {
             billingAmount,
             contactsCount,
             campaignsCount,
             usage: {
-                emailsSent: usage?.emailsSent || 0,
-                smsSent: usage?.smsSent || 0,
-                whatsappSent: usage?.whatsappSent || 0,
+                emails: {
+                    used: emailsUsed,
+                    contracted: emailLimit,
+                    extra: extraEmails,
+                    total: emailLimit + extraEmails,
+                    available: Math.max(0, emailLimit + extraEmails - emailsUsed),
+                },
+                sms: {
+                    used: smsUsed,
+                    contracted: smsLimit,
+                    extra: extraSms,
+                    total: smsLimit + extraSms,
+                    available: Math.max(0, smsLimit + extraSms - smsUsed),
+                },
+                whatsapp: {
+                    used: whatsappUsed,
+                    unlimited: whatsappUnlimited,
+                },
             },
             subscription: {
                 planName: user.plan?.name || 'Sem plano',

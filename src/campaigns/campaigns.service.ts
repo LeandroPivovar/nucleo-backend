@@ -167,13 +167,26 @@ export class CampaignsService {
         return { startDate, endDate };
     }
 
-    async getDashboardPerformance(userId: number, period: string) {
+    async getDashboardPerformance(userId: number, period: string, filters: { campaignId?: number; productId?: number } = {}) {
         const { startDate, endDate } = this.getDateRange(period);
 
         // Fetch campaigns within period
-        const campaigns = await this.campaignsRepository.find({
+        const query = this.campaignsRepository.createQueryBuilder('campaign')
+            .where('campaign.userId = :userId', { userId })
+            .andWhere('campaign.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+
+        if (filters.campaignId) {
+            query.andWhere('campaign.id = :campaignId', { campaignId: filters.campaignId });
+        }
+
+        const campaigns = await query.orderBy('campaign.createdAt', 'ASC').getRawMany();
+        // Since we used getRawMany with QueryBuilder, the fields might need mapping if we want to use the entity directly below.
+        // Actually campaignsRepository.find is easier if we don't have complex joins yet.
+
+        const campaignsEntities = await this.campaignsRepository.find({
             where: {
                 userId,
+                id: filters.campaignId ? filters.campaignId : undefined,
                 createdAt: Between(startDate, endDate)
             },
             order: { createdAt: 'ASC' }
@@ -181,6 +194,7 @@ export class CampaignsService {
 
         // Grouping logic for the chart
         const chartData: any[] = [];
+        const currentCampaigns = campaignsEntities;
 
         if (period === 'mensal') {
             // Group by month ('Jan', 'Fev'...)
@@ -195,7 +209,7 @@ export class CampaignsService {
                 monthsMap.set(monthName, { periodo: monthName, envios: 0, recebidos: 0, cliques: 0 });
             }
 
-            campaigns.forEach(camp => {
+            currentCampaigns.forEach(camp => {
                 const monthName = monthNames[camp.createdAt.getMonth()];
                 if (monthsMap.has(monthName)) {
                     const data = monthsMap.get(monthName);
@@ -221,7 +235,7 @@ export class CampaignsService {
                 }
             }
 
-            campaigns.forEach(camp => {
+            currentCampaigns.forEach(camp => {
                 const dayName = daysPT[camp.createdAt.getDay()];
                 if (daysMap.has(dayName)) {
                     const data = daysMap.get(dayName);
@@ -247,7 +261,7 @@ export class CampaignsService {
                 dateMap.set(formattedDate, { periodo: formattedDate, envios: 0, recebidos: 0, cliques: 0, _date: date });
             }
 
-            campaigns.forEach(camp => {
+            currentCampaigns.forEach(camp => {
                 const formattedDate = `${String(camp.createdAt.getDate()).padStart(2, '0')}/${String(camp.createdAt.getMonth() + 1).padStart(2, '0')}`;
                 if (dateMap.has(formattedDate)) {
                     const data = dateMap.get(formattedDate);
@@ -264,7 +278,10 @@ export class CampaignsService {
 
         // Recent Campaigns (last 5)
         const recentCampaignsDb = await this.campaignsRepository.find({
-            where: { userId },
+            where: {
+                userId,
+                id: filters.campaignId ? filters.campaignId : undefined
+            },
             order: { createdAt: 'DESC' },
             take: 5
         });
@@ -278,12 +295,15 @@ export class CampaignsService {
             clicks: camp.clicksCount || 0
         }));
 
-        // Recent Activities
+        // Recent Activities (filtered if campaignId provided)
         const recentActivity: any[] = [];
 
         // 1. New Campaigns Created
         const newCampaigns = await this.campaignsRepository.find({
-            where: { userId },
+            where: {
+                userId,
+                id: filters.campaignId ? filters.campaignId : undefined
+            },
             order: { createdAt: 'DESC' },
             take: 1
         });
@@ -298,7 +318,11 @@ export class CampaignsService {
 
         // 2. Finished Campaigns
         const finishedCampaigns = await this.campaignsRepository.find({
-            where: { userId, status: 'finalizada' },
+            where: {
+                userId,
+                status: 'finalizada',
+                id: filters.campaignId ? filters.campaignId : undefined
+            },
             order: { updatedAt: 'DESC' },
             take: 1
         });
@@ -311,20 +335,22 @@ export class CampaignsService {
             });
         });
 
-        // 3. Imported Contacts
-        const recentContacts = await this.contactsRepository.find({
-            where: { userId },
-            order: { createdAt: 'DESC' },
-            take: 5
-        });
-
-        if (recentContacts.length > 0) {
-            recentActivity.push({
-                title: 'Novos contatos adicionados',
-                subtitle: `${recentContacts.length} contatos recentes na plataforma`,
-                timestamp: recentContacts[0].createdAt,
-                type: 'contacts_added'
+        // 3. Imported Contacts (Skip if campaignId provided for now, as contacts aren't linked to campaigns at import time usually)
+        if (!filters.campaignId) {
+            const recentContacts = await this.contactsRepository.find({
+                where: { userId },
+                order: { createdAt: 'DESC' },
+                take: 5
             });
+
+            if (recentContacts.length > 0) {
+                recentActivity.push({
+                    title: 'Novos contatos adicionados',
+                    subtitle: `${recentContacts.length} contatos recentes na plataforma`,
+                    timestamp: recentContacts[0].createdAt,
+                    type: 'contacts_added'
+                });
+            }
         }
 
         recentActivity.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
@@ -334,7 +360,11 @@ export class CampaignsService {
         date30DaysAgo.setDate(date30DaysAgo.getDate() - 30);
 
         const recentMonthlyCampaigns = await this.campaignsRepository.find({
-            where: { userId, createdAt: Between(date30DaysAgo, new Date()) }
+            where: {
+                userId,
+                createdAt: Between(date30DaysAgo, new Date()),
+                id: filters.campaignId ? filters.campaignId : undefined
+            }
         });
 
         const channelPerformanceMap: Record<string, any> = {

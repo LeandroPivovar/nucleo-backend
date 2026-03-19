@@ -12,6 +12,7 @@ import {
     HttpCode,
     HttpStatus,
     Res,
+    ParseIntPipe,
 } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -27,8 +28,13 @@ export class CampaignsController {
     }
 
     @Get('dashboard/performance')
-    getDashboardPerformance(@Request() req, @Query('period') period?: string) {
-        return this.campaignsService.getDashboardPerformance(req.user.userId, period || 'semanal');
+    getDashboardPerformance(
+        @Request() req,
+        @Query('period') period?: string,
+        @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
+        @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
+    ) {
+        return this.campaignsService.getDashboardPerformance(req.user.userId, period || 'semanal', { campaignId, productId });
     }
 
     @Get(':id')

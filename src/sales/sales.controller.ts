@@ -51,48 +51,58 @@ export class SalesController {
   async getDashboardStats(
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+    @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
+    @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
   ) {
-    return this.salesService.getDashboardStats(req.user.userId, period);
+    return this.salesService.getDashboardStats(req.user.userId, period, { campaignId, productId });
   }
 
   @Get('dashboard/campaigns')
   async getSalesByCampaign(
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+    @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
   ) {
-    return this.salesService.getSalesByCampaign(req.user.userId, period);
+    return this.salesService.getSalesByCampaign(req.user.userId, period, { productId });
   }
 
   @Get('dashboard/channels')
   async getSalesByChannel(
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+    @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
+    @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
   ) {
-    return this.salesService.getSalesByChannel(req.user.userId, period);
+    return this.salesService.getSalesByChannel(req.user.userId, period, { campaignId, productId });
   }
 
   @Get('dashboard/products')
   async getTopProducts(
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+    @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
   ) {
-    return this.salesService.getTopProducts(req.user.userId, period);
+    return this.salesService.getTopProducts(req.user.userId, period, { campaignId });
   }
 
   @Get('dashboard/payment-methods')
   async getPaymentMethods(
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+    @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
+    @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
   ) {
-    return this.salesService.getPaymentMethods(req.user.userId, period);
+    return this.salesService.getPaymentMethods(req.user.userId, period, { campaignId, productId });
   }
 
   @Get('dashboard/funnel')
   async getFunnelStats(
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+    @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
+    @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
   ) {
-    return this.salesService.getFunnelStats(req.user.userId, period);
+    return this.salesService.getFunnelStats(req.user.userId, period, { campaignId, productId });
   }
 
   @Get('dashboard/segmentation')

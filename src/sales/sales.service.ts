@@ -177,7 +177,7 @@ export class SalesService {
     return { startDate, endDate, prevStartDate, prevEndDate };
   }
 
-  async getDashboardStats(userId: number, period: number) {
+  async getDashboardStats(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
     const { startDate, endDate, prevStartDate, prevEndDate } = this.getDateRange(period);
 
     const getCurrentStats = async (start: Date, end: Date) => {
@@ -189,6 +189,13 @@ export class SalesService {
         .andWhere('sale.createdAt BETWEEN :start AND :end', { start, end })
         .andWhere('sale.status = :status', { status: 'completed' });
 
+      if (filters.campaignId) {
+        salesQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+      }
+      if (filters.productId) {
+        salesQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+      }
+
       const salesResult = await salesQb.getRawOne();
 
       // Campaign Stats
@@ -197,17 +204,32 @@ export class SalesService {
         .addSelect('SUM(campaign.deliveredCount)', 'aberturas')
         .addSelect('SUM(campaign.clicksCount)', 'cliques')
         .where('campaign.userId = :userId', { userId })
-        .andWhere('campaign.updatedAt BETWEEN :start AND :end', { start, end }); // Using updatedAt as proxy for activity
+        .andWhere('campaign.updatedAt BETWEEN :start AND :end', { start, end });
+
+      if (filters.campaignId) {
+        campaignQb.andWhere('campaign.id = :campaignId', { campaignId: filters.campaignId });
+      }
+      // If filtering by product, it's harder to filter campaigns directly unless we link them.
+      // For now, if productId is provided, we might want to skip campaign stats or handle them differently.
+      // In this CRM, campaigns aren't directly linked to products in the database schema.
 
       const campaignResult = await campaignQb.getRawOne();
 
       // Lead/Response events
-      const responseCount = await this.pixelEventRepository.createQueryBuilder('event')
+      const responseQb = this.pixelEventRepository.createQueryBuilder('event')
         .leftJoin('event.pixel', 'pixel')
         .where('pixel.userId = :userId', { userId })
         .andWhere('event.event IN (:...events)', { events: ['Lead', 'Contact', 'SubmitForm'] })
-        .andWhere('event.createdAt BETWEEN :start AND :end', { start, end })
-        .getCount();
+        .andWhere('event.createdAt BETWEEN :start AND :end', { start, end });
+
+      if (filters.campaignId) {
+        responseQb.andWhere('event.data->>"$.campaignId" = :campaignId', { campaignId: filters.campaignId.toString() });
+      }
+      if (filters.productId) {
+        responseQb.andWhere('event.data->>"$.productId" = :productId', { productId: filters.productId.toString() });
+      }
+
+      const responseCount = await responseQb.getCount();
 
       return {
         faturamento: parseFloat(salesResult.faturamento || '0'),
@@ -264,13 +286,23 @@ export class SalesService {
     };
   }
 
-  async getFunnelStats(userId: number, period: number = 30) {
+  async getFunnelStats(userId: number, period: number = 30, filters: { campaignId?: number; productId?: number } = {}) {
     const { startDate, endDate } = this.getDateRange(period);
 
-    // 1. Leads: Total active contacts
-    const leadsCount = await this.contactRepository.count({
-      where: { userId }
-    });
+    const leadsCountQb = this.contactRepository.createQueryBuilder('contact')
+      .where('contact.userId = :userId', { userId });
+
+    if (filters.campaignId || filters.productId) {
+      leadsCountQb.innerJoin(PixelEvent, 'event', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)');
+      if (filters.campaignId) {
+        leadsCountQb.andWhere('event.data->>"$.campaignId" = :campaignId', { campaignId: filters.campaignId.toString() });
+      }
+      if (filters.productId) {
+        leadsCountQb.andWhere('event.data->>"$.productId" = :productId', { productId: filters.productId.toString() });
+      }
+    }
+
+    const leadsCount = await leadsCountQb.getCount();
 
     // 2. Engajados: Unique users who visited pages (PageView or ViewContent)
     const engagedQuery = this.pixelEventRepository.createQueryBuilder('event')
@@ -279,6 +311,13 @@ export class SalesService {
       .where('pixel.userId = :userId', { userId })
       .andWhere('event.event IN (:...events)', { events: ['PageView', 'ViewContent'] })
       .andWhere('event.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+
+    if (filters.campaignId) {
+      engagedQuery.andWhere('event.data->>"$.campaignId" = :campaignId', { campaignId: filters.campaignId.toString() });
+    }
+    if (filters.productId) {
+      engagedQuery.andWhere('event.data->>"$.productId" = :productId', { productId: filters.productId.toString() });
+    }
 
     const engagedResult = await engagedQuery.getRawOne();
     const engagedCount = parseInt(engagedResult.count || '0');
@@ -291,6 +330,13 @@ export class SalesService {
       .andWhere('event.event = :event', { event: 'AddToCart' })
       .andWhere('event.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
+    if (filters.campaignId) {
+      cartQuery.andWhere('event.data->>"$.campaignId" = :campaignId', { campaignId: filters.campaignId.toString() });
+    }
+    if (filters.productId) {
+      cartQuery.andWhere('event.data->>"$.productId" = :productId', { productId: filters.productId.toString() });
+    }
+
     const cartResult = await cartQuery.getRawOne();
     const cartCount = parseInt(cartResult.count || '0');
 
@@ -299,7 +345,15 @@ export class SalesService {
       .select('COUNT(DISTINCT sale.contactId)', 'count')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status = :status', { status: 'completed' })
-      .andWhere('sale.contactId IS NOT NULL');
+      .andWhere('sale.contactId IS NOT NULL')
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+
+    if (filters.campaignId) {
+      buyersQuery.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    }
+    if (filters.productId) {
+      buyersQuery.andWhere('sale.productId = :productId', { productId: filters.productId });
+    }
 
     const buyersResult = await buyersQuery.getRawOne();
     const buyersCount = parseInt(buyersResult.count || '0');
@@ -310,8 +364,16 @@ export class SalesService {
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status = :status', { status: 'completed' })
       .andWhere('sale.contactId IS NOT NULL')
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
       .groupBy('sale.contactId')
       .having('COUNT(sale.id) > 1');
+
+    if (filters.campaignId) {
+      loyalQuery.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    }
+    if (filters.productId) {
+      loyalQuery.andWhere('sale.productId = :productId', { productId: filters.productId });
+    }
 
     const loyalResult = await loyalQuery.getRawMany();
     const loyalCount = loyalResult.length;
@@ -487,10 +549,10 @@ export class SalesService {
     };
   }
 
-  async getSalesByCampaign(userId: number, period: number) {
+  async getSalesByCampaign(userId: number, period: number, filters: { productId?: number } = {}) {
     const { startDate, endDate } = this.getDateRange(period);
 
-    const result = await this.saleRepository.createQueryBuilder('sale')
+    const qb = this.saleRepository.createQueryBuilder('sale')
       .leftJoin('sale.campaign', 'campaign')
       .select('campaign.name', 'nome')
       .addSelect('sale.channel', 'canal')
@@ -498,8 +560,13 @@ export class SalesService {
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere('sale.campaignId IS NOT NULL')
-      .groupBy('campaign.name')
+      .andWhere('sale.campaignId IS NOT NULL');
+
+    if (filters.productId) {
+      qb.andWhere('sale.productId = :productId', { productId: filters.productId });
+    }
+
+    const result = await qb.groupBy('campaign.name')
       .addGroupBy('sale.channel')
       .getRawMany();
 
@@ -511,16 +578,20 @@ export class SalesService {
     }));
   }
 
-  async getSalesByChannel(userId: number, period: number) {
+  async getSalesByChannel(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
     const { startDate, endDate } = this.getDateRange(period);
 
-    const result = await this.saleRepository.createQueryBuilder('sale')
+    const qb = this.saleRepository.createQueryBuilder('sale')
       .select('sale.channel', 'canal')
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .groupBy('sale.channel')
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+
+    if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.productId) qb.andWhere('sale.productId = :productId', { productId: filters.productId });
+
+    const result = await qb.groupBy('sale.channel')
       .getRawMany();
 
     return result.map(item => ({
@@ -530,17 +601,20 @@ export class SalesService {
     }));
   }
 
-  async getTopProducts(userId: number, period: number) {
+  async getTopProducts(userId: number, period: number, filters: { campaignId?: number } = {}) {
     const { startDate, endDate } = this.getDateRange(period);
 
-    const result = await this.saleRepository.createQueryBuilder('sale')
+    const qb = this.saleRepository.createQueryBuilder('sale')
       .leftJoin('sale.product', 'product')
       .select('product.name', 'nome')
       .addSelect('SUM(sale.quantity)', 'vendas') // Sum quantity not just count rows
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .groupBy('product.name')
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+
+    if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+
+    const result = await qb.groupBy('product.name')
       .orderBy('faturamento', 'DESC')
       .limit(5)
       .getRawMany();
@@ -552,32 +626,31 @@ export class SalesService {
     }));
   }
 
-  async getPaymentMethods(userId: number, period: number) {
+  async getPaymentMethods(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
     const { startDate, endDate } = this.getDateRange(period);
 
-    const totalSales = await this.saleRepository.count({
-      where: {
-        userId,
-        // createdAt logic needs to be in query builder or FindOptions 
-      }
-      // Simplified total count for percentage calculation
-    });
-
     // Use query builder for total count within period
-    const totalResult = await this.saleRepository.createQueryBuilder('sale')
+    const totalCountQb = this.saleRepository.createQueryBuilder('sale')
       .select('COUNT(sale.id)', 'total')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .getRawOne();
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
+    if (filters.campaignId) totalCountQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.productId) totalCountQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+
+    const totalResult = await totalCountQb.getRawOne();
     const total = parseInt(totalResult.total || '0');
 
-    const result = await this.saleRepository.createQueryBuilder('sale')
+    const qb = this.saleRepository.createQueryBuilder('sale')
       .select('sale.paymentMethod', 'metodo')
       .addSelect('COUNT(sale.id)', 'transacoes')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .groupBy('sale.paymentMethod')
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+
+    if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.productId) qb.andWhere('sale.productId = :productId', { productId: filters.productId });
+
+    const result = await qb.groupBy('sale.paymentMethod')
       .getRawMany();
 
     return result.map(item => ({

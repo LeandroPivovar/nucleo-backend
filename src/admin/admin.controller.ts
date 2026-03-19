@@ -84,4 +84,9 @@ export class AdminController {
     async deletePlan(@Param('id', ParseIntPipe) id: number) {
         return this.adminService.deletePlan(id);
     }
+
+    @Get('capacity/stats')
+    async getCapacityStats() {
+        return this.adminService.getCapacityStats();
+    }
 }

@@ -530,4 +530,78 @@ export class AdminService {
             }
         };
     }
+    async getCapacityStats() {
+        const now = new Date();
+        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const dayOfMonth = now.getDate();
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const daysRemaining = daysInMonth - dayOfMonth;
+
+        // 1. Get Provider Limits
+        const emailLimitSetting = await this.systemSettingRepository.findOne({ where: { key: 'PROVIDER_EMAIL_LIMIT' } });
+        const smsLimitSetting = await this.systemSettingRepository.findOne({ where: { key: 'PROVIDER_SMS_LIMIT' } });
+
+        const providerEmailLimit = parseInt(emailLimitSetting?.value || '1000000');
+        const providerSmsLimit = parseInt(smsLimitSetting?.value || '100000');
+
+        // 2. Calculate Current Consumption (Total Platform)
+        const usageResult = await this.usageRepository
+            .createQueryBuilder('usage')
+            .select('SUM(usage.emailsSent)', 'emails')
+            .addSelect('SUM(usage.smsSent)', 'sms')
+            .where('usage.monthYear = :monthYear', { monthYear })
+            .getRawOne();
+
+        const consumedEmail = parseInt(usageResult?.emails || '0');
+        const consumedSms = parseInt(usageResult?.sms || '0');
+
+        // 3. Calculate Total Contracted by Clients
+        // (Active Plans Limits + Extra Balances)
+        const activeSubs = await this.subscriptionRepository.find({
+            where: { status: 'active' },
+            relations: ['plan']
+        });
+
+        let clientsEmailsContracted = 0;
+        let clientsSmsContracted = 0;
+
+        activeSubs.forEach(sub => {
+            clientsEmailsContracted += sub.plan?.limits?.emails || 0;
+            clientsSmsContracted += sub.plan?.limits?.sms || 0;
+        });
+
+        const extraBalances = await this.usersRepository
+            .createQueryBuilder('user')
+            .select('SUM(user.extraEmailsBalance)', 'emails')
+            .addSelect('SUM(user.extraSmsBalance)', 'sms')
+            .getRawOne();
+
+        clientsEmailsContracted += parseInt(extraBalances?.emails || '0');
+        clientsSmsContracted += parseInt(extraBalances?.sms || '0');
+
+        // 4. Calculations & Projections
+        const calculateStats = (consumed: number, providerLimit: number, clientsContracted: number) => {
+            const usagePercent = providerLimit > 0 ? (consumed / providerLimit) * 100 : 0;
+            const dailyAvg = dayOfMonth > 0 ? consumed / dayOfMonth : 0;
+            const projection = dailyAvg * daysInMonth;
+            const marginOfSafety = providerLimit - projection;
+            const isAlert = projection > providerLimit;
+
+            return {
+                consumed,
+                providerLimit,
+                clientsContracted,
+                usagePercent,
+                daysRemaining,
+                projection,
+                marginOfSafety,
+                isAlert
+            };
+        };
+
+        return {
+            email: calculateStats(consumedEmail, providerEmailLimit, clientsEmailsContracted),
+            sms: calculateStats(consumedSms, providerSmsLimit, clientsSmsContracted)
+        };
+    }
 }

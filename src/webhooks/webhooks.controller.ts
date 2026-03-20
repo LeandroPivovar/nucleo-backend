@@ -25,6 +25,14 @@ export class WebhooksController {
         // Loga o webhook recebido
         await this.webhooksService.logWebhook(url, method, headers, payload, source);
 
+        // Processa eventos de integrações de lojas (Shopify, Nuvemshop)
+        if (source === 'shopify' || source === 'nuvemshop') {
+            this.campaignsService.handleIntegrationWebhook(source, headers, payload).catch(err => {
+                console.error(`Erro ao processar webhook de integração [${source}]:`, err);
+            });
+            return { success: true, message: 'Integration webhook received' };
+        }
+
         // Processa entrega de SMS/Email da Zenvia
         if (source === 'sms-zenvia' || source === 'email-zenvia') {
             await this.campaignsService.handleDeliveredWebhook(payload);

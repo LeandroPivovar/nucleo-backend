@@ -11,8 +11,11 @@ import { UserUsage } from '../../entities/user-usage.entity';
 import { User } from '../../entities/user.entity';
 import { Subscription } from '../../entities/subscription.entity';
 import { Contact } from '../../entities/contact.entity';
+import { Sale } from '../../entities/sale.entity';
 import { ShopifyService } from '../../shopify/shopify.service';
 import { NuvemshopService } from '../../nuvemshop/nuvemshop.service';
+import { CampaignQueue } from '../../entities/campaign-queue.entity';
+import { addMinutes, addHours, addDays } from 'date-fns';
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -27,6 +30,12 @@ export class CampaignSchedulerService {
         private userRepository: Repository<User>,
         @InjectRepository(Subscription)
         private subscriptionRepository: Repository<Subscription>,
+        @InjectRepository(CampaignQueue)
+        private campaignQueueRepository: Repository<CampaignQueue>,
+        @InjectRepository(Sale)
+        private saleRepository: Repository<Sale>,
+        @InjectRepository(Contact)
+        private contactRepository: Repository<Contact>,
         private zenviaService: ZenviaService,
         private contactsService: ContactsService,
         private emailService: EmailService,
@@ -55,6 +64,41 @@ export class CampaignSchedulerService {
 
         for (const campaign of pendingCampaigns) {
             await this.processCampaign(campaign);
+        }
+    }
+
+    @Cron(CronExpression.EVERY_MINUTE)
+    async processDelayedWorkflows() {
+        this.logger.debug('Checking for delayed workflows to resume...');
+
+        const now = new Date();
+        const pendingQueue = await this.campaignQueueRepository.find({
+            where: {
+                status: 'pending',
+                resumeAt: LessThanOrEqual(now),
+            },
+            relations: ['campaign', 'contact']
+        });
+
+        if (pendingQueue.length === 0) return;
+
+        this.logger.log(`Found ${pendingQueue.length} delayed workflows to resume.`);
+
+        for (const item of pendingQueue) {
+            try {
+                item.status = 'processing';
+                await this.campaignQueueRepository.save(item);
+
+                // Resume from the node FOLLOWING the delay
+                await this.executeCampaignFlowFromNode(item.campaign, [item.contact], { id: item.delayNodeId }, item.eventContext);
+
+                item.status = 'completed';
+                await this.campaignQueueRepository.save(item);
+            } catch (error: any) {
+                this.logger.error(`Error resuming workflow ${item.id}: ${error.message}`);
+                item.status = 'failed';
+                await this.campaignQueueRepository.save(item);
+            }
         }
     }
 
@@ -601,6 +645,134 @@ export class CampaignSchedulerService {
         }
 
         return successCount;
+    }
+
+    async executeCampaignFlowFromNode(campaign: Campaign, targetContacts: Contact[], startNode: any, eventContext?: any) {
+        if (!campaign.config?.workflow) return;
+        const nodes = campaign.config.workflow.nodes || [];
+        const edges = campaign.config.workflow.edges || [];
+
+        const pathNodes: any[] = [];
+
+        // Find the starting edge
+        let currentNodeId: string | undefined;
+        if (startNode.type === 'condition') {
+            currentNodeId = edges.find((e: any) => e.source === startNode.id && e.sourceHandle === 'true')?.target;
+        } else {
+            // For other nodes (like delay nodes), we just follow the first outgoing edge
+            currentNodeId = edges.find((e: any) => e.source === startNode.id)?.target;
+        }
+
+        // Prevent infinite loops in case of cycles
+        const maxDepth = 50;
+        let depth = 0;
+
+        while (currentNodeId && depth < maxDepth) {
+            depth++;
+            const node = nodes.find((n: any) => n.id === currentNodeId);
+            if (!node) break;
+
+            if (node.type === 'delay') {
+                this.logger.log(`Delay encountered in campaign ${campaign.id} for node ${node.id}. Pausing workflow.`);
+
+                const amount = parseInt(node.data?.amount || '0');
+                const unit = node.data?.unit || 'minutes';
+
+                let resumeAt = new Date();
+                if (unit === 'minutes') resumeAt = addMinutes(resumeAt, amount);
+                else if (unit === 'hours') resumeAt = addHours(resumeAt, amount);
+                else if (unit === 'days') resumeAt = addDays(resumeAt, amount);
+
+                const queueItem = this.campaignQueueRepository.create({
+                    userId: campaign.userId,
+                    campaignId: campaign.id,
+                    contactId: targetContacts[0].id,
+                    delayNodeId: node.id,
+                    resumeAt,
+                    eventContext,
+                    status: 'pending'
+                });
+                await this.campaignQueueRepository.save(queueItem);
+
+                // Break the loop - this contact stops here for now
+                break;
+            }
+
+            pathNodes.push(node);
+
+            if (node.type === 'condition') {
+                const conditionResult = await this.evaluateCondition(node, targetContacts[0], eventContext);
+                currentNodeId = edges.find((e: any) => e.source === node.id && e.sourceHandle === (conditionResult ? 'true' : 'false'))?.target;
+            } else {
+                currentNodeId = edges.find((e: any) => e.source === node.id)?.target;
+            }
+        }
+
+        if (pathNodes.length === 0) {
+            this.logger.log(`Nenhum nó de ação encontrado após o gatilho na campanha ${campaign.id}`);
+            return;
+        }
+
+        // Criamos uma "cópia" da campanha onde o array de nodes contém APENAS o caminho que percorremos.
+        // Isso força o executeCampaignFlow (que faz um loop cego por todos os nodes) a executar apenas os nós corretos na ordem.
+        const executionCampaign = {
+            ...campaign,
+            config: {
+                ...campaign.config,
+                workflow: {
+                    ...campaign.config.workflow,
+                    nodes: pathNodes
+                }
+            }
+        } as Campaign;
+
+        this.logger.log(`Executando fluxo dinâmico para a campanha ${campaign.id} com ${pathNodes.length} nós.`);
+        return this.executeCampaignFlow(executionCampaign, targetContacts);
+    }
+
+    private async evaluateCondition(node: any, contact: Contact, eventContext: any): Promise<boolean> {
+        const conditionType = node.data?.conditionType;
+        const operator = node.data?.operator;
+        const value = node.data?.value;
+        const productId = node.data?.productId;
+
+        // 1. Real-time evaluation (especially for post-delay checks)
+        if (conditionType === 'order_placed' || conditionType === 'product_purchased') {
+            const query = this.saleRepository.createQueryBuilder('sale')
+                .where('sale.contactId = :contactId', { contactId: contact.id });
+
+            if (conditionType === 'product_purchased' && productId) {
+                query.andWhere('sale.productId = :productId', { productId });
+            }
+
+            const recentSale = await query.orderBy('sale.createdAt', 'DESC').getOne();
+
+            // If the trigger was cart_abandoned, we want to know if there's a sale AFTER the abandonment.
+            // For now, any recent sale or matching product sale is a good indicator.
+            return !!recentSale;
+        }
+
+        if (!eventContext) return false;
+
+        // 2. Context-based evaluation (from the triggering event)
+        if ((conditionType === 'order_value' || conditionType === 'min_value' || conditionType === 'total_sales_value') && eventContext.value) {
+            const orderVal = parseFloat(eventContext.value);
+            const targetVal = parseFloat(value);
+            if (operator === 'greater') return orderVal > targetVal;
+            if (operator === 'less') return orderVal < targetVal;
+            if (operator === 'equal') return orderVal === targetVal;
+            if (operator === 'greater_equal') return orderVal >= targetVal;
+            if (operator === 'less_equal') return orderVal <= targetVal;
+        }
+
+        // Context-based product check
+        if (conditionType === 'product_purchased' && productId && eventContext.products) {
+            return eventContext.products.some((p: any) => p.id?.toString() === productId.toString());
+        }
+
+        if (conditionType === eventContext.eventType) return true;
+
+        return false;
     }
 }
 

@@ -7,6 +7,8 @@ import { Contact } from '../entities/contact.entity';
 import { CampaignSchedulerService } from './campaign-scheduler/campaign-scheduler.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../entities/notification.entity';
+import { ShopifyConnection } from '../entities/shopify-connection.entity';
+import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 
 @Injectable()
 export class CampaignsService {
@@ -19,6 +21,10 @@ export class CampaignsService {
         private userUsageRepository: Repository<UserUsage>,
         @InjectRepository(Contact)
         private contactsRepository: Repository<Contact>,
+        @InjectRepository(ShopifyConnection)
+        private shopifyConnectionRepository: Repository<ShopifyConnection>,
+        @InjectRepository(NuvemshopConnection)
+        private nuvemshopConnectionRepository: Repository<NuvemshopConnection>,
         private campaignSchedulerService: CampaignSchedulerService,
         private notificationsService: NotificationsService
     ) { }
@@ -515,6 +521,121 @@ export class CampaignsService {
             }
         } catch (error) {
             console.error(`Error checking campaign performance for user ${userId}:`, error);
+        }
+    }
+
+    async handleIntegrationWebhook(source: string, headers: any, payload: any): Promise<void> {
+        try {
+            let userId: number | null = null;
+            let internalEventType: string | null = null;
+            let customerEmail: string | null = null;
+            let customerPhone: string | null = null;
+            let customerName: string = 'Contato Loja';
+            let orderValue: string | null = null;
+            let products: any[] = [];
+
+            // 1. Identify Tenant and Normalize Event
+            if (source === 'shopify') {
+                const shopDomain = headers['x-shopify-shop-domain'];
+                const topic = headers['x-shopify-topic']; // e.g., orders/create, carts/update
+
+                if (!shopDomain || !topic) return;
+
+                const connection = await this.shopifyConnectionRepository.findOne({ where: { shop: shopDomain } });
+                if (!connection) return;
+                userId = connection.userId;
+
+                if (topic === 'orders/create') {
+                    internalEventType = 'order_placed';
+                    if (payload.financial_status === 'paid') internalEventType = 'order_delivered';
+                } else if (topic === 'orders/cancelled') {
+                    internalEventType = 'order_cancelled';
+                } else if (topic === 'checkouts/create' || topic === 'checkouts/update') {
+                    internalEventType = 'cart_abandoned'; // Simplify mapping for demo
+                }
+
+                customerEmail = payload.email || payload.customer?.email;
+                customerPhone = payload.phone || payload.customer?.phone;
+                customerName = payload.customer?.first_name || 'Contato Shopify';
+                orderValue = payload.total_price;
+                products = payload.line_items || [];
+
+            } else if (source === 'nuvemshop') {
+                // Nuvemshop doesn't always send the store id in headers, it might be in payload or header x-linked-store-id
+                const storeId = payload.store_id || headers['x-linked-store-id'];
+                const event = payload.event; // e.g. order/created, order/paid
+
+                if (!storeId || !event) return;
+
+                const connection = await this.nuvemshopConnectionRepository.findOne({ where: { storeId: storeId.toString() } });
+                if (!connection) return;
+                userId = connection.userId;
+
+                if (event === 'order/created') internalEventType = 'order_placed';
+                else if (event === 'order/paid') internalEventType = 'order_delivered';
+                else if (event === 'order/cancelled') internalEventType = 'order_cancelled';
+                else if (event.startsWith('cart/')) internalEventType = 'cart_abandoned';
+
+                customerEmail = payload.customer?.email;
+                customerPhone = payload.customer?.phone;
+                customerName = payload.customer?.name || 'Contato Nuvemshop';
+                orderValue = payload.total;
+                products = payload.products || [];
+            }
+
+            if (!userId || !internalEventType || (!customerEmail && !customerPhone)) {
+                return;
+            }
+
+            // 2. Find or Create Contact
+            let contact = await this.contactsRepository.findOne({
+                where: customerEmail ? { userId, email: customerEmail } : { userId, phone: customerPhone || '' }
+            });
+
+            if (!contact) {
+                contact = this.contactsRepository.create({
+                    userId,
+                    email: customerEmail || '',
+                    phone: customerPhone || '',
+                    name: customerName,
+                    source,
+                    status: 'customer'
+                });
+                await this.contactsRepository.save(contact);
+            }
+
+            // 3. Find Active Campaigns and trigger
+            const activeCampaigns = await this.campaignsRepository.find({
+                where: { userId, status: 'ativa' }
+            });
+
+            for (const campaign of activeCampaigns) {
+                if (campaign.complexity !== 'advanced') continue;
+
+                const nodes = campaign.config?.workflow?.nodes || [];
+
+                // Find a ConditionNode matching this event type
+                const matchingConditionNode = nodes.find((n: any) =>
+                    n.type === 'condition' && n.data?.conditionType === internalEventType
+                );
+
+                if (matchingConditionNode) {
+                    this.logger.log(`Campaign ${campaign.id} triggered by ${internalEventType} for contact ${contact.id}`);
+
+                    // Build event context
+                    const eventContext = {
+                        eventType: internalEventType,
+                        value: orderValue,
+                        products: products.map((p: any) => ({ name: p.name || p.title, sku: p.sku, id: p.id || p.product_id }))
+                    };
+
+                    // Pass execution to Scheduler passing the specific matching node as start point
+                    await this.campaignSchedulerService.executeCampaignFlowFromNode(campaign, [contact], matchingConditionNode, eventContext);
+                }
+            }
+
+        } catch (error: any) {
+            this.logger.error(`Error handling integration webhook: ${error.message}`);
         }
     }
 }

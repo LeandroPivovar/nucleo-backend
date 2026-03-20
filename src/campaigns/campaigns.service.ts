@@ -9,6 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../entities/notification.entity';
 import { ShopifyConnection } from '../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
+import { CampaignClick } from '../entities/campaign-click.entity';
 
 @Injectable()
 export class CampaignsService {
@@ -25,6 +26,8 @@ export class CampaignsService {
         private shopifyConnectionRepository: Repository<ShopifyConnection>,
         @InjectRepository(NuvemshopConnection)
         private nuvemshopConnectionRepository: Repository<NuvemshopConnection>,
+        @InjectRepository(CampaignClick)
+        private campaignClicksRepository: Repository<CampaignClick>,
         private campaignSchedulerService: CampaignSchedulerService,
         private notificationsService: NotificationsService
     ) { }
@@ -184,13 +187,27 @@ export class CampaignsService {
         };
     }
 
-    async trackClick(id: number): Promise<Campaign> {
+    async trackClick(id: number, contactId?: number): Promise<Campaign> {
         const campaign = await this.campaignsRepository.findOne({ where: { id } });
         if (!campaign) {
             throw new NotFoundException(`Campanha com ID ${id} não encontrada`);
         }
 
         campaign.clicksCount = (Number(campaign.clicksCount) || 0) + 1;
+
+        if (contactId) {
+            try {
+                // Registrar o clique individual para uso no workflow
+                await this.campaignClicksRepository.save({
+                    campaignId: id,
+                    contactId: contactId
+                });
+                this.logger.debug(`Individual click recorded for campaign ${id} and contact ${contactId}`);
+            } catch (error) {
+                this.logger.error(`Error recording individual click: ${error.message}`);
+            }
+        }
+
         return this.campaignsRepository.save(campaign);
     }
 

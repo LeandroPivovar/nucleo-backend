@@ -108,10 +108,11 @@ export class CampaignsTrackingController {
     @Get(':id')
     async track(
         @Param('id') id: string,
+        @Query('contactId') contactId: string,
         @Res() res: any
     ) {
         try {
-            const campaign = await this.campaignsService.trackClick(+id);
+            const campaign = await this.campaignsService.trackClick(+id, contactId ? +contactId : undefined);
             const destination = campaign.config?.tracking?.destinationUrl || '/';
 
             if (res && typeof res.redirect === 'function') {

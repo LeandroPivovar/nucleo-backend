@@ -17,6 +17,7 @@ import { NuvemshopService } from '../../nuvemshop/nuvemshop.service';
 import { CampaignQueue } from '../../entities/campaign-queue.entity';
 import { ShopifyConnection } from '../../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../../entities/nuvemshop-connection.entity';
+import { CampaignClick } from '../../entities/campaign-click.entity';
 import { addMinutes, addHours, addDays } from 'date-fns';
 
 @Injectable()
@@ -38,6 +39,8 @@ export class CampaignSchedulerService {
         private saleRepository: Repository<Sale>,
         @InjectRepository(Contact)
         private contactRepository: Repository<Contact>,
+        @InjectRepository(CampaignClick)
+        private campaignClicksRepository: Repository<CampaignClick>,
         private zenviaService: ZenviaService,
         private contactsService: ContactsService,
         private emailService: EmailService,
@@ -311,7 +314,7 @@ export class CampaignSchedulerService {
 
             let nextNodeId: string | undefined;
             if (currentNode.type === 'condition') {
-                const conditionResult = await this.evaluateCondition(currentNode, contact, eventContext);
+                const conditionResult = await this.evaluateCondition(currentNode, contact, campaign.id, eventContext);
                 nextNodeId = edges.find((e: any) => e.source === currentNode.id && e.sourceHandle === (conditionResult ? 'true' : 'false'))?.target;
             } else {
                 nextNodeId = edges.find((e: any) => e.source === currentNode.id)?.target;
@@ -382,7 +385,7 @@ export class CampaignSchedulerService {
                         .replace(/{{cupom_valor}}/g, valStr)
                         .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
                 }
-                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
+                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
                 const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
                 if (success) stats.sentSmsCount++;
             }
@@ -394,7 +397,7 @@ export class CampaignSchedulerService {
                     .replace(/{{cupom_valor}}/g, valStr)
                     .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
             }
-            content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
+            content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
             const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato', contact.phone, content);
             if (success) stats.sentWhatsappCount++;
         }
@@ -402,7 +405,7 @@ export class CampaignSchedulerService {
         return { activeCoupon: newActiveCoupon };
     }
 
-    private async evaluateCondition(node: any, contact: Contact, eventContext: any): Promise<boolean> {
+    private async evaluateCondition(node: any, contact: Contact, campaignId: number, eventContext: any): Promise<boolean> {
         const condType = node.data?.conditionType || node.data?.type;
         let result = false;
 
@@ -413,6 +416,11 @@ export class CampaignSchedulerService {
             }
             const recentSale = await query.orderBy('sale.createdAt', 'DESC').getOne();
             result = !!recentSale;
+        } else if (condType === 'clicked_link') {
+            const click = await this.campaignClicksRepository.findOne({
+                where: { campaignId, contactId: contact.id }
+            });
+            result = !!click;
         } else if (eventContext) {
             if ((condType === 'order_value' || condType === 'min_value') && eventContext.value) {
                 const val = parseFloat(eventContext.value);

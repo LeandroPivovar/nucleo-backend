@@ -315,7 +315,7 @@ export class CampaignSchedulerService {
 
             let nextNodeId: string | undefined;
             if (currentNode.type === 'condition') {
-                const conditionResult = await this.evaluateCondition(currentNode, contact, campaign.id, eventContext);
+                const conditionResult = await this.evaluateCondition(currentNode, contact, campaign, eventContext);
                 const matchingEdge = edges.find((e: any) => e.source === currentNode.id && e.sourceHandle === (conditionResult ? 'true' : 'false'));
                 nextNodeId = matchingEdge?.target;
                 this.logger.debug(`[FLOW] Condition ${currentNode.id} result: ${conditionResult}. Next node: ${nextNodeId || 'NONE'}`);
@@ -412,15 +412,31 @@ export class CampaignSchedulerService {
         return { activeCoupon: newActiveCoupon };
     }
 
-    private async evaluateCondition(node: any, contact: Contact, campaignId: number, eventContext: any): Promise<boolean> {
+    private async evaluateCondition(node: any, contact: Contact, campaign: Campaign, eventContext: any): Promise<boolean> {
         const condType = node.data?.conditionType || node.data?.type;
+        const campaignId = campaign.id;
         let result = false;
 
         if (condType === 'order_placed' || condType === 'product_purchased' || condType === 'order_delivered') {
-            const query = this.saleRepository.createQueryBuilder('sale').where('sale.contactId = :contactId', { contactId: contact.id });
+            const query = this.saleRepository.createQueryBuilder('sale')
+                .where('sale.contactId = :contactId', { contactId: contact.id });
+
+            // Atribuir à campanha se:
+            // 1. A venda está explicitamente ligada à campanha
+            // 2. A venda foi feita após o início da campanha
+            query.andWhere('(sale.campaignId = :campaignId OR sale.createdAt >= :campaignDate)', {
+                campaignId,
+                campaignDate: campaign.createdAt
+            });
+
             if (condType === 'product_purchased' && node.data?.productId) {
                 query.andWhere('sale.productId = :productId', { productId: node.data.productId });
             }
+
+            if (condType === 'order_delivered') {
+                query.andWhere('sale.status = :status', { status: 'delivered' });
+            }
+
             const recentSale = await query.orderBy('sale.createdAt', 'DESC').getOne();
             result = !!recentSale;
         } else if (condType === 'clicked_link') {

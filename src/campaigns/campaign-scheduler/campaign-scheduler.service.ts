@@ -15,6 +15,8 @@ import { Sale } from '../../entities/sale.entity';
 import { ShopifyService } from '../../shopify/shopify.service';
 import { NuvemshopService } from '../../nuvemshop/nuvemshop.service';
 import { CampaignQueue } from '../../entities/campaign-queue.entity';
+import { ShopifyConnection } from '../../entities/shopify-connection.entity';
+import { NuvemshopConnection } from '../../entities/nuvemshop-connection.entity';
 import { addMinutes, addHours, addDays } from 'date-fns';
 
 @Injectable()
@@ -212,10 +214,10 @@ export class CampaignSchedulerService {
         const subscription = await this.subscriptionRepository.findOne({ where: { userId: campaign.userId, status: 'active' }, relations: ['plan'] });
         const user = await this.userRepository.findOne({ where: { id: campaign.userId } });
 
-        let shopifyConnection = null;
+        let shopifyConnection: ShopifyConnection | null = null;
         try { shopifyConnection = await this.shopifyService.getActiveConnection(campaign.userId); } catch (e) { }
 
-        let nuvemshopConnection = null;
+        let nuvemshopConnection: NuvemshopConnection | null = null;
         try { nuvemshopConnection = await this.nuvemshopService.getActiveConnection(campaign.userId); } catch (e) { }
 
         return {

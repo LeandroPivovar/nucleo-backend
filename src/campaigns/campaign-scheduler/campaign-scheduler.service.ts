@@ -90,11 +90,12 @@ export class CampaignSchedulerService {
         this.logger.log(`Found ${pendingQueue.length} delayed workflows to resume.`);
 
         for (const item of pendingQueue) {
+            this.logger.log(`[RESUME] Processing queue item ${item.id}: Campaign ${item.campaign?.id}, Contact ${item.contact?.id}, Node ${item.delayNodeId}`);
             try {
                 item.status = 'processing';
                 await this.campaignQueueRepository.save(item);
 
-                this.logger.log(`Resuming workflow for campaign ${item.campaign?.id} contact ${item.contact?.id} from node ${item.delayNodeId}`);
+                this.logger.log(`[RESUME] Executing flow from node ${item.delayNodeId} for contact ${item.contact?.id}`);
                 await this.executeCampaignFlowFromNode(item.campaign, [item.contact], { id: item.delayNodeId, type: 'delay' }, item.eventContext, true);
 
                 item.status = 'completed';
@@ -315,12 +316,18 @@ export class CampaignSchedulerService {
             let nextNodeId: string | undefined;
             if (currentNode.type === 'condition') {
                 const conditionResult = await this.evaluateCondition(currentNode, contact, campaign.id, eventContext);
-                nextNodeId = edges.find((e: any) => e.source === currentNode.id && e.sourceHandle === (conditionResult ? 'true' : 'false'))?.target;
+                const matchingEdge = edges.find((e: any) => e.source === currentNode.id && e.sourceHandle === (conditionResult ? 'true' : 'false'));
+                nextNodeId = matchingEdge?.target;
+                this.logger.debug(`[FLOW] Condition ${currentNode.id} result: ${conditionResult}. Next node: ${nextNodeId || 'NONE'}`);
             } else {
                 nextNodeId = edges.find((e: any) => e.source === currentNode.id)?.target;
+                this.logger.debug(`[FLOW] Node ${currentNode.id} (${currentNode.type}) next node: ${nextNodeId || 'NONE'}`);
             }
 
-            if (!nextNodeId) break;
+            if (!nextNodeId) {
+                this.logger.log(`[FLOW] Flow ended at node ${currentNode.id} for contact ${contact.id} (No outgoing edge or matching condition branch)`);
+                break;
+            }
             currentNode = nodes.find(n => n.id === nextNodeId);
             depth++;
             if (depth > 50) break;

@@ -91,13 +91,14 @@ export class CampaignSchedulerService {
                 item.status = 'processing';
                 await this.campaignQueueRepository.save(item);
 
-                // Resume from the node FOLLOWING the delay
+                this.logger.log(`Resuming workflow for campaign ${item.campaign?.id} contact ${item.contact?.id} from node ${item.delayNodeId}`);
                 await this.executeCampaignFlowFromNode(item.campaign, [item.contact], { id: item.delayNodeId, type: 'delay' }, item.eventContext, true);
 
                 item.status = 'completed';
                 await this.campaignQueueRepository.save(item);
+                this.logger.log(`Workflow resume completed for queue item ${item.id}`);
             } catch (error: any) {
-                this.logger.error(`Error resuming workflow ${item.id}: ${error.message}`);
+                this.logger.error(`Error resuming workflow ${item.id} (Campaign: ${item.campaign?.id}, Contact: ${item.contact?.id}): ${error.message}`, error.stack);
                 item.status = 'failed';
                 await this.campaignQueueRepository.save(item);
             }
@@ -262,9 +263,16 @@ export class CampaignSchedulerService {
         // If starting from a delay node (resume), move to the NEXT node immediately
         if (currentNode.type === 'delay') {
             const nextEdge = edges.find(e => e.source === currentNode.id);
-            if (!nextEdge) return;
+            if (!nextEdge) {
+                this.logger.warn(`No outgoing edge found for delay node ${currentNode.id} during resume for contact ${contact.id}`);
+                return;
+            }
             currentNode = nodes.find(n => n.id === nextEdge.target);
-            if (!currentNode) return;
+            if (!currentNode) {
+                this.logger.warn(`Next node ${nextEdge.target} not found for contact ${contact.id}`);
+                return;
+            }
+            this.logger.log(`Resuming traversal for contact ${contact.id} at node ${currentNode.id} (${currentNode.type})`);
         }
 
         while (currentNode) {
@@ -273,11 +281,11 @@ export class CampaignSchedulerService {
                 if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
                     campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
                     await this.campaignsRepository.save(campaign);
-                    // Reset stats so they don't double count if resume happens in same execution (unlikely but safe)
                     stats.sentEmailCount = 0; stats.sentSmsCount = 0; stats.sentWhatsappCount = 0;
                 }
 
-                const amount = parseInt(currentNode.data?.delayAmount || currentNode.data?.amount || '0');
+                // Try various property names used by different frontend versions or node types
+                const amount = parseInt(currentNode.data?.delayAmount || currentNode.data?.amount || currentNode.data?.value || '0');
                 const unit = currentNode.data?.delayUnit || currentNode.data?.unit || 'minutes';
                 let resumeAt = new Date();
 
@@ -395,30 +403,34 @@ export class CampaignSchedulerService {
     }
 
     private async evaluateCondition(node: any, contact: Contact, eventContext: any): Promise<boolean> {
-        const condType = node.data?.conditionType;
+        const condType = node.data?.conditionType || node.data?.type;
+        let result = false;
+
         if (condType === 'order_placed' || condType === 'product_purchased' || condType === 'order_delivered') {
             const query = this.saleRepository.createQueryBuilder('sale').where('sale.contactId = :contactId', { contactId: contact.id });
             if (condType === 'product_purchased' && node.data?.productId) {
                 query.andWhere('sale.productId = :productId', { productId: node.data.productId });
             }
             const recentSale = await query.orderBy('sale.createdAt', 'DESC').getOne();
-            return !!recentSale;
+            result = !!recentSale;
+        } else if (eventContext) {
+            if ((condType === 'order_value' || condType === 'min_value') && eventContext.value) {
+                const val = parseFloat(eventContext.value);
+                const target = parseFloat(node.data?.value || '0');
+                const op = node.data?.operator;
+                if (op === 'greater') result = val > target;
+                else if (op === 'less') result = val < target;
+                else if (op === 'greater_equal') result = val >= target;
+                else if (op === 'less_equal') result = val <= target;
+                else result = val === target;
+            } else if (condType === 'product_purchased' && node.data?.productId && eventContext.products) {
+                result = eventContext.products.some((p: any) => p.id?.toString() === node.data.productId.toString());
+            } else {
+                result = condType === eventContext.eventType;
+            }
         }
 
-        if (!eventContext) return false;
-        if ((condType === 'order_value' || condType === 'min_value') && eventContext.value) {
-            const val = parseFloat(eventContext.value);
-            const target = parseFloat(node.data?.value || '0');
-            const op = node.data?.operator;
-            if (op === 'greater') return val > target;
-            if (op === 'less') return val < target;
-            if (op === 'greater_equal') return val >= target;
-            if (op === 'less_equal') return val <= target;
-            return val === target;
-        }
-        if (condType === 'product_purchased' && node.data?.productId && eventContext.products) {
-            return eventContext.products.some((p: any) => p.id?.toString() === node.data.productId.toString());
-        }
-        return condType === eventContext.eventType;
+        this.logger.debug(`Condition evaluated: ${condType} for contact ${contact.id} -> Result: ${result}`);
+        return result;
     }
 }

@@ -289,7 +289,7 @@ export class CampaignSchedulerService {
                 }
 
                 // Try various property names used by different frontend versions or node types
-                const amount = parseInt(currentNode.data?.delayAmount || currentNode.data?.amount || currentNode.data?.value || '0');
+                const amount = parseInt(currentNode.data?.delay || currentNode.data?.delayAmount || currentNode.data?.amount || currentNode.data?.value || '0');
                 const unit = currentNode.data?.delayUnit || currentNode.data?.unit || 'minutes';
                 let resumeAt = new Date();
 

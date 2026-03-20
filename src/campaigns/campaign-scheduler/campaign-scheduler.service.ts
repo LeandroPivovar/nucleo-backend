@@ -92,7 +92,7 @@ export class CampaignSchedulerService {
                 await this.campaignQueueRepository.save(item);
 
                 // Resume from the node FOLLOWING the delay
-                await this.executeCampaignFlowFromNode(item.campaign, [item.contact], { id: item.delayNodeId, type: 'delay' }, item.eventContext);
+                await this.executeCampaignFlowFromNode(item.campaign, [item.contact], { id: item.delayNodeId, type: 'delay' }, item.eventContext, true);
 
                 item.status = 'completed';
                 await this.campaignQueueRepository.save(item);
@@ -159,6 +159,10 @@ export class CampaignSchedulerService {
             const startNodeIds = nodes
                 .filter(n => n.type === 'sendnow' || n.type === 'schedule' || !edges.some(e => e.target === n.id))
                 .map(n => n.id);
+
+            // Update recipientsCount for advanced campaign
+            campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
+            await this.campaignsRepository.save(campaign);
 
             for (const contact of targetContacts) {
                 for (const startNodeId of startNodeIds) {
@@ -232,7 +236,13 @@ export class CampaignSchedulerService {
         };
     }
 
-    async executeCampaignFlowFromNode(campaign: Campaign, targetContacts: Contact[], startNode: any, eventContext?: any) {
+    async executeCampaignFlowFromNode(campaign: Campaign, targetContacts: Contact[], startNode: any, eventContext?: any, isResume = false) {
+        // Increment recipientsCount only if NOT a resume
+        if (!isResume) {
+            campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
+            await this.campaignsRepository.save(campaign);
+        }
+
         const context = await this.getExecutionContext(campaign);
         for (const contact of targetContacts) {
             await this.traverseAndExecute(campaign, contact, startNode, context, eventContext);
@@ -259,6 +269,14 @@ export class CampaignSchedulerService {
 
         while (currentNode) {
             if (currentNode.type === 'delay') {
+                // Save current stats before pausing
+                if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
+                    campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
+                    await this.campaignsRepository.save(campaign);
+                    // Reset stats so they don't double count if resume happens in same execution (unlikely but safe)
+                    stats.sentEmailCount = 0; stats.sentSmsCount = 0; stats.sentWhatsappCount = 0;
+                }
+
                 const amount = parseInt(currentNode.data?.delayAmount || currentNode.data?.amount || '0');
                 const unit = currentNode.data?.delayUnit || currentNode.data?.unit || 'minutes';
                 let resumeAt = new Date();
@@ -356,6 +374,7 @@ export class CampaignSchedulerService {
                         .replace(/{{cupom_valor}}/g, valStr)
                         .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
                 }
+                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
                 const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
                 if (success) stats.sentSmsCount++;
             }
@@ -367,6 +386,7 @@ export class CampaignSchedulerService {
                     .replace(/{{cupom_valor}}/g, valStr)
                     .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
             }
+            content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
             const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato', contact.phone, content);
             if (success) stats.sentWhatsappCount++;
         }

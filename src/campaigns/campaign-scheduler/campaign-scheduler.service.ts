@@ -169,6 +169,10 @@ export class CampaignSchedulerService {
         const BATCH_SIZE = 50;
         const context = await this.getExecutionContext(campaign);
 
+        // Update recipientsCount for both simple and advanced campaigns
+        campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
+        await this.campaignsRepository.save(campaign);
+
         if (campaign.complexity === 'advanced') {
             const nodes = campaign.config?.workflow?.nodes || [];
             const edges = campaign.config?.workflow?.edges || [];
@@ -178,10 +182,6 @@ export class CampaignSchedulerService {
                 .map(n => n.id);
 
             this.logger.log(`Campanha avançada identificada. Nós de início: ${startNodeIds.join(', ')}`);
-
-            // Update recipientsCount for advanced campaign
-            campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
-            await this.campaignsRepository.save(campaign);
 
             for (const contact of targetContacts) {
                 for (const startNodeId of startNodeIds) {
@@ -195,6 +195,26 @@ export class CampaignSchedulerService {
         }
 
         // --- Simple Campaign Logic (Sequential) ---
+        // If simple nodes are empty, synthesize them from campaign config
+        let simpleNodes = campaign.config?.workflow?.nodes || [];
+        if (simpleNodes.length === 0) {
+            this.logger.log(`Campanha simples sem nós definidos. Sintetizando nós a partir da configuração básica.`);
+            if (campaign.config?.campaignConfig?.enableCoupon) {
+                simpleNodes.push({ type: 'coupon', data: campaign.config.campaignConfig.coupon });
+            }
+            if (campaign.config?.campaignConfig?.enableGiftback) {
+                simpleNodes.push({ type: 'giftback', data: campaign.config.campaignConfig.giftback });
+            }
+            // Adiciona o nó principal da mensagem
+            simpleNodes.push({
+                type: campaign.channel,
+                data: {
+                    ...campaign.config.email,
+                    destinationUrl: campaign.config.tracking?.destinationUrl
+                }
+            });
+        }
+
         this.logger.log(`Iniciando processamento em lote (Batch Size: ${BATCH_SIZE}) para campanha simples [ID: ${campaign.id}]`);
         for (let i = 0; i < targetContacts.length; i += BATCH_SIZE) {
             const batch = targetContacts.slice(i, i + BATCH_SIZE);
@@ -204,8 +224,7 @@ export class CampaignSchedulerService {
                 let stats = { sentEmailCount: 0, sentSmsCount: 0, sentWhatsappCount: 0 };
                 let activeCoupon: any = null;
 
-                const nodes = campaign.config?.workflow?.nodes || [];
-                for (const node of nodes) {
+                for (const node of simpleNodes) {
                     const result = await this.processSingleNode(campaign, contact, node, context, activeCoupon, stats);
                     if (result.activeCoupon) activeCoupon = result.activeCoupon;
                 }

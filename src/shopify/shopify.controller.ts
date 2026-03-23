@@ -316,6 +316,20 @@ export class ShopifyController {
   }
 
   /**
+   * Sincroniza carrinhos ativos e abandonados da Shopify (checkouts)
+   */
+  @Post('sync/checkouts')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncCheckouts(@Request() req, @Body() body: { shop: string }) {
+    const result = await this.shopifyService.syncCheckouts(req.user.userId, body.shop);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  /**
    * Sincroniza produtos da Shopify para o CRM
    */
   @Post('sync/products-to-crm')

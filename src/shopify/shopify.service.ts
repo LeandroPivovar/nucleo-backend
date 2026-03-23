@@ -699,6 +699,103 @@ export class ShopifyService {
   }
 
   /**
+   * Sincroniza carrinhos ativos/abandonados da Shopify para o CRM
+   */
+  async syncCheckouts(userId: number, shop: string): Promise<{ imported: number; updated: number }> {
+    const allCheckouts = await this.getAbandonedCheckouts(userId, shop, { limit: 250 });
+    let imported = 0;
+    let updated = 0;
+
+    for (const checkout of allCheckouts) {
+      const customerEmail = checkout.email || checkout.customer?.email;
+      if (!customerEmail) continue;
+
+      let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+      if (!contact) {
+        contact = this.contactRepository.create({
+          userId,
+          email: customerEmail,
+          name: checkout.customer?.first_name || checkout.customer?.name || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome',
+          lastName: checkout.customer?.last_name || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '',
+          source: 'shopify',
+          status: 'customer',
+        });
+        await this.contactRepository.save(contact);
+      }
+
+      const externalId = checkout.id ? checkout.id.toString() : checkout.token;
+      const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
+
+      if (!checkout.line_items) continue;
+
+      for (let index = 0; index < checkout.line_items.length; index++) {
+        const item = checkout.line_items[index];
+        const itemName = item.name || item.title;
+        const searchConditions: any[] = [];
+        if (item.sku) searchConditions.push({ userId, sku: item.sku });
+        if (itemName) searchConditions.push({ userId, name: itemName });
+
+        let product = searchConditions.length > 0 ? await this.productRepository.findOne({
+          where: searchConditions
+        }) : null;
+
+        if (!product) {
+          product = this.productRepository.create({
+            userId,
+            name: itemName || 'Produto sem nome',
+            sku: item.sku || '',
+            price: parseFloat(item.price),
+            stock: 0,
+            active: true,
+          });
+          await this.productRepository.save(product);
+        }
+
+        const checkoutStatus = checkout.status === 'open' ? 'active_cart' : 'abandoned_cart';
+
+        const existingSale = await this.saleRepository.findOne({
+          where: { userId, externalId, productId: product.id }
+        });
+
+        if (existingSale) {
+          let needsUpdate = false;
+          if (existingSale.status !== checkoutStatus) {
+            existingSale.status = checkoutStatus;
+            needsUpdate = true;
+          }
+          if (needsUpdate) {
+            await this.saleRepository.save(existingSale);
+            updated++;
+          }
+        } else {
+          const sale = this.saleRepository.create({
+            userId,
+            productId: product.id,
+            contactId: contact?.id,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.price),
+            totalValue: parseFloat(item.price) * item.quantity,
+            customerName: contact ? `${contact.name} ${contact.lastName}` : checkout.customer?.first_name,
+            customerEmail: customerEmail,
+            channel: 'shopify',
+            status: checkoutStatus,
+            createdAt: createdAt,
+            externalId: externalId,
+          });
+          await this.saleRepository.save(sale);
+          imported++;
+        }
+      }
+    }
+
+    const connection = await this.getActiveConnection(userId, shop);
+    connection.lastSyncAt = new Date();
+    await this.shopifyConnectionRepository.save(connection);
+
+    return { imported, updated };
+  }
+
+  /**
    * Sincroniza produtos da Shopify para o CRM
    */
   async syncProductsToCrm(userId: number, shop: string): Promise<{ imported: number; updated: number }> {

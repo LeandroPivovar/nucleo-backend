@@ -620,12 +620,13 @@ export class AuthService {
   }
 
   private async getLocationFromIp(ip: string): Promise<{ city: string | null; country: string | null }> {
-    if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip === 'unknown') {
+    if (!ip || ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip === 'unknown') {
       return { city: 'Localhost', country: 'Localhost' };
     }
 
     try {
-      const response = await axios.get(`http://ip-api.com/json/${ip}`);
+      // Adicionar timeout para não bloquear o login se o serviço estiver lento ou inacessível
+      const response = await axios.get(`http://ip-api.com/json/${ip}`, { timeout: 3000 });
       if (response.data && response.data.status === 'success') {
         return {
           city: response.data.city,
@@ -633,7 +634,8 @@ export class AuthService {
         };
       }
     } catch (error) {
-      console.error('Erro ao obter localização do IP:', error);
+      // Logar apenas o código do erro para não poluir o console com o stack trace do Axios
+      console.error(`Erro ao obter localização do IP (${ip}): ${error.code || error.message}`);
     }
     return { city: null, country: null };
   }

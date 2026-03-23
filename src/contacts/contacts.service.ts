@@ -117,7 +117,8 @@ export class ContactsService {
       return subQuery
         .select('COUNT(click.id) > 0', 'hasClicked')
         .from(CampaignClick, 'click')
-        .where('click.contactId = contact.id');
+        .where('click.contactId = contact.id')
+        .andWhere('click.campaignId IN (SELECT id from campaigns where userId = :userId)', { userId });
     }, 'hasClickedCampaign');
 
     query.addSelect(subQuery => {
@@ -125,6 +126,7 @@ export class ContactsService {
         .select('COUNT(queue.id) > 0', 'hasOpened')
         .from(CampaignQueue, 'queue')
         .where('queue.contactId = contact.id')
+        .andWhere('queue.user_id = :userId', { userId })
         .andWhere('queue.status = :qStatus', { qStatus: 'completed' });
     }, 'hasOpenedCampaign');
 
@@ -133,7 +135,8 @@ export class ContactsService {
         .select('COUNT(coupon.id) > 0', 'hasCoupon')
         .from(CampaignCoupon, 'coupon')
         .where('coupon.contactId = contact.id')
-        .andWhere('coupon.endsAt > :now', { now });
+        .andWhere('coupon.userId = :userId', { userId })
+        .andWhere('coupon.endsAt > :nowCount', { nowCount: now });
     }, 'hasActiveCoupon');
 
     const rawAndEntities = await query.getRawAndEntities();
@@ -142,11 +145,16 @@ export class ContactsService {
     return rawAndEntities.entities.map((entity, index) => {
       const raw = rawAndEntities.raw[index];
       // Depending on DB driver, boolean might be 1/0 or true/false or '1'/'0'
-      entity.hasClickedCampaign = !!parseInt(raw.hasClickedCampaign);
-      entity.hasOpenedCampaign = !!parseInt(raw.hasOpenedCampaign);
-      entity.hasActiveCoupon = !!parseInt(raw.hasActiveCoupon);
+      const hasClicked = raw.hasClickedCampaign;
+      const hasOpened = raw.hasOpenedCampaign;
+      const hasCoupon = raw.hasActiveCoupon;
+
+      entity.hasClickedCampaign = hasClicked === true || hasClicked === 1 || hasClicked === '1';
+      entity.hasOpenedCampaign = hasOpened === true || hasOpened === 1 || hasOpened === '1';
+      entity.hasActiveCoupon = hasCoupon === true || hasCoupon === 1 || hasCoupon === '1';
       return entity;
     });
+
   }
 
 
@@ -564,12 +572,25 @@ export class ContactsService {
         } else {
           orConditions.push(`contact.state IS NOT NULL`);
         }
-      } else if (segId === 'clicked_campaign') {
-        const subQuery = this.campaignClickRepository.createQueryBuilder('click')
-          .select('DISTINCT click.contactId');
+      } else if (segId === 'active_coupon') {
+        const now = new Date();
+        const subQuery = this.campaignCouponRepository.createQueryBuilder('coupon')
+          .select('DISTINCT coupon.contactId')
+          .where('coupon.userId = :userId', { userId })
+          .andWhere('coupon.endsAt > :nowCoupon', { nowCoupon: now });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
+      } else if (segId === 'clicked_campaign') {
+        const subQuery = this.campaignClickRepository.createQueryBuilder('click')
+          .innerJoin('campaigns', 'camp', 'camp.id = click.campaignId')
+          .select('DISTINCT click.contactId')
+          .where('camp.userId = :userId', { userId });
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'opened_campaign') {
+
         const subQuery = this.campaignQueueRepository.createQueryBuilder('queue')
           .select('DISTINCT queue.contactId')
           .where('queue.status = :qStatus', { qStatus: 'completed' })

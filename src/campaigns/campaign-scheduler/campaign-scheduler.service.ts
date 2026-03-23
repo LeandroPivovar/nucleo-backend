@@ -382,6 +382,7 @@ export class CampaignSchedulerService {
                 content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
                 await this.emailService.sendEmail({ to: contact.email, subject: node.data?.subject || 'Nova Campanha', html: content, text: content.replace(/<[^>]*>?/gm, '') });
                 stats.sentEmailCount++;
+                this.logger.log(`[CAMPAIGN EMAIL EXECUTED] Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Email: ${contact.email}`);
             }
         } else if (node.type === 'sms' && contact.phone) {
             if (currentSmsSent < (planSmsLimit + (user?.extraSmsBalance || 0))) {
@@ -394,7 +395,10 @@ export class CampaignSchedulerService {
                 }
                 content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
                 const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
-                if (success) stats.sentSmsCount++;
+                if (success) {
+                    stats.sentSmsCount++;
+                    this.logger.log(`[CAMPAIGN SMS EXECUTED] Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
+                }
             }
         } else if (node.type === 'whatsapp' && contact.phone) {
             let content = node.data?.content || 'Olá!';
@@ -406,7 +410,10 @@ export class CampaignSchedulerService {
             }
             content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
             const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato', contact.phone, content);
-            if (success) stats.sentWhatsappCount++;
+            if (success) {
+                stats.sentWhatsappCount++;
+                this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
+            }
         }
 
         return { activeCoupon: newActiveCoupon };

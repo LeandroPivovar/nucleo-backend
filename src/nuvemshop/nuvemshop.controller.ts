@@ -304,6 +304,20 @@ export class NuvemshopController {
   }
 
   /**
+   * Sincroniza carrinhos abandonados da Nuvemshop para o CRM
+   */
+  @Post('sync/checkouts')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncCheckouts(@Request() req, @Body() body: { storeId: string }) {
+    const result = await this.nuvemshopService.syncCheckouts(req.user.userId, body.storeId);
+    return {
+      success: true,
+      ...result,
+    };
+  }
+
+  /**
    * Sincroniza produtos da Nuvemshop para o CRM
    */
   @Post('sync/products-to-crm')

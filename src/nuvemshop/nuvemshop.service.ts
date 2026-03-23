@@ -873,6 +873,106 @@ export class NuvemshopService {
   }
 
   /**
+   * Sincroniza carrinhos ativos/abandonados da Nuvemshop para o CRM
+   */
+  async syncCheckouts(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {
+    const allCheckouts = await this.getAbandonedCheckouts(userId, storeId, { limit: 250 });
+    let imported = 0;
+    let updated = 0;
+
+    for (const checkout of allCheckouts) {
+      const customerEmail = checkout.email || checkout.customer?.email;
+      if (!customerEmail) continue;
+
+      let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+      if (!contact) {
+        contact = this.contactRepository.create({
+          userId,
+          email: customerEmail,
+          name: checkout.customer?.name?.split(' ')[0] || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome',
+          lastName: checkout.customer?.name?.split(' ').slice(1).join(' ') || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '',
+          source: 'nuvemshop',
+          status: 'customer',
+        });
+        await this.contactRepository.save(contact);
+      }
+
+      const externalId = `nuvemshop_checkout_${checkout.id || checkout.token}`;
+      const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
+
+      const items = checkout.products || checkout.line_items || [];
+      if (items.length === 0) continue;
+
+      for (let index = 0; index < items.length; index++) {
+        const item = items[index];
+        const itemName = item.name || item.title;
+        const searchConditions: any[] = [];
+        if (item.sku) searchConditions.push({ userId, sku: item.sku });
+        if (itemName) searchConditions.push({ userId, name: itemName });
+
+        let product = searchConditions.length > 0 ? await this.productRepository.findOne({
+          where: searchConditions
+        }) : null;
+
+        if (!product) {
+          product = this.productRepository.create({
+            userId,
+            name: itemName || 'Produto sem nome',
+            sku: item.sku || '',
+            price: parseFloat(item.price || '0'),
+            stock: 0,
+            active: true,
+          });
+          await this.productRepository.save(product);
+        }
+
+        // Na Nuvemshop, o status do checkout abandonado é inferido se ele existir na lista
+        // de checkouts (que são todos tecnicamente não finalizados ou pendentes)
+        const checkoutStatus = checkout.abandoned ? 'abandoned_cart' : 'active_cart';
+
+        const existingSale = await this.saleRepository.findOne({
+          where: { userId, externalId, productId: product.id }
+        });
+
+        if (existingSale) {
+          let needsUpdate = false;
+          if (existingSale.status !== checkoutStatus) {
+            existingSale.status = checkoutStatus;
+            needsUpdate = true;
+          }
+          if (needsUpdate) {
+            await this.saleRepository.save(existingSale);
+            updated++;
+          }
+        } else {
+          const sale = this.saleRepository.create({
+            userId,
+            productId: product.id,
+            contactId: contact?.id,
+            quantity: item.quantity || 1,
+            unitPrice: parseFloat(item.price || '0'),
+            totalValue: parseFloat(item.price || '0') * (item.quantity || 1),
+            customerName: contact ? `${contact.name} ${contact.lastName}` : checkout.customer?.name,
+            customerEmail: customerEmail,
+            channel: 'nuvemshop',
+            status: checkoutStatus,
+            createdAt: createdAt,
+            externalId: externalId,
+          });
+          await this.saleRepository.save(sale);
+          imported++;
+        }
+      }
+    }
+
+    const connection = await this.getActiveConnection(userId, storeId);
+    connection.lastSyncAt = new Date();
+    await this.nuvemshopConnectionRepository.save(connection);
+
+    return { imported, updated };
+  }
+
+  /**
    * Sincroniza produtos da Nuvemshop para o CRM
    */
   async syncProductsToCrm(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {

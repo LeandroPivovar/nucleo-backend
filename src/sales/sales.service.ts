@@ -741,7 +741,8 @@ export class SalesService {
         'contact.updatedAt AS updatedAt',
         'COUNT(DISTINCT CASE WHEN sale.status = "completed" THEN sale.id END) AS saleCount',
         'COUNT(DISTINCT CASE WHEN event.event IN ("PageView", "ViewContent") THEN event.id END) AS engagementCount',
-        'COUNT(DISTINCT CASE WHEN event.event = "AddToCart" THEN event.id END) AS cartCount'
+        'COUNT(DISTINCT CASE WHEN event.event = "AddToCart" OR sale.status = "active_cart" THEN COALESCE(event.id, sale.id) END) AS cartCount',
+        'COUNT(DISTINCT CASE WHEN sale.status = "abandoned_cart" THEN sale.id END) AS abandonedCount'
       ])
       .leftJoin(Sale, 'sale', 'sale.contactId = contact.id')
       .leftJoin(PixelEvent, 'event', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
@@ -773,6 +774,7 @@ export class SalesService {
       { name: 'Novos Leads', filter: (c) => new Date(c.createdAt) >= ago7d && parseInt(c.saleCount || '0') == 0 },
       { name: 'Engajados', filter: (c) => parseInt(c.engagementCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.updatedAt) >= ago30d },
       { name: 'Carrinho Ativo', filter: (c) => parseInt(c.cartCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.updatedAt) >= ago7d },
+      { name: 'Carrinho Abandonado', filter: (c) => parseInt(c.abandonedCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 },
       { name: 'Compradores', filter: (c) => parseInt(c.saleCount || '0') == 1 },
       { name: 'Clientes Fiéis', filter: (c) => parseInt(c.saleCount || '0') > 1 },
       { name: 'Inativos 30d', filter: (c) => new Date(c.updatedAt) < ago30d && new Date(c.updatedAt) >= ago60d },
@@ -787,6 +789,7 @@ export class SalesService {
         leads: segContacts.length,
         engaged: segContacts.filter(c => parseInt(c.engagementCount || '0') > 0).length,
         cart: segContacts.filter(c => parseInt(c.cartCount || '0') > 0).length,
+        abandoned: segContacts.filter(c => parseInt(c.abandonedCount || '0') > 0).length,
         purchase: segContacts.filter(c => parseInt(c.saleCount || '0') > 0).length,
         loyal: segContacts.filter(c => parseInt(c.saleCount || '0') > 1).length
       };

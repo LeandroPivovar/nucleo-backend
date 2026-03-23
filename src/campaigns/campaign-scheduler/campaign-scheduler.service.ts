@@ -110,7 +110,7 @@ export class CampaignSchedulerService {
     }
 
     async processCampaign(campaign: Campaign) {
-        this.logger.log(`Processing campaign [ID: ${campaign.id}] - Channel: ${campaign.channel}`);
+        this.logger.log(`Iniciando processamento da campanha [ID: ${campaign.id}] - Canal: ${campaign.channel}`);
 
         campaign.status = 'ativa';
         await this.campaignsRepository.save(campaign);
@@ -119,10 +119,13 @@ export class CampaignSchedulerService {
             const groups = campaign.config?.groups || [];
             const segmentations = campaign.config?.segmentations || [];
 
+            this.logger.log(`Buscando contatos para a campanha [ID: ${campaign.id}]. Segmentos: ${segmentations.length}, Grupos: ${groups.length}`);
+
             let targetContacts: Contact[] = [];
 
             if (segmentations.length > 0) {
                 targetContacts = await this.contactsService.getContactsBySegments(campaign.userId, segmentations);
+                this.logger.log(`Encontrados ${targetContacts.length} contatos via segmentação.`);
             }
 
             if (groups.length > 0) {
@@ -131,28 +134,37 @@ export class CampaignSchedulerService {
                     contact.group && groups.includes(contact.group.name)
                 );
 
+                this.logger.log(`Encontrados ${groupContacts.length} contatos via grupos.`);
+
                 const existingIds = new Set(targetContacts.map(c => c.id));
+                let groupAddedCount = 0;
                 for (const contact of groupContacts) {
                     if (!existingIds.has(contact.id)) {
                         targetContacts.push(contact);
+                        groupAddedCount++;
                     }
                 }
+                this.logger.log(`Adicionados ${groupAddedCount} novos contatos únicos de grupos. Total: ${targetContacts.length}`);
             }
 
-            this.logger.log(`Campaign [${campaign.id}] has ${targetContacts.length} target contacts.`);
+            this.logger.log(`Resumo de contatos para a campanha [ID: ${campaign.id}]: ${targetContacts.length} contatos únicos identificados.`);
 
             if (targetContacts.length > 0) {
+                this.logger.log(`Iniciando executeCampaignFlow para a campanha [ID: ${campaign.id}]`);
                 await this.executeCampaignFlow(campaign, targetContacts);
+            } else {
+                this.logger.warn(`Campanha [ID: ${campaign.id}] não possui contatos para envio.`);
             }
 
-            this.logger.log(`Campaign [${campaign.id}] finished overall.`);
+            this.logger.log(`Processamento da campanha [ID: ${campaign.id}] finalizado.`);
 
         } catch (error: any) {
-            this.logger.error(`Error processing campaign [ID: ${campaign.id}]: ${error.message}`);
+            this.logger.error(`Erro ao processar campanha [ID: ${campaign.id}]: ${error.message}`, error.stack);
         }
     }
 
     async executeCampaignFlow(campaign: Campaign, targetContacts: Contact[]) {
+        this.logger.log(`Executando workflow da campanha [ID: ${campaign.id}, Complexidade: ${campaign.complexity}] para ${targetContacts.length} contatos.`);
         let successCount = 0;
         const BATCH_SIZE = 50;
         const context = await this.getExecutionContext(campaign);
@@ -164,6 +176,8 @@ export class CampaignSchedulerService {
             const startNodeIds = nodes
                 .filter(n => n.type === 'sendnow' || n.type === 'schedule' || !edges.some(e => e.target === n.id))
                 .map(n => n.id);
+
+            this.logger.log(`Campanha avançada identificada. Nós de início: ${startNodeIds.join(', ')}`);
 
             // Update recipientsCount for advanced campaign
             campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
@@ -181,8 +195,10 @@ export class CampaignSchedulerService {
         }
 
         // --- Simple Campaign Logic (Sequential) ---
+        this.logger.log(`Iniciando processamento em lote (Batch Size: ${BATCH_SIZE}) para campanha simples [ID: ${campaign.id}]`);
         for (let i = 0; i < targetContacts.length; i += BATCH_SIZE) {
             const batch = targetContacts.slice(i, i + BATCH_SIZE);
+            this.logger.log(`Processando lote ${Math.floor(i / BATCH_SIZE) + 1} (${batch.length} contatos)`);
 
             const batchPromises = batch.map(async (contact) => {
                 let stats = { sentEmailCount: 0, sentSmsCount: 0, sentWhatsappCount: 0 };
@@ -198,17 +214,21 @@ export class CampaignSchedulerService {
 
             const results = await Promise.allSettled(batchPromises);
             let batchTotal = 0;
-            results.forEach((result) => {
+            results.forEach((result, idx) => {
                 if (result.status === 'fulfilled') {
                     batchTotal += result.value.sentEmailCount + result.value.sentSmsCount + result.value.sentWhatsappCount;
+                } else {
+                    this.logger.error(`Erro ao processar contato ${batch[idx].id} no lote: ${result.reason}`);
                 }
             });
 
             campaign.sentCount = (campaign.sentCount || 0) + batchTotal;
             successCount += batchTotal;
             await this.campaignsRepository.save(campaign);
+            this.logger.log(`Lote finalizado. Mensagens enviadas no lote: ${batchTotal}. Total acumulado: ${successCount}`);
         }
 
+        this.logger.log(`Workflow da campanha simples [ID: ${campaign.id}] concluído. Total de sucessos: ${successCount}`);
         return successCount;
     }
 
@@ -347,6 +367,7 @@ export class CampaignSchedulerService {
         const currentSmsSent = (Number(usage.smsSent) || 0) + stats.sentSmsCount;
 
         if (node.type === 'coupon' || node.type === 'giftback') {
+            this.logger.log(`[NODE EXECUTING] ${node.type.toUpperCase()} | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
             newActiveCoupon = { ...node.data, _type: node.type };
             if (node.type === 'giftback') {
                 const val = node.data?.giftValue || node.data?.giftbackValue || '0';
@@ -356,21 +377,30 @@ export class CampaignSchedulerService {
 
                 if (shopifyConnection) {
                     try {
+                        this.logger.log(`[GIFTCARD] Gerando via Shopify para contato ${contact.id}`);
                         const gc = await this.shopifyService.createGiftCard(campaign.userId, shopifyConnection.shop, { initialValue: val, note: 'GIFTBACK', endsAt: endsAt.toISOString() });
                         newActiveCoupon._generatedCode = gc.code;
-                    } catch (e) { }
+                        this.logger.log(`[GIFTCARD] Código gerado: ${gc.code}`);
+                    } catch (e) {
+                        this.logger.error(`[GIFTCARD] Erro ao gerar via Shopify: ${e.message}`);
+                    }
                 } else if (nuvemshopConnection) {
                     try {
+                        this.logger.log(`[COUPON] Gerando via Nuvemshop para contato ${contact.id}`);
                         const code = `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                         await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAt.toISOString(), max_uses: 1 });
                         newActiveCoupon._generatedCode = code;
-                    } catch (e) { }
+                        this.logger.log(`[COUPON] Código gerado: ${code}`);
+                    } catch (e) {
+                        this.logger.error(`[COUPON] Erro ao gerar via Nuvemshop: ${e.message}`);
+                    }
                 }
             }
             return { activeCoupon: newActiveCoupon };
         }
 
         if (node.type === 'email' && contact.email) {
+            this.logger.log(`[NODE EXECUTING] EMAIL | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Email: ${contact.email}`);
             if (currentEmailsSent < (planEmailsLimit + (user?.extraEmailsBalance || 0))) {
                 let content = node.data?.content || '';
                 if (newActiveCoupon) {
@@ -380,11 +410,18 @@ export class CampaignSchedulerService {
                         .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
                 }
                 content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
-                await this.emailService.sendEmail({ to: contact.email, subject: node.data?.subject || 'Nova Campanha', html: content, text: content.replace(/<[^>]*>?/gm, '') });
-                stats.sentEmailCount++;
-                this.logger.log(`[CAMPAIGN EMAIL EXECUTED] Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Email: ${contact.email}`);
+                try {
+                    await this.emailService.sendEmail({ to: contact.email, subject: node.data?.subject || 'Nova Campanha', html: content, text: content.replace(/<[^>]*>?/gm, '') });
+                    stats.sentEmailCount++;
+                    this.logger.log(`[CAMPAIGN EMAIL EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                } catch (error) {
+                    this.logger.error(`[CAMPAIGN EMAIL EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
+                }
+            } else {
+                this.logger.warn(`[CAMPAIGN EMAIL EXECUTED] Limite atingido | User ID: ${campaign.userId} | Contact ID: ${contact.id}`);
             }
         } else if (node.type === 'sms' && contact.phone) {
+            this.logger.log(`[NODE EXECUTING] SMS | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
             if (currentSmsSent < (planSmsLimit + (user?.extraSmsBalance || 0))) {
                 let content = node.data?.content || 'Olá!';
                 if (newActiveCoupon) {
@@ -394,13 +431,22 @@ export class CampaignSchedulerService {
                         .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
                 }
                 content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
-                const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
-                if (success) {
-                    stats.sentSmsCount++;
-                    this.logger.log(`[CAMPAIGN SMS EXECUTED] Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
+                try {
+                    const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
+                    if (success) {
+                        stats.sentSmsCount++;
+                        this.logger.log(`[CAMPAIGN SMS EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                    } else {
+                        this.logger.error(`[CAMPAIGN SMS EXECUTED] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                    }
+                } catch (error) {
+                    this.logger.error(`[CAMPAIGN SMS EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
                 }
+            } else {
+                this.logger.warn(`[CAMPAIGN SMS EXECUTED] Limite atingido | User ID: ${campaign.userId} | Contact ID: ${contact.id}`);
             }
         } else if (node.type === 'whatsapp' && contact.phone) {
+            this.logger.log(`[NODE EXECUTING] WHATSAPP | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
             let content = node.data?.content || 'Olá!';
             if (newActiveCoupon) {
                 const valStr = newActiveCoupon.discountType === 'percentage' ? `${newActiveCoupon.discountValue}%` : `R$ ${newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue}`;
@@ -409,10 +455,16 @@ export class CampaignSchedulerService {
                     .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
             }
             content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
-            const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato', contact.phone, content);
-            if (success) {
-                stats.sentWhatsappCount++;
-                this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
+            try {
+                const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato', contact.phone, content);
+                if (success) {
+                    stats.sentWhatsappCount++;
+                    this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                } else {
+                    this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                }
+            } catch (error) {
+                this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
             }
         }
 

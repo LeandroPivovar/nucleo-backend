@@ -89,11 +89,13 @@ export class CampaignsService {
     }
 
     async create(userId: number, campaignData: Partial<Campaign>): Promise<Campaign> {
+        this.logger.log(`Criando nova campanha para o usuário ${userId}`);
         const campaign = this.campaignsRepository.create({
             ...campaignData,
             userId,
         });
         const savedCampaign = await this.campaignsRepository.save(campaign);
+        this.logger.log(`Campanha salva com sucesso [ID: ${savedCampaign.id}, Status: ${savedCampaign.status}]`);
 
         // Track usage limit
         const currentMonthYear = new Date().toISOString().slice(0, 7);
@@ -113,8 +115,9 @@ export class CampaignsService {
 
         // Immediate send if status is 'ativa', running in background
         if (savedCampaign.status === 'ativa') {
+            this.logger.log(`Disparando envio imediato para a campanha [ID: ${savedCampaign.id}]`);
             this.campaignSchedulerService.processCampaign(savedCampaign).catch((err) => {
-                console.error(`Failed to immediately process campaign ${savedCampaign.id}:`, err);
+                this.logger.error(`Falha ao processar campanha [ID: ${savedCampaign.id}] imediatamente:`, err.stack);
             });
         }
 
@@ -125,13 +128,15 @@ export class CampaignsService {
         const campaign = await this.findOne(id, userId);
         const previousStatus = campaign.status;
 
+        this.logger.log(`Atualizando campanha [ID: ${id}] para o usuário ${userId}`);
         Object.assign(campaign, campaignData);
         const savedCampaign = await this.campaignsRepository.save(campaign);
 
         // Se o status mudou para ativa através de uma atualização, dispara em background
         if (previousStatus !== 'ativa' && savedCampaign.status === 'ativa') {
+            this.logger.log(`Status alterado para 'ativa'. Disparando envio para a campanha [ID: ${savedCampaign.id}]`);
             this.campaignSchedulerService.processCampaign(savedCampaign).catch((err) => {
-                console.error(`Failed to immediately process campaign ${savedCampaign.id} after update:`, err);
+                this.logger.error(`Falha ao processar campanha [ID: ${savedCampaign.id}] após atualização:`, err.stack);
             });
         }
 
@@ -144,6 +149,7 @@ export class CampaignsService {
     }
 
     async addContactsToCampaign(userId: number, campaignId: number, contactIds: number[]): Promise<any> {
+        this.logger.log(`Adicionando ${contactIds?.length} contatos manualmente à campanha [ID: ${campaignId}]`);
         const campaign = await this.findOne(campaignId, userId);
 
         const allowedStatuses = ['ativa', 'finalizada', 'agendada'];
@@ -166,6 +172,8 @@ export class CampaignsService {
             throw new Error('Nenhum contato válido encontrado.');
         }
 
+        this.logger.log(`Encontrados ${contacts.length} contatos válidos para adicionar.`);
+
         // Salvar tracking 
         if (!campaign.config) campaign.config = {};
         if (!campaign.config.manualContacts) campaign.config.manualContacts = [];
@@ -178,7 +186,9 @@ export class CampaignsService {
         await this.campaignsRepository.save(campaign);
 
         // Disparar envio apenas para os contatos fornecidos
+        this.logger.log(`Disparando executeCampaignFlow para ${contacts.length} contatos na campanha [ID: ${campaignId}]`);
         const successCount = await this.campaignSchedulerService.executeCampaignFlow(campaign, contacts);
+        this.logger.log(`Envio manual finalizado. Sucesso: ${successCount}/${contacts.length}`);
 
         return {
             success: true,

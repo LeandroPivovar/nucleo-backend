@@ -10,10 +10,14 @@ import { Group } from '../entities/group.entity';
 import { ContactPurchase } from '../entities/contact-purchase.entity';
 import { Sale } from '../entities/sale.entity';
 import { CampaignCoupon } from '../entities/campaign-coupon.entity';
+import { CampaignClick } from '../entities/campaign-click.entity';
+import { CampaignQueue } from '../entities/campaign-queue.entity';
+
 
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Contact, ContactTag, ContactSegmentation, Tag, Group, ContactPurchase, Sale, CampaignCoupon])],
+  imports: [TypeOrmModule.forFeature([Contact, ContactTag, ContactSegmentation, Tag, Group, ContactPurchase, Sale, CampaignCoupon, CampaignClick, CampaignQueue])],
+
 
   controllers: [ContactsController],
   providers: [ContactsService],

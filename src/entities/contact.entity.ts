@@ -81,7 +81,13 @@ export class Contact {
   @Column({ nullable: true })
   groupId: number | null;
 
+  // Virtual fields populated in service
+  hasClickedCampaign?: boolean;
+  hasOpenedCampaign?: boolean;
+  hasActiveCoupon?: boolean;
+
   @CreateDateColumn()
+
   createdAt: Date;
 
   @UpdateDateColumn()

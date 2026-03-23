@@ -9,6 +9,9 @@ import { Group } from '../entities/group.entity';
 import { ContactPurchase } from '../entities/contact-purchase.entity';
 import { Sale } from '../entities/sale.entity';
 import { CampaignCoupon } from '../entities/campaign-coupon.entity';
+import { CampaignClick } from '../entities/campaign-click.entity';
+import { CampaignQueue } from '../entities/campaign-queue.entity';
+
 import { CreateContactDto } from './dto/create-contact.dto';
 
 import { UpdateContactDto } from './dto/update-contact.dto';
@@ -41,6 +44,11 @@ export class ContactsService {
     private saleRepository: Repository<Sale>,
     @InjectRepository(CampaignCoupon)
     private campaignCouponRepository: Repository<CampaignCoupon>,
+    @InjectRepository(CampaignClick)
+    private campaignClickRepository: Repository<CampaignClick>,
+    @InjectRepository(CampaignQueue)
+    private campaignQueueRepository: Repository<CampaignQueue>,
+
   ) { }
 
 
@@ -92,12 +100,55 @@ export class ContactsService {
 
 
   async findAll(userId: number): Promise<Contact[]> {
-    return this.contactsRepository.find({
-      where: { userId },
-      relations: ['contactTags', 'contactTags.tag', 'contactSegmentations', 'group', 'sales', 'sales.product'],
-      order: { createdAt: 'DESC' },
+    const now = new Date();
+
+    const query = this.contactsRepository.createQueryBuilder('contact')
+      .leftJoinAndSelect('contact.contactTags', 'ct')
+      .leftJoinAndSelect('ct.tag', 'tag')
+      .leftJoinAndSelect('contact.contactSegmentations', 'cs')
+      .leftJoinAndSelect('contact.group', 'group')
+      .leftJoinAndSelect('contact.sales', 'sales')
+      .leftJoinAndSelect('sales.product', 'product')
+      .where('contact.userId = :userId', { userId })
+      .orderBy('contact.createdAt', 'DESC');
+
+    // Add engagement flags as subqueries
+    query.addSelect(subQuery => {
+      return subQuery
+        .select('COUNT(click.id) > 0', 'hasClicked')
+        .from(CampaignClick, 'click')
+        .where('click.contactId = contact.id');
+    }, 'hasClickedCampaign');
+
+    query.addSelect(subQuery => {
+      return subQuery
+        .select('COUNT(queue.id) > 0', 'hasOpened')
+        .from(CampaignQueue, 'queue')
+        .where('queue.contactId = contact.id')
+        .andWhere('queue.status = :qStatus', { qStatus: 'completed' });
+    }, 'hasOpenedCampaign');
+
+    query.addSelect(subQuery => {
+      return subQuery
+        .select('COUNT(coupon.id) > 0', 'hasCoupon')
+        .from(CampaignCoupon, 'coupon')
+        .where('coupon.contactId = contact.id')
+        .andWhere('coupon.endsAt > :now', { now });
+    }, 'hasActiveCoupon');
+
+    const rawAndEntities = await query.getRawAndEntities();
+
+    // Map the boolean flags from raw to entities
+    return rawAndEntities.entities.map((entity, index) => {
+      const raw = rawAndEntities.raw[index];
+      // Depending on DB driver, boolean might be 1/0 or true/false or '1'/'0'
+      entity.hasClickedCampaign = !!parseInt(raw.hasClickedCampaign);
+      entity.hasOpenedCampaign = !!parseInt(raw.hasOpenedCampaign);
+      entity.hasActiveCoupon = !!parseInt(raw.hasActiveCoupon);
+      return entity;
     });
   }
+
 
   async findOne(userId: number, id: number): Promise<Contact> {
     const contact = await this.contactsRepository.findOne({
@@ -369,6 +420,24 @@ export class ContactsService {
 
     stats['no_purchase_x_days'] = noPurchase30Days.length;
 
+    // 11. Engajados (Cliques em campanhas)
+    const engajados = await this.campaignClickRepository
+      .createQueryBuilder('click')
+      .select('DISTINCT click.contactId')
+      .where('click.campaignId IN (SELECT id from campaigns where userId = :userId)', { userId })
+      .getRawMany();
+    stats['clicked_campaign'] = engajados.length;
+
+    // 12. Abriram campanhas (Fila finalizada com sucesso)
+    const abriram = await this.campaignQueueRepository
+      .createQueryBuilder('queue')
+      .select('DISTINCT queue.contactId')
+      .where('queue.user_id = :userId', { userId })
+      .andWhere('queue.status = :status', { status: 'completed' })
+      .getRawMany();
+    stats['opened_campaign'] = abriram.length;
+
+
     // 10. Contagem manual das segmentações persistidas (Fallback para o que ainda é manual)
     const manualStats = await this.contactSegmentationsRepository
       .createQueryBuilder('seg')
@@ -389,11 +458,13 @@ export class ContactsService {
     // 11. Garantir que chaves comuns do frontend existam pelo menos com 0
     const commonKeys = [
       'birthday', 'gender_male', 'gender_female',
-      'active_coupon', 'cart_recovered_customer', 'no_purchase_x_days'
+      'active_coupon', 'cart_recovered_customer', 'no_purchase_x_days',
+      'clicked_campaign', 'opened_campaign'
     ];
     commonKeys.forEach(key => {
       if (stats[key] === undefined) stats[key] = 0;
     });
+
 
     return stats;
   }
@@ -493,12 +564,27 @@ export class ContactsService {
         } else {
           orConditions.push(`contact.state IS NOT NULL`);
         }
+      } else if (segId === 'clicked_campaign') {
+        const subQuery = this.campaignClickRepository.createQueryBuilder('click')
+          .select('DISTINCT click.contactId');
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+      } else if (segId === 'opened_campaign') {
+        const subQuery = this.campaignQueueRepository.createQueryBuilder('queue')
+          .select('DISTINCT queue.contactId')
+          .where('queue.status = :qStatus', { qStatus: 'completed' })
+          .andWhere('queue.user_id = :userId', { userId });
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
       } else {
         // Fallback para segmentações manuais persistidas
         orConditions.push(`cs.segmentationId = :${paramName}`);
         parameters[paramName] = segId;
       }
     }
+
+
 
     if (orConditions.length > 0) {
       query.andWhere(`(${orConditions.join(' OR ')})`, parameters);

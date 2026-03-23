@@ -183,11 +183,12 @@ export class AdminService {
     }
 
     async impersonateUser(userId: number) {
-        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        const user = await this.usersRepository.findOne({ where: { id: userId }, relations: ['plan'] });
         if (!user) throw new Error('Usuário não encontrado');
 
         const token = this.jwtService.sign({ sub: user.id, email: user.email });
-        return { token };
+        const { password, ...userWithoutPassword } = user;
+        return { token, user: userWithoutPassword };
     }
 
     async getGlobalStats(month?: number, year?: number) {

@@ -18,7 +18,9 @@ import { CampaignQueue } from '../../entities/campaign-queue.entity';
 import { ShopifyConnection } from '../../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../../entities/nuvemshop-connection.entity';
 import { CampaignClick } from '../../entities/campaign-click.entity';
+import { CampaignCoupon } from '../../entities/campaign-coupon.entity';
 import { addMinutes, addHours, addDays } from 'date-fns';
+
 
 @Injectable()
 export class CampaignSchedulerService {
@@ -41,7 +43,10 @@ export class CampaignSchedulerService {
         private contactRepository: Repository<Contact>,
         @InjectRepository(CampaignClick)
         private campaignClicksRepository: Repository<CampaignClick>,
+        @InjectRepository(CampaignCoupon)
+        private campaignCouponRepository: Repository<CampaignCoupon>,
         private zenviaService: ZenviaService,
+
         private contactsService: ContactsService,
         private emailService: EmailService,
         private shopifyService: ShopifyService,
@@ -415,6 +420,31 @@ export class CampaignSchedulerService {
                     }
                 }
             }
+
+            // Persistir o cupom gerado ou definido no banco de dados para segmentação
+            if (newActiveCoupon && (newActiveCoupon._generatedCode || newActiveCoupon.couponName)) {
+                try {
+                    const days = parseInt(newActiveCoupon.expirationDays || '30');
+                    const endsAt = new Date();
+                    endsAt.setDate(endsAt.getDate() + days);
+
+                    await this.campaignCouponRepository.save({
+                        userId: campaign.userId,
+                        campaignId: campaign.id,
+                        contactId: contact.id,
+                        code: newActiveCoupon._generatedCode || newActiveCoupon.couponName,
+                        platform: shopifyConnection ? 'shopify' : (nuvemshopConnection ? 'nuvemshop' : 'internal'),
+                        value: parseFloat(newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0'),
+                        type: newActiveCoupon.discountType || (node.type === 'giftback' ? 'absolute' : 'percentage'),
+                        startsAt: new Date(),
+                        endsAt: endsAt
+                    });
+                    this.logger.log(`[COUPON SAVE] Cupom salvo para contato ${contact.id}: ${newActiveCoupon._generatedCode || newActiveCoupon.couponName}`);
+                } catch (e) {
+                    this.logger.error(`[COUPON SAVE] Erro ao salvar cupom no banco: ${e.message}`);
+                }
+            }
+
             return { activeCoupon: newActiveCoupon };
         }
 

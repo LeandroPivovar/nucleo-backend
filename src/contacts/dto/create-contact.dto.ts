@@ -68,10 +68,6 @@ export class CreateContactDto {
   @IsNumber({}, { each: true })
   @IsOptional()
   tagIds?: number[];
-
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  segmentationIds?: string[];
 }
+
 

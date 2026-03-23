@@ -8,7 +8,9 @@ import { Tag } from '../entities/tag.entity';
 import { Group } from '../entities/group.entity';
 import { ContactPurchase } from '../entities/contact-purchase.entity';
 import { Sale } from '../entities/sale.entity';
+import { CampaignCoupon } from '../entities/campaign-coupon.entity';
 import { CreateContactDto } from './dto/create-contact.dto';
+
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { ImportContactRow } from './dto/import-contacts.dto';
 
@@ -37,10 +39,14 @@ export class ContactsService {
     private contactSegmentationsRepository: Repository<ContactSegmentation>,
     @InjectRepository(Sale)
     private saleRepository: Repository<Sale>,
+    @InjectRepository(CampaignCoupon)
+    private campaignCouponRepository: Repository<CampaignCoupon>,
   ) { }
 
+
   async create(userId: number, createContactDto: CreateContactDto): Promise<Contact> {
-    const { tagIds, groupId, segmentationIds, ...contactData } = createContactDto;
+    const { tagIds, groupId, ...contactData } = createContactDto;
+
 
     // Verificar se o grupo pertence ao usuário (se fornecido)
     if (groupId) {
@@ -80,20 +86,10 @@ export class ContactsService {
       await this.contactTagsRepository.save(contactTags);
     }
 
-    // Salvar segmentações se fornecidas
-    if (segmentationIds && segmentationIds.length > 0) {
-      const contactSegmentations = segmentationIds.map(segmentationId =>
-        this.contactSegmentationsRepository.create({
-          contactId: savedContact.id,
-          segmentationId,
-        }),
-      );
-      await this.contactSegmentationsRepository.save(contactSegmentations);
-    }
-
     // Retornar contato com relações carregadas
     return this.findOne(userId, savedContact.id);
   }
+
 
   async findAll(userId: number): Promise<Contact[]> {
     return this.contactsRepository.find({
@@ -128,7 +124,8 @@ export class ContactsService {
     id: number,
     updateContactDto: UpdateContactDto,
   ): Promise<Contact> {
-    const { tagIds, groupId, segmentationIds, ...contactData } = updateContactDto;
+    const { tagIds, groupId, ...contactData } = updateContactDto;
+
     const contact = await this.findOne(userId, id);
 
     // Atualizar grupo se fornecido
@@ -177,26 +174,10 @@ export class ContactsService {
       }
     }
 
-    // Atualizar segmentações se fornecidas
-    if (segmentationIds !== undefined) {
-      // Remover segmentações existentes
-      await this.contactSegmentationsRepository.delete({ contactId: id });
-
-      // Adicionar novas segmentações
-      if (segmentationIds.length > 0) {
-        const contactSegmentations = segmentationIds.map(segmentationId =>
-          this.contactSegmentationsRepository.create({
-            contactId: id,
-            segmentationId,
-          }),
-        );
-        await this.contactSegmentationsRepository.save(contactSegmentations);
-      }
-    }
-
     // Retornar contato atualizado com relações
     return this.findOne(userId, id);
   }
+
 
   async remove(userId: number, id: number): Promise<void> {
     const contact = await this.findOne(userId, id);
@@ -269,8 +250,8 @@ export class ContactsService {
           city: row.city?.trim() || undefined,
           groupId,
           tagIds: tagIds.length > 0 ? tagIds : undefined,
-          segmentationIds: segmentationIds.length > 0 ? segmentationIds : undefined,
         };
+
 
         await this.create(userId, createDto);
         created++;
@@ -361,7 +342,19 @@ export class ContactsService {
       where: { userId, gender: 'F' }
     });
 
-    // 9. Clientes que não compram há 30 dias (Automático)
+    // 9. Cupom Ativo (Clientes com cupons não expirados)
+    const now = new Date();
+    const activeCouponContacts = await this.campaignCouponRepository
+      .createQueryBuilder('coupon')
+      .select('DISTINCT coupon.contactId')
+      .where('coupon.userId = :userId', { userId })
+      .andWhere('coupon.endsAt > :now', { now })
+      .getRawMany();
+
+    stats['active_coupon'] = activeCouponContacts.length;
+
+    // 10. Clientes que não compram há 30 dias (Automático)
+
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -436,7 +429,18 @@ export class ContactsService {
           // Se 'gender' for Ambos ou vazio, não aplicamos filtro de gênero no banco,
           // permitindo que todos os contatos (incluindo NULL) sejam trazidos.
         }
+      } else if (segId === 'active_coupon') {
+        const now = new Date();
+        const subQuery = this.campaignCouponRepository.createQueryBuilder('coupon')
+          .select('coupon.contactId')
+          .where('coupon.userId = :userId', { userId })
+          .andWhere('coupon.endsAt > :now', { now });
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        parameters['now'] = now;
+        // userId já está nos parâmetros principais
       } else if (segId === 'lead_captured') {
+
         orConditions.push(`contact.status = 'lead'`);
       } else if (segId === 'inactive_customers') {
         const days = segParams.days !== undefined ? segParams.days : 90;

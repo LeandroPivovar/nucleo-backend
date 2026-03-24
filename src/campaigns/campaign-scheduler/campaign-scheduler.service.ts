@@ -466,8 +466,9 @@ export class CampaignSchedulerService {
 
                     // Auto-append if no variables used (Simple campaign standard mode)
                     if (!hasVariables && campaign.complexity === 'simple') {
-                        content += `<br/><br/><b>Seu cupom:</b> ${code}<br/><b>Desconto:</b> ${valStr}<br/><b>Validade:</b> ${validity} dias`;
+                        content += `<br/><br/>CUPOM: ${code}<br/>DESCONTO: ${valStr}<br/>DATA DE VALIDADE: ${validity} dias`;
                     }
+
                 }
                 content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
                 try {
@@ -496,8 +497,9 @@ export class CampaignSchedulerService {
                         .replace(/{{cupom_validade}}/g, validity);
 
                     if (!hasVariables && campaign.complexity === 'simple') {
-                        content += ` Seu cupom: ${code} (${valStr})`;
+                        content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity} dias`;
                     }
+
                 }
                 content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
                 try {
@@ -529,8 +531,9 @@ export class CampaignSchedulerService {
                     .replace(/{{cupom_validade}}/g, validity);
 
                 if (!hasVariables && campaign.complexity === 'simple') {
-                    content += `\n\n*Seu cupom:* ${code}\n*Desconto:* ${valStr}`;
+                    content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity} dias`;
                 }
+
             }
             content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
             try {

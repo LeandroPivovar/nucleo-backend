@@ -351,16 +351,14 @@ export class ContactsService {
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
-    const inactiveContacts = await this.contactsRepository
-      .createQueryBuilder('contact')
-      .innerJoin(Sale, 'sale', 'sale.contactId = contact.id')
-      .where('contact.userId = :userId', { userId })
-      .select('contact.id')
-      .groupBy('contact.id')
-      .having('MAX(sale.createdAt) < :ninetyDaysAgo', { ninetyDaysAgo })
+    const active90Days = await this.saleRepository.createQueryBuilder('p')
+      .select('DISTINCT p.contactId')
+      .innerJoin('p.contact', 'c')
+      .where('c.userId = :userId', { userId })
+      .andWhere('p.createdAt >= :ninetyDaysAgo', { ninetyDaysAgo })
       .getRawMany();
 
-    stats['inactive_customers'] = inactiveContacts.length;
+    stats['inactive_customers'] = stats['total'] - active90Days.length;
 
     // 5. Clientes por número de compras (Pela menos 1 compra)
     const buyers = await this.saleRepository
@@ -416,16 +414,14 @@ export class ContactsService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const noPurchase30Days = await this.contactsRepository
-      .createQueryBuilder('contact')
-      .innerJoin(Sale, 'sale', 'sale.contactId = contact.id')
-      .where('contact.userId = :userId', { userId })
-      .select('contact.id')
-      .groupBy('contact.id')
-      .having('MAX(sale.createdAt) < :thirtyDaysAgo', { thirtyDaysAgo })
+    const active30Days = await this.saleRepository.createQueryBuilder('p')
+      .select('DISTINCT p.contactId')
+      .innerJoin('p.contact', 'c')
+      .where('c.userId = :userId', { userId })
+      .andWhere('p.createdAt >= :thirtyDaysAgo', { thirtyDaysAgo })
       .getRawMany();
 
-    stats['no_purchase_x_days'] = noPurchase30Days.length;
+    stats['no_purchase_x_days'] = stats['total'] - active30Days.length;
 
     // 11. Engajados (Cliques em campanhas)
     const engajados = await this.campaignClickRepository

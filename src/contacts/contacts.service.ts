@@ -585,11 +585,6 @@ export class ContactsService {
         // Fallback para segmentações manuais persistidas
         orConditions.push(`cs.segmentationId = :${paramName}`);
         parameters[paramName] = segId;
-      } else {
-
-        // Fallback para segmentações manuais persistidas
-        orConditions.push(`cs.segmentationId = :${paramName}`);
-        parameters[paramName] = segId;
       }
     }
 

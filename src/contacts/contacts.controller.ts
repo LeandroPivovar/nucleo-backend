@@ -190,8 +190,8 @@ export class ContactsController {
 
   @Post('segments')
   @HttpCode(HttpStatus.OK)
-  async getBySegments(@Request() req, @Body('segmentations') segmentations: any[]) {
-    return this.contactsService.getContactsBySegments(req.user.userId, segmentations);
+  async getBySegments(@Request() req, @Body('segmentations') segmentations: any[], @Body('groupIds') groupIds?: number[]) {
+    return this.contactsService.getContactsBySegments(req.user.userId, segmentations, groupIds);
   }
 
   @Get(':id')

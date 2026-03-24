@@ -464,8 +464,11 @@ export class ContactsService {
     return stats;
   }
 
-  async getContactsBySegments(userId: number, segmentations: (string | SegmentationParam)[]): Promise<Contact[]> {
-    if (!segmentations || segmentations.length === 0) return [];
+  async getContactsBySegments(userId: number, segmentations: (string | SegmentationParam)[], groupIds?: number[]): Promise<Contact[]> {
+    const hasSegments = segmentations && segmentations.length > 0;
+    const hasGroups = groupIds && groupIds.length > 0;
+
+    if (!hasSegments && !hasGroups) return [];
 
     const query = this.contactsRepository.createQueryBuilder('contact')
       .leftJoinAndSelect('contact.contactSegmentations', 'cs')
@@ -477,7 +480,8 @@ export class ContactsService {
     const orConditions: string[] = [];
     const parameters: any = {};
 
-    for (let i = 0; i < segmentations.length; i++) {
+    const segmentationsToProcess = segmentations || [];
+    for (let i = 0; i < segmentationsToProcess.length; i++) {
       const seg = segmentations[i];
       const segId = typeof seg === 'string' ? seg : seg.id;
       const segParams = typeof seg === 'string' ? {} : (seg.params || {});
@@ -581,10 +585,18 @@ export class ContactsService {
         // Fallback para segmentações manuais persistidas
         orConditions.push(`cs.segmentationId = :${paramName}`);
         parameters[paramName] = segId;
+      } else {
+
+        // Fallback para segmentações manuais persistidas
+        orConditions.push(`cs.segmentationId = :${paramName}`);
+        parameters[paramName] = segId;
       }
     }
 
-
+    if (hasGroups) {
+      orConditions.push(`contact.groupId IN (:...groupIds)`);
+      parameters['groupIds'] = groupIds;
+    }
 
     if (orConditions.length > 0) {
       query.andWhere(`(${orConditions.join(' OR ')})`, parameters);

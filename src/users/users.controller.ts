@@ -36,5 +36,11 @@ export class UsersController {
     await this.usersService.changePassword(req.user.userId, changePasswordDto);
     return { message: 'Senha alterada com sucesso' };
   }
+
+  @Post('me/wipe-data')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async wipeData(@Request() req) {
+    await this.usersService.wipeData(req.user.userId);
+  }
 }
 

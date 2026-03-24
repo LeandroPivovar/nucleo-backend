@@ -201,4 +201,97 @@ export class UsersService {
     return this.subscriptionRepository.save(subscription);
   }
 
+  async wipeData(userId: number): Promise<void> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    await this.userRepository.manager.transaction(async (transactionalEntityManager) => {
+      // 1. Deletar cliques e fila de campanhas (que não têm userId direto, mas têm campaignId)
+      // Nota: Algumas entidades têm onDelete: 'CASCADE' no entity config, mas vamos garantir aqui.
+
+      await transactionalEntityManager.query(
+        `DELETE FROM campaign_clicks WHERE campaignId IN (SELECT id FROM campaigns WHERE userId = ?)`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM campaign_queue WHERE user_id = ?`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM campaign_coupons WHERE userId = ?`,
+        [userId]
+      );
+
+      // 2. Deletar dados de compras e tags dos contatos
+      await transactionalEntityManager.query(
+        `DELETE FROM contact_purchases WHERE contactId IN (SELECT id FROM contacts WHERE userId = ?)`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM contact_tags WHERE contactId IN (SELECT id FROM contacts WHERE userId = ?)`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM contact_segmentations WHERE contactId IN (SELECT id FROM contacts WHERE userId = ?)`,
+        [userId]
+      );
+
+      // 3. Deletar eventos de pixel
+      await transactionalEntityManager.query(
+        `DELETE FROM pixel_events WHERE pixelId IN (SELECT pixelId FROM pixels WHERE userId = ?)`,
+        [userId]
+      );
+
+      // 4. Deletar vendas (têm userId)
+      await transactionalEntityManager.query(
+        `DELETE FROM sales WHERE userId = ?`,
+        [userId]
+      );
+
+      // 5. Deletar contatos, produtos e campanhas
+      await transactionalEntityManager.query(
+        `DELETE FROM contacts WHERE userId = ?`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM products WHERE userId = ?`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM campaigns WHERE userId = ?`,
+        [userId]
+      );
+
+      // 6. Deletar pixels, grupos, categorias e tags
+      await transactionalEntityManager.query(
+        `DELETE FROM pixels WHERE userId = ?`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM groups WHERE userId = ?`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM categories WHERE userId = ?`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM tags WHERE userId = ?`,
+        [userId]
+      );
+
+      // Resetar contador de e-mails enviados no mês se desejar (opcional, vamos manter por segurança de limite)
+      // await transactionalEntityManager.update(User, userId, { emailsSentMonth: 0 });
+    });
+  }
+
 }

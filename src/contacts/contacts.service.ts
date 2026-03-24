@@ -134,14 +134,22 @@ export class ContactsService {
     const rawAndEntities = await query.getRawAndEntities();
 
     // Map the boolean flags from raw to entities
-    return rawAndEntities.entities.map((entity, index) => {
-      const raw = rawAndEntities.raw[index];
-      // Depending on DB driver, boolean might be 1/0 or true/false or '1'/'0'
-      const hasClicked = raw.hasClickedCampaign;
-      const hasCoupon = raw.hasActiveCoupon;
+    return rawAndEntities.entities.map((entity) => {
+      // TypeORM automatically aliases the primary key of the main entity to "entityAlias_id" or similar
+      // We look for the raw row that matches our entity ID.
+      const raw = rawAndEntities.raw.find(r => r.contact_id === entity.id);
 
-      entity.hasClickedCampaign = hasClicked === true || hasClicked === 1 || hasClicked === '1';
-      entity.hasActiveCoupon = hasCoupon === true || hasCoupon === 1 || hasCoupon === '1';
+      if (raw) {
+        // Depending on DB driver, boolean might be 1/0 or true/false or '1'/'0'
+        const hasClicked = raw.hasClickedCampaign;
+        const hasCoupon = raw.hasActiveCoupon;
+
+        entity.hasClickedCampaign = hasClicked === true || hasClicked === 1 || hasClicked === '1';
+        entity.hasActiveCoupon = hasCoupon === true || hasCoupon === 1 || hasCoupon === '1';
+      } else {
+        entity.hasClickedCampaign = false;
+        entity.hasActiveCoupon = false;
+      }
       return entity;
     });
 

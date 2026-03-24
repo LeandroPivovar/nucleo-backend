@@ -123,21 +123,13 @@ export class ContactsService {
 
     query.addSelect(subQuery => {
       return subQuery
-        .select('COUNT(queue.id) > 0', 'hasOpened')
-        .from(CampaignQueue, 'queue')
-        .where('queue.contactId = contact.id')
-        .andWhere('queue.user_id = :userId', { userId })
-        .andWhere('queue.status = :qStatus', { qStatus: 'completed' });
-    }, 'hasOpenedCampaign');
-
-    query.addSelect(subQuery => {
-      return subQuery
         .select('COUNT(coupon.id) > 0', 'hasCoupon')
         .from(CampaignCoupon, 'coupon')
         .where('coupon.contactId = contact.id')
         .andWhere('coupon.userId = :userId', { userId })
         .andWhere('coupon.endsAt > :nowCount', { nowCount: now });
     }, 'hasActiveCoupon');
+
 
     const rawAndEntities = await query.getRawAndEntities();
 
@@ -146,14 +138,13 @@ export class ContactsService {
       const raw = rawAndEntities.raw[index];
       // Depending on DB driver, boolean might be 1/0 or true/false or '1'/'0'
       const hasClicked = raw.hasClickedCampaign;
-      const hasOpened = raw.hasOpenedCampaign;
       const hasCoupon = raw.hasActiveCoupon;
 
       entity.hasClickedCampaign = hasClicked === true || hasClicked === 1 || hasClicked === '1';
-      entity.hasOpenedCampaign = hasOpened === true || hasOpened === 1 || hasOpened === '1';
       entity.hasActiveCoupon = hasCoupon === true || hasCoupon === 1 || hasCoupon === '1';
       return entity;
     });
+
 
   }
 
@@ -436,17 +427,9 @@ export class ContactsService {
       .getRawMany();
     stats['clicked_campaign'] = engajados.length;
 
-    // 12. Abriram campanhas (Fila finalizada com sucesso)
-    const abriram = await this.campaignQueueRepository
-      .createQueryBuilder('queue')
-      .select('DISTINCT queue.contactId')
-      .where('queue.user_id = :userId', { userId })
-      .andWhere('queue.status = :status', { status: 'completed' })
-      .getRawMany();
-    stats['opened_campaign'] = abriram.length;
-
 
     // 10. Contagem manual das segmentações persistidas (Fallback para o que ainda é manual)
+
     const manualStats = await this.contactSegmentationsRepository
       .createQueryBuilder('seg')
       .innerJoin('seg.contact', 'contact')
@@ -589,16 +572,9 @@ export class ContactsService {
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
-      } else if (segId === 'opened_campaign') {
-
-        const subQuery = this.campaignQueueRepository.createQueryBuilder('queue')
-          .select('DISTINCT queue.contactId')
-          .where('queue.status = :qStatus', { qStatus: 'completed' })
-          .andWhere('queue.user_id = :userId', { userId });
-
-        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
       } else {
+
         // Fallback para segmentações manuais persistidas
         orConditions.push(`cs.segmentationId = :${paramName}`);
         parameters[paramName] = segId;

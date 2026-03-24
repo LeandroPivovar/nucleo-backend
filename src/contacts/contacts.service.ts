@@ -566,13 +566,12 @@ export class ContactsService {
         Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'clicked_campaign') {
         const subQuery = this.campaignClickRepository.createQueryBuilder('click')
-          .innerJoin('campaigns', 'camp', 'camp.id = click.campaignId')
           .select('DISTINCT click.contactId')
-          .where('camp.userId = :userId', { userId });
+          .where('click.campaignId IN (SELECT id from campaigns where userId = :userId)', { userId });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
-        Object.assign(parameters, subQuery.getParameters());
+
       } else {
 
         // Fallback para segmentações manuais persistidas

@@ -124,33 +124,33 @@ export class CampaignSchedulerService {
         try {
             const groups = campaign.config?.groups || [];
             const segmentations = campaign.config?.segmentations || [];
+            const specificContacts = campaign.config?.specificContacts || [];
 
-            this.logger.log(`Buscando contatos para a campanha [ID: ${campaign.id}]. Segmentos: ${segmentations.length}, Grupos: ${groups.length}`);
+            this.logger.log(`Buscando contatos para a campanha [ID: ${campaign.id}]. Segmentos: ${segmentations.length}, Grupos: ${groups.length}, Específicos: ${specificContacts.length}`);
 
             let targetContacts: Contact[] = [];
 
-            if (segmentations.length > 0) {
-                targetContacts = await this.contactsService.getContactsBySegments(campaign.userId, segmentations);
-                this.logger.log(`Encontrados ${targetContacts.length} contatos via segmentação.`);
+            // 1. Buscar por Segmentações e Grupos (Query Otimizada via ContactsService)
+            if (segmentations.length > 0 || groups.length > 0) {
+                const mappedGroups = groups.map((g: any) => Number(g)).filter((n: number) => !isNaN(n));
+                targetContacts = await this.contactsService.getContactsBySegments(campaign.userId, segmentations, mappedGroups);
+                this.logger.log(`Encontrados ${targetContacts.length} contatos via segmentação e/ou grupos.`);
             }
 
-            if (groups.length > 0) {
+            // 2. Buscar Contatos Específicos
+            if (specificContacts.length > 0) {
                 const allContacts = await this.contactsService.findAll(campaign.userId);
-                const groupContacts = allContacts.filter(contact =>
-                    contact.group && groups.includes(contact.group.name)
-                );
-
-                this.logger.log(`Encontrados ${groupContacts.length} contatos via grupos.`);
-
+                const specificContactsList = allContacts.filter(contact => specificContacts.includes(contact.id));
                 const existingIds = new Set(targetContacts.map(c => c.id));
-                let groupAddedCount = 0;
-                for (const contact of groupContacts) {
+
+                let specificAddedCount = 0;
+                for (const contact of specificContactsList) {
                     if (!existingIds.has(contact.id)) {
                         targetContacts.push(contact);
-                        groupAddedCount++;
+                        specificAddedCount++;
                     }
                 }
-                this.logger.log(`Adicionados ${groupAddedCount} novos contatos únicos de grupos. Total: ${targetContacts.length}`);
+                this.logger.log(`Adicionados ${specificAddedCount} novos contatos da seleção específica. Total: ${targetContacts.length}`);
             }
 
             this.logger.log(`Resumo de contatos para a campanha [ID: ${campaign.id}]: ${targetContacts.length} contatos únicos identificados.`);

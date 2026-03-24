@@ -19,7 +19,8 @@ import { ShopifyConnection } from '../../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../../entities/nuvemshop-connection.entity';
 import { CampaignClick } from '../../entities/campaign-click.entity';
 import { CampaignCoupon } from '../../entities/campaign-coupon.entity';
-import { addMinutes, addHours, addDays } from 'date-fns';
+import { addMinutes, addHours, addDays, format } from 'date-fns';
+
 
 
 @Injectable()
@@ -424,9 +425,11 @@ export class CampaignSchedulerService {
             // Persistir o cupom gerado ou definido no banco de dados para segmentação
             if (newActiveCoupon && (newActiveCoupon._generatedCode || newActiveCoupon.couponName)) {
                 try {
-                    const days = parseInt(newActiveCoupon.expirationDays || '30');
-                    const endsAt = new Date();
-                    endsAt.setDate(endsAt.getDate() + days);
+                    const endsAt = newActiveCoupon.validityDate ? new Date(newActiveCoupon.validityDate) : new Date();
+                    if (!newActiveCoupon.validityDate) {
+                        const days = parseInt(newActiveCoupon.expirationDays || '30');
+                        endsAt.setDate(endsAt.getDate() + days);
+                    }
 
                     await this.campaignCouponRepository.save({
                         userId: campaign.userId,
@@ -439,6 +442,7 @@ export class CampaignSchedulerService {
                         startsAt: new Date(),
                         endsAt: endsAt
                     });
+
                     this.logger.log(`[COUPON SAVE] Cupom salvo para contato ${contact.id}: ${newActiveCoupon._generatedCode || newActiveCoupon.couponName}`);
                 } catch (e) {
                     this.logger.error(`[COUPON SAVE] Erro ao salvar cupom no banco: ${e.message}`);
@@ -456,9 +460,20 @@ export class CampaignSchedulerService {
                     const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
                     const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
                     const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
-                    const validity = newActiveCoupon.expirationDays || '30';
+
+                    let validity = '';
+                    if (newActiveCoupon.validityDate) {
+                        try {
+                            validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
+                        } catch (e) {
+                            validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                        }
+                    } else {
+                        validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                    }
 
                     // Replaces variables if present
+
                     const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
                     content = content.replace(/{{cupom_nome}}/g, code)
                         .replace(/{{cupom_valor}}/g, valStr)
@@ -489,9 +504,20 @@ export class CampaignSchedulerService {
                     const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
                     const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
                     const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
-                    const validity = newActiveCoupon.expirationDays || '30';
+
+                    let validity = '';
+                    if (newActiveCoupon.validityDate) {
+                        try {
+                            validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
+                        } catch (e) {
+                            validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                        }
+                    } else {
+                        validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                    }
 
                     const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
+
                     content = content.replace(/{{cupom_nome}}/g, code)
                         .replace(/{{cupom_valor}}/g, valStr)
                         .replace(/{{cupom_validade}}/g, validity);
@@ -523,9 +549,20 @@ export class CampaignSchedulerService {
                 const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
                 const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
                 const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
-                const validity = newActiveCoupon.expirationDays || '30';
+
+                let validity = '';
+                if (newActiveCoupon.validityDate) {
+                    try {
+                        validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
+                    } catch (e) {
+                        validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                    }
+                } else {
+                    validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                }
 
                 const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
+
                 content = content.replace(/{{cupom_nome}}/g, code)
                     .replace(/{{cupom_valor}}/g, valStr)
                     .replace(/{{cupom_validade}}/g, validity);

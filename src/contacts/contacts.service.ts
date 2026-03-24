@@ -487,7 +487,9 @@ export class ContactsService {
       const segParams = typeof seg === 'string' ? {} : (seg.params || {});
       const paramName = `seg_${i}`;
 
-      if (segId === 'birthday') {
+      if (segId === 'total') {
+        orConditions.push('1=1');
+      } else if (segId === 'birthday') {
         const targetMonth = segParams.month !== undefined ? segParams.month : new Date().getMonth() + 1;
         orConditions.push(`EXTRACT(MONTH FROM contact.birthDate) = :${paramName}`);
         parameters[paramName] = targetMonth;
@@ -502,15 +504,13 @@ export class ContactsService {
       } else if (segId === 'active_coupon') {
         const now = new Date();
         const subQuery = this.campaignCouponRepository.createQueryBuilder('coupon')
-          .select('coupon.contactId')
+          .select('DISTINCT coupon.contactId')
           .where('coupon.userId = :userId', { userId })
-          .andWhere('coupon.endsAt > :now', { now });
+          .andWhere('coupon.endsAt > :nowCoupon', { nowCoupon: now });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
-        parameters['now'] = now;
-        // userId já está nos parâmetros principais
+        Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'lead_captured') {
-
         orConditions.push(`contact.status = 'lead'`);
       } else if (segId === 'inactive_customers') {
         const days = segParams.days !== undefined ? segParams.days : 90;
@@ -563,15 +563,6 @@ export class ContactsService {
         } else {
           orConditions.push(`contact.state IS NOT NULL`);
         }
-      } else if (segId === 'active_coupon') {
-        const now = new Date();
-        const subQuery = this.campaignCouponRepository.createQueryBuilder('coupon')
-          .select('DISTINCT coupon.contactId')
-          .where('coupon.userId = :userId', { userId })
-          .andWhere('coupon.endsAt > :nowCoupon', { nowCoupon: now });
-
-        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
-        Object.assign(parameters, subQuery.getParameters());
       } else if (segId === 'clicked_campaign') {
         const subQuery = this.campaignClickRepository.createQueryBuilder('click')
           .select('DISTINCT click.contactId')
@@ -579,9 +570,7 @@ export class ContactsService {
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
-
       } else {
-
         // Fallback para segmentações manuais persistidas
         orConditions.push(`cs.segmentationId = :${paramName}`);
         parameters[paramName] = segId;

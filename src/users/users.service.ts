@@ -210,82 +210,82 @@ export class UsersService {
       // Nota: Algumas entidades têm onDelete: 'CASCADE' no entity config, mas vamos garantir aqui.
 
       await transactionalEntityManager.query(
-        `DELETE FROM campaign_clicks WHERE campaignId IN (SELECT id FROM campaigns WHERE userId = ?)`,
+        `DELETE FROM \`campaign_clicks\` WHERE \`campaignId\` IN (SELECT \`id\` FROM \`campaigns\` WHERE \`userId\` = ?)`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM campaign_queue WHERE user_id = ?`,
+        `DELETE FROM \`campaign_queue\` WHERE \`user_id\` = ?`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM campaign_coupons WHERE userId = ?`,
+        `DELETE FROM \`campaign_coupons\` WHERE \`userId\` = ?`,
         [userId]
       );
 
       // 2. Deletar dados de compras e tags dos contatos
       await transactionalEntityManager.query(
-        `DELETE FROM contact_purchases WHERE contactId IN (SELECT id FROM contacts WHERE userId = ?)`,
+        `DELETE FROM \`contact_purchases\` WHERE \`contactId\` IN (SELECT \`id\` FROM \`contacts\` WHERE \`userId\` = ?)`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM contact_tags WHERE contactId IN (SELECT id FROM contacts WHERE userId = ?)`,
+        `DELETE FROM \`contact_tags\` WHERE \`contactId\` IN (SELECT \`id\` FROM \`contacts\` WHERE \`userId\` = ?)`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM contact_segmentations WHERE contactId IN (SELECT id FROM contacts WHERE userId = ?)`,
+        `DELETE FROM \`contact_segmentations\` WHERE \`contactId\` IN (SELECT \`id\` FROM \`contacts\` WHERE \`userId\` = ?)`,
         [userId]
       );
 
       // 3. Deletar eventos de pixel
       await transactionalEntityManager.query(
-        `DELETE FROM pixel_events WHERE pixelId IN (SELECT pixelId FROM pixels WHERE userId = ?)`,
+        `DELETE FROM \`pixel_events\` WHERE \`pixelId\` IN (SELECT \`pixelId\` FROM \`pixels\` WHERE \`userId\` = ?)`,
         [userId]
       );
 
       // 4. Deletar vendas (têm userId)
       await transactionalEntityManager.query(
-        `DELETE FROM sales WHERE userId = ?`,
+        `DELETE FROM \`sales\` WHERE \`userId\` = ?`,
         [userId]
       );
 
       // 5. Deletar contatos, produtos e campanhas
       await transactionalEntityManager.query(
-        `DELETE FROM contacts WHERE userId = ?`,
+        `DELETE FROM \`contacts\` WHERE \`userId\` = ?`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM products WHERE userId = ?`,
+        `DELETE FROM \`products\` WHERE \`userId\` = ?`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM campaigns WHERE userId = ?`,
+        `DELETE FROM \`campaigns\` WHERE \`userId\` = ?`,
         [userId]
       );
 
       // 6. Deletar pixels, grupos, categorias e tags
       await transactionalEntityManager.query(
-        `DELETE FROM pixels WHERE userId = ?`,
+        `DELETE FROM \`pixels\` WHERE \`userId\` = ?`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM groups WHERE userId = ?`,
+        `DELETE FROM \`groups\` WHERE \`userId\` = ?`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM categories WHERE userId = ?`,
+        `DELETE FROM \`categories\` WHERE \`userId\` = ?`,
         [userId]
       );
 
       await transactionalEntityManager.query(
-        `DELETE FROM tags WHERE userId = ?`,
+        `DELETE FROM \`tags\` WHERE \`userId\` = ?`,
         [userId]
       );
 

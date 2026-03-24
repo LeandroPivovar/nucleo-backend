@@ -453,10 +453,21 @@ export class CampaignSchedulerService {
             if (currentEmailsSent < (planEmailsLimit + (user?.extraEmailsBalance || 0))) {
                 let content = node.data?.content || '';
                 if (newActiveCoupon) {
-                    const valStr = newActiveCoupon.discountType === 'percentage' ? `${newActiveCoupon.discountValue}%` : `R$ ${newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue}`;
-                    content = content.replace(/{{cupom_nome}}/g, newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM')
+                    const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
+                    const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                    const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+                    const validity = newActiveCoupon.expirationDays || '30';
+
+                    // Replaces variables if present
+                    const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
+                    content = content.replace(/{{cupom_nome}}/g, code)
                         .replace(/{{cupom_valor}}/g, valStr)
-                        .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
+                        .replace(/{{cupom_validade}}/g, validity);
+
+                    // Auto-append if no variables used (Simple campaign standard mode)
+                    if (!hasVariables && campaign.complexity === 'simple') {
+                        content += `<br/><br/><b>Seu cupom:</b> ${code}<br/><b>Desconto:</b> ${valStr}<br/><b>Validade:</b> ${validity} dias`;
+                    }
                 }
                 content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
                 try {
@@ -474,10 +485,19 @@ export class CampaignSchedulerService {
             if (currentSmsSent < (planSmsLimit + (user?.extraSmsBalance || 0))) {
                 let content = node.data?.content || 'Olá!';
                 if (newActiveCoupon) {
-                    const valStr = newActiveCoupon.discountType === 'percentage' ? `${newActiveCoupon.discountValue}%` : `R$ ${newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue}`;
-                    content = content.replace(/{{cupom_nome}}/g, newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM')
+                    const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
+                    const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                    const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+                    const validity = newActiveCoupon.expirationDays || '30';
+
+                    const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
+                    content = content.replace(/{{cupom_nome}}/g, code)
                         .replace(/{{cupom_valor}}/g, valStr)
-                        .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
+                        .replace(/{{cupom_validade}}/g, validity);
+
+                    if (!hasVariables && campaign.complexity === 'simple') {
+                        content += ` Seu cupom: ${code} (${valStr})`;
+                    }
                 }
                 content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
                 try {
@@ -498,10 +518,19 @@ export class CampaignSchedulerService {
             this.logger.log(`[NODE EXECUTING] WHATSAPP | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
             let content = node.data?.content || 'Olá!';
             if (newActiveCoupon) {
-                const valStr = newActiveCoupon.discountType === 'percentage' ? `${newActiveCoupon.discountValue}%` : `R$ ${newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue}`;
-                content = content.replace(/{{cupom_nome}}/g, newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM')
+                const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
+                const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+                const validity = newActiveCoupon.expirationDays || '30';
+
+                const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
+                content = content.replace(/{{cupom_nome}}/g, code)
                     .replace(/{{cupom_valor}}/g, valStr)
-                    .replace(/{{cupom_validade}}/g, newActiveCoupon.expirationDays || '30');
+                    .replace(/{{cupom_validade}}/g, validity);
+
+                if (!hasVariables && campaign.complexity === 'simple') {
+                    content += `\n\n*Seu cupom:* ${code}\n*Desconto:* ${valStr}`;
+                }
             }
             content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
             try {
@@ -516,6 +545,7 @@ export class CampaignSchedulerService {
                 this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
             }
         }
+
 
         return { activeCoupon: newActiveCoupon };
     }

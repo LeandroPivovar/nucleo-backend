@@ -89,4 +89,22 @@ export class AdminController {
     async getCapacityStats() {
         return this.adminService.getCapacityStats();
     }
+
+    @Get('email-connections/pending')
+    async getPendingEmailConnections() {
+        return this.adminService.getPendingEmailConnections();
+    }
+
+    @Post('email-connections/:id/approve')
+    async approveEmailConnection(@Param('id', ParseIntPipe) id: number) {
+        return this.adminService.approveEmailConnection(id);
+    }
+
+    @Post('email-connections/:id/reject')
+    async rejectEmailConnection(
+        @Param('id', ParseIntPipe) id: number,
+        @Body('adminNote') adminNote: string
+    ) {
+        return this.adminService.rejectEmailConnection(id, adminNote);
+    }
 }

@@ -8,6 +8,8 @@ import { Invoice } from '../entities/invoice.entity';
 import { Sale } from '../entities/sale.entity';
 
 import { Contact } from '../entities/contact.entity';
+import { EmailConnection } from '../entities/email-connection.entity';
+import { Notification, NotificationType } from '../entities/notification.entity';
 import { Campaign } from '../entities/campaign.entity';
 import { UserUsage } from '../entities/user-usage.entity';
 import { SystemSetting } from '../entities/system-setting.entity';
@@ -53,6 +55,10 @@ export class AdminService {
         private usageRepository: Repository<UserUsage>,
         @InjectRepository(SystemSetting)
         private systemSettingRepository: Repository<SystemSetting>,
+        @InjectRepository(EmailConnection)
+        private emailConnectionRepository: Repository<EmailConnection>,
+        @InjectRepository(Notification)
+        private notificationRepository: Repository<Notification>,
         private jwtService: JwtService,
     ) { }
 
@@ -604,5 +610,55 @@ export class AdminService {
             email: calculateStats(consumedEmail, providerEmailLimit, clientsEmailsContracted),
             sms: calculateStats(consumedSms, providerSmsLimit, clientsSmsContracted)
         };
+    }
+
+    async getPendingEmailConnections() {
+        return this.emailConnectionRepository.find({
+            where: { status: 'pending' },
+            relations: ['user'],
+            order: { createdAt: 'DESC' }
+        });
+    }
+
+    async approveEmailConnection(id: number) {
+        const connection = await this.emailConnectionRepository.findOne({
+            where: { id },
+            relations: ['user']
+        });
+        if (!connection) throw new Error('Conexão de e-mail não encontrada');
+
+        connection.status = 'verified';
+        await this.emailConnectionRepository.save(connection);
+
+        // Criar notificação para o usuário
+        const notification = this.notificationRepository.create({
+            userId: connection.userId,
+            title: 'Domínio de E-mail Aprovado',
+            message: `O domínio ${connection.domain} foi verificado e já pode ser utilizado para envios.`,
+            type: NotificationType.SUCCESS,
+        });
+        await this.notificationRepository.save(notification);
+
+        return connection;
+    }
+
+    async rejectEmailConnection(id: number, adminNote: string) {
+        const connection = await this.emailConnectionRepository.findOne({ where: { id } });
+        if (!connection) throw new Error('Conexão de e-mail não encontrada');
+
+        connection.status = 'rejected';
+        connection.adminNote = adminNote;
+        await this.emailConnectionRepository.save(connection);
+
+        // Criar notificação para o usuário
+        const notification = this.notificationRepository.create({
+            userId: connection.userId,
+            title: 'Domínio de E-mail Rejeitado',
+            message: `O domínio ${connection.domain} não pôde ser verificado. Motivo: ${adminNote}`,
+            type: NotificationType.ERROR,
+        });
+        await this.notificationRepository.save(notification);
+
+        return connection;
     }
 }

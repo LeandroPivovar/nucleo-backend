@@ -1,30 +1,39 @@
 import { IsBoolean, IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class CreateEmailConnectionDto {
-  @IsEmail()
   @IsNotEmpty()
-  email: string;
-
   @IsString()
-  @IsNotEmpty()
-  smtpHost: string;
+  type: 'smtp' | 'domain';
 
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  smtpHost?: string;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(65535)
-  smtpPort: number;
+  smtpPort?: number;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  username: string;
+  username?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  password: string;
+  password?: string;
 
   @IsOptional()
   @IsBoolean()
   secure?: boolean;
+
+  @IsOptional()
+  @IsString()
+  domain?: string;
 }
 
 

@@ -11,7 +11,7 @@ export class EmailConnectionsService {
   constructor(
     @InjectRepository(EmailConnection)
     private readonly emailConnectionRepository: Repository<EmailConnection>,
-  ) {}
+  ) { }
 
   private sanitize(connection: EmailConnection): EmailConnectionResponse {
     const { password: _password, ...rest } = connection;
@@ -19,16 +19,29 @@ export class EmailConnectionsService {
   }
 
   async create(userId: number, dto: CreateEmailConnectionDto): Promise<EmailConnectionResponse> {
-    const secure = dto.secure ?? dto.smtpPort === 465;
+    const isDomain = dto.type === 'domain';
+    const status = isDomain ? 'pending' : 'verified';
+    const secure = dto.secure ?? (dto.smtpPort === 465);
 
-    const connection = this.emailConnectionRepository.create({
+    const connectionData: any = {
       ...dto,
-      secure,
+      status,
       userId,
-    });
+    };
+
+    if (!isDomain) {
+      connectionData.secure = secure;
+    } else {
+      // Gerar registros DNS fakes para demonstração
+      connectionData.dnsTxt = `v=spf1 include:_spf.nucleocrm.com.br ~all`;
+      connectionData.dnsCname = `nucleo._domainkey.${dto.domain}`;
+      connectionData.dnsMx = `10 mxa.nucleocrm.com.br`;
+    }
+
+    const connection = this.emailConnectionRepository.create(connectionData as Partial<EmailConnection>);
 
     const saved = await this.emailConnectionRepository.save(connection);
-    return this.sanitize(saved);
+    return this.sanitize(saved as EmailConnection);
   }
 
   async findAll(userId: number): Promise<EmailConnectionResponse[]> {

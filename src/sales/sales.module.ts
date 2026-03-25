@@ -9,12 +9,14 @@ import { Contact } from '../entities/contact.entity';
 import { PixelEvent } from '../entities/pixel-event.entity';
 import { ShopifyModule } from '../shopify/shopify.module';
 import { NuvemshopModule } from '../nuvemshop/nuvemshop.module';
+import { LojaIntegradaModule } from '../loja-integrada/loja-integrada.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Sale, Product, Campaign, Contact, PixelEvent]),
     ShopifyModule,
     NuvemshopModule,
+    LojaIntegradaModule,
   ],
   controllers: [SalesController],
   providers: [SalesService],

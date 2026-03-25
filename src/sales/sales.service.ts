@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
@@ -14,11 +15,14 @@ import { CreateSaleDto } from './dto/create-sale.dto';
 import { ImportSaleRow } from './dto/import-sales.dto';
 import { ShopifyService } from '../shopify/shopify.service';
 import { NuvemshopService } from '../nuvemshop/nuvemshop.service';
+import { LojaIntegradaService } from '../loja-integrada/loja-integrada.service';
 import { ShopifyConnection } from '../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 
 @Injectable()
 export class SalesService {
+  private readonly logger = new Logger(SalesService.name);
+
   constructor(
     @InjectRepository(Sale)
     private saleRepository: Repository<Sale>,
@@ -32,6 +36,7 @@ export class SalesService {
     private pixelEventRepository: Repository<PixelEvent>,
     private shopifyService: ShopifyService,
     private nuvemshopService: NuvemshopService,
+    private liService: LojaIntegradaService,
   ) { }
 
   async create(userId: number, createSaleDto: CreateSaleDto): Promise<Sale> {
@@ -187,32 +192,34 @@ export class SalesService {
    * Gatilho para sincronizar integrações em segundo plano
    */
   private async triggerIntegrationsSync(userId: number) {
-    // Buscar conexões ativas para o usuário
     try {
-      const [shopifyConns, nuvemshopConns] = await Promise.all([
-        this.shopifyService.getConnections(userId),
-        this.nuvemshopService.getConnections(userId),
-      ]);
-
-      const activeShopify = shopifyConns.filter(c => c.isActive);
-      const activeNuvemshop = nuvemshopConns.filter(c => c.isActive);
-
       // Sincronizar em paralelo mas em background (sem await no chamador principal)
-      const syncs = [
-        ...activeShopify.map(c => this.shopifyService.syncCheckouts(userId, c.shop)),
-        ...activeNuvemshop.map(c => this.nuvemshopService.syncCheckouts(userId, c.storeId)),
-      ];
 
-      if (syncs.length > 0) {
-        Promise.all(syncs).then(() => {
-          console.log(`[Background Sync] Sincronização de carrinhos concluída para usuário ${userId}`);
-        }).catch(err => {
-          console.error(`[Background Sync] Erro na sincronização de carrinhos para usuário ${userId}:`, err.message);
+      // Shopify
+      this.shopifyService.getConnections(userId).then(conns => {
+        conns.filter(c => c.isActive).forEach(c => {
+          this.shopifyService.syncProductsToCrm(userId, c.shop).catch(e => this.logger.error(`[Auto-Sync Shopify Products] ${e.message}`));
+          this.shopifyService.syncOrders(userId, c.shop).catch(e => this.logger.error(`[Auto-Sync Shopify Orders] ${e.message}`));
+          this.shopifyService.syncCheckouts(userId, c.shop).catch(e => this.logger.error(`[Auto-Sync Shopify Checkouts] ${e.message}`));
         });
-      }
+      }).catch(e => this.logger.error(`[Auto-Sync Shopify Connections] ${e.message}`));
+
+      // Nuvemshop
+      this.nuvemshopService.getConnections(userId).then(conns => {
+        conns.filter(c => c.isActive).forEach(c => {
+          this.nuvemshopService.syncProductsToCrm(userId, c.storeId).catch(e => this.logger.error(`[Auto-Sync Nuvemshop Products] ${e.message}`));
+          this.nuvemshopService.syncOrders(userId, c.storeId).catch(e => this.logger.error(`[Auto-Sync Nuvemshop Orders] ${e.message}`));
+          this.nuvemshopService.syncCheckouts(userId, c.storeId).catch(e => this.logger.error(`[Auto-Sync Nuvemshop Checkouts] ${e.message}`));
+        });
+      }).catch(e => this.logger.error(`[Auto-Sync Nuvemshop Connections] ${e.message}`));
+
+      // Loja Integrada
+      this.liService.syncProducts(userId).catch(e => this.logger.error(`[Auto-Sync LI Products] ${e.message}`));
+      this.liService.syncOrders(userId).catch(e => this.logger.error(`[Auto-Sync LI Orders] ${e.message}`));
+      this.liService.syncCheckouts(userId).catch(e => this.logger.error(`[Auto-Sync LI Checkouts] ${e.message}`));
+
     } catch (error) {
-      // Silencioso pois é background
-      console.error(`[Background Sync] Falha ao listar conexões para usuário ${userId}:`, error.message);
+      this.logger.error(`[Background Sync Error] ${error.message}`);
     }
   }
 

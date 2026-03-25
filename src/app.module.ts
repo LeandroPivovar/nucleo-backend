@@ -21,6 +21,7 @@ import { CampaignsModule } from './campaigns/campaigns.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { PixelsModule } from './pixels/pixels.module';
 import { ReferralsModule } from './referrals/referrals.module';
+import { LojaIntegradaModule } from './loja-integrada/loja-integrada.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { EmailConnection } from './entities/email-connection.entity';
 import { ShopifyConnection } from './entities/shopify-connection.entity';
@@ -102,7 +103,8 @@ import { AdminModule } from './admin/admin.module';
     NotificationsModule,
     CategoriesModule,
     UploadsModule,
-    AdminModule
+    AdminModule,
+    LojaIntegradaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -17,7 +17,7 @@ export class LojaIntegradaController {
     @Post('connect')
     async connect(
         @Request() req,
-        @Body() body: { storeName: string; apiKey: string; applicationKey: string },
+        @Body() body: { storeName: string; apiKey: string; applicationKey?: string },
     ) {
         return this.liService.createOrUpdateConnection(
             req.user.userId,

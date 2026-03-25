@@ -58,14 +58,14 @@ export class LojaIntegradaService {
         userId: number,
         storeName: string,
         apiKey: string,
-        applicationKey: string,
+        applicationKey?: string,
     ): Promise<LojaIntegradaConnection> {
         let connection = await this.connectionRepository.findOne({
             where: { userId, storeName },
         });
 
         const encryptedApiKey = this.encrypt(apiKey);
-        const encryptedAppKey = this.encrypt(applicationKey);
+        const encryptedAppKey = applicationKey ? this.encrypt(applicationKey) : '';
 
         if (connection) {
             connection.apiKey = encryptedApiKey;
@@ -76,7 +76,7 @@ export class LojaIntegradaService {
                 userId,
                 storeName,
                 apiKey: encryptedApiKey,
-                applicationKey: encryptedAppKey,
+                applicationKey: encryptedAppKey || '',
                 isActive: true,
             });
         }
@@ -94,7 +94,16 @@ export class LojaIntegradaService {
 
     private async makeRequest(connection: LojaIntegradaConnection, endpoint: string, params: any = {}): Promise<any> {
         const apiKey = this.decrypt(connection.apiKey);
-        const appKey = this.decrypt(connection.applicationKey);
+
+        // Prioritize global app key from .env, fallback to connection-specific one
+        const globalAppKey = this.configService.get<string>('LOJA_INTEGRADA_APP_KEY');
+        const appKey = (globalAppKey && globalAppKey !== 'your_application_key_here')
+            ? globalAppKey
+            : (connection.applicationKey ? this.decrypt(connection.applicationKey) : '');
+
+        if (!appKey) {
+            this.logger.error('LOJA_INTEGRADA_APP_KEY não configurada no .env e nenhuma chave por conexão disponível');
+        }
 
         const url = new URL(`${this.baseUrl}${endpoint}`);
         url.searchParams.append('format', 'json');

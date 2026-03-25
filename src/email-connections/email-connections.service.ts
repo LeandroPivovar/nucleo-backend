@@ -19,24 +19,17 @@ export class EmailConnectionsService {
   }
 
   async create(userId: number, dto: CreateEmailConnectionDto): Promise<EmailConnectionResponse> {
-    const isDomain = dto.type === 'domain';
-    const status = isDomain ? 'pending' : 'verified';
-    const secure = dto.secure ?? (dto.smtpPort === 465);
-
     const connectionData: any = {
-      ...dto,
-      status,
+      type: 'domain',
+      status: 'pending',
       userId,
+      domain: dto.domain,
     };
 
-    if (!isDomain) {
-      connectionData.secure = secure;
-    } else {
-      // Gerar registros DNS fakes para demonstração
-      connectionData.dnsTxt = `v=spf1 include:_spf.nucleocrm.com.br ~all`;
-      connectionData.dnsCname = `nucleo._domainkey.${dto.domain}`;
-      connectionData.dnsMx = `10 mxa.nucleocrm.com.br`;
-    }
+    // Gerar registros DNS fakes para demonstração
+    connectionData.dnsTxt = `v=spf1 include:_spf.nucleocrm.com.br ~all`;
+    connectionData.dnsCname = `nucleo._domainkey.${dto.domain}`;
+    connectionData.dnsMx = `10 mxa.nucleocrm.com.br`;
 
     const connection = this.emailConnectionRepository.create(connectionData as Partial<EmailConnection>);
 

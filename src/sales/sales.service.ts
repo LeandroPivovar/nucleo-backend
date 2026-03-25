@@ -846,8 +846,8 @@ export class SalesService {
     const segments = [
       { name: 'Novos Leads', filter: (c) => new Date(c.createdAt) >= ago7d && parseInt(c.saleCount || '0') == 0 },
       { name: 'Engajados', filter: (c) => parseInt(c.engagementCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.lastActivityAt) >= ago30d },
-      { name: 'Carrinho Ativo', filter: (c) => parseInt(c.cartCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.lastActivityAt) >= ago7d },
-      { name: 'Carrinho Abandonado', filter: (c) => parseInt(c.abandonedCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 },
+      { name: 'Carrinho Ativo', filter: (c) => parseInt(c.cartCount || '0') > 0 && new Date(c.lastActivityAt) >= ago7d },
+      { name: 'Carrinho Abandonado', filter: (c) => parseInt(c.abandonedCount || '0') > 0 },
       { name: 'Compradores', filter: (c) => parseInt(c.saleCount || '0') == 1 },
       { name: 'Clientes Fiéis', filter: (c) => parseInt(c.saleCount || '0') > 1 },
       { name: 'Inativos 30d', filter: (c) => new Date(c.lastActivityAt) < ago30d && new Date(c.lastActivityAt) >= ago60d },

@@ -444,9 +444,9 @@ export class NuvemshopController {
 
     // Processar webhook
     const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-
-    // Aqui você pode processar o webhook conforme necessário
-    // Por exemplo, salvar pedidos, atualizar produtos, etc.
+    const storeId = data.store_id || data.user_id;
+    const event = data.event;
+    await this.nuvemshopService.handleWebhook(storeId, event, data);
 
     return {
       success: true,

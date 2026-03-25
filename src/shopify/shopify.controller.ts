@@ -261,9 +261,7 @@ export class ShopifyController {
 
     // Processar webhook
     const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-
-    // Aqui você pode processar o webhook conforme necessário
-    // Por exemplo, salvar pedidos, atualizar produtos, etc.
+    await this.shopifyService.handleWebhook(topic, shopDomain, data);
 
     return {
       success: true,

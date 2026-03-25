@@ -1289,4 +1289,111 @@ export class NuvemshopService {
     const data = await response.json();
     return data;
   }
+
+  /**
+   * Processa webhooks da Nuvemshop (carrinhos e checkouts)
+   */
+  async handleWebhook(storeId: string, event: string, data: any): Promise<void> {
+    this.logger.log(`[Nuvemshop Webhook] Processando evento ${event} para loja ${storeId}`);
+
+    // Buscar todas as conexões para esta loja
+    const connections = await this.nuvemshopConnectionRepository.find({
+      where: { storeId, isActive: true }
+    });
+
+    if (connections.length === 0) {
+      this.logger.warn(`[Nuvemshop Webhook] Nenhuma conexão ativa encontrada para a loja ${storeId}`);
+      return;
+    }
+
+    for (const connection of connections) {
+      const userId = connection.userId;
+
+      try {
+        if (event.includes('checkout')) {
+          await this.processCartWebhook(userId, event, data);
+        } else if (event.includes('order')) {
+          // A lógica de sincronização de pedidos já existe no syncOrders.
+        }
+      } catch (error) {
+        this.logger.error(`[Nuvemshop Webhook] Erro ao processar webhook para usuário ${userId}:`, error.message);
+      }
+    }
+  }
+
+  /**
+   * Processa webhooks de checkout da Nuvemshop
+   */
+  private async processCartWebhook(userId: number, event: string, data: any): Promise<void> {
+    const customerEmail = data.customer?.email || data.email;
+    if (!customerEmail) return;
+
+    // Buscar ou criar contato
+    let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+    if (!contact) {
+      contact = this.contactRepository.create({
+        userId,
+        email: customerEmail,
+        name: data.customer?.name?.split(' ')[0] || 'Sem Nome',
+        lastName: data.customer?.name?.split(' ').slice(1).join(' ') || '',
+        source: 'nuvemshop',
+        status: 'customer',
+      });
+      await this.contactRepository.save(contact);
+    }
+
+    const items = data.products || data.line_items || [];
+    const externalId = `nuvemshop_checkout_${data.id || data.token}`;
+    const checkoutStatus = data.abandoned ? 'abandoned_cart' : 'active_cart';
+
+    for (const item of items) {
+      const itemName = item.name || item.title;
+      const searchConditions: any[] = [];
+      if (item.sku) searchConditions.push({ userId, sku: item.sku });
+      if (itemName) searchConditions.push({ userId, name: itemName });
+
+      let product = searchConditions.length > 0 ? await this.productRepository.findOne({
+        where: searchConditions
+      }) : null;
+
+      if (!product) {
+        product = this.productRepository.create({
+          userId,
+          name: itemName || 'Produto sem nome',
+          sku: item.sku || '',
+          price: parseFloat(item.price || '0'),
+          stock: 0,
+          active: true,
+        });
+        await this.productRepository.save(product);
+      }
+
+      const existingSale = await this.saleRepository.findOne({
+        where: { userId, externalId, productId: product.id }
+      });
+
+      if (existingSale) {
+        if (existingSale.status !== checkoutStatus) {
+          existingSale.status = checkoutStatus;
+          await this.saleRepository.save(existingSale);
+        }
+      } else {
+        const sale = this.saleRepository.create({
+          userId,
+          productId: product.id,
+          contactId: contact.id,
+          quantity: item.quantity || 1,
+          unitPrice: parseFloat(item.price || '0'),
+          totalValue: parseFloat(item.price || '0') * (item.quantity || 1),
+          customerName: `${contact.name} ${contact.lastName}`,
+          customerEmail: customerEmail,
+          channel: 'nuvemshop',
+          status: checkoutStatus,
+          createdAt: new Date(),
+          externalId: externalId,
+        });
+        await this.saleRepository.save(sale);
+      }
+    }
+  }
 }

@@ -12,6 +12,10 @@ import { Contact } from '../entities/contact.entity';
 import { PixelEvent } from '../entities/pixel-event.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { ImportSaleRow } from './dto/import-sales.dto';
+import { ShopifyService } from '../shopify/shopify.service';
+import { NuvemshopService } from '../nuvemshop/nuvemshop.service';
+import { ShopifyConnection } from '../entities/shopify-connection.entity';
+import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 
 @Injectable()
 export class SalesService {
@@ -26,6 +30,8 @@ export class SalesService {
     private contactRepository: Repository<Contact>,
     @InjectRepository(PixelEvent)
     private pixelEventRepository: Repository<PixelEvent>,
+    private shopifyService: ShopifyService,
+    private nuvemshopService: NuvemshopService,
   ) { }
 
   async create(userId: number, createSaleDto: CreateSaleDto): Promise<Sale> {
@@ -177,7 +183,43 @@ export class SalesService {
     return { startDate, endDate, prevStartDate, prevEndDate };
   }
 
+  /**
+   * Gatilho para sincronizar integrações em segundo plano
+   */
+  private async triggerIntegrationsSync(userId: number) {
+    // Buscar conexões ativas para o usuário
+    try {
+      const [shopifyConns, nuvemshopConns] = await Promise.all([
+        this.shopifyService.getConnections(userId),
+        this.nuvemshopService.getConnections(userId),
+      ]);
+
+      const activeShopify = shopifyConns.filter(c => c.isActive);
+      const activeNuvemshop = nuvemshopConns.filter(c => c.isActive);
+
+      // Sincronizar em paralelo mas em background (sem await no chamador principal)
+      const syncs = [
+        ...activeShopify.map(c => this.shopifyService.syncCheckouts(userId, c.shop)),
+        ...activeNuvemshop.map(c => this.nuvemshopService.syncCheckouts(userId, c.storeId)),
+      ];
+
+      if (syncs.length > 0) {
+        Promise.all(syncs).then(() => {
+          console.log(`[Background Sync] Sincronização de carrinhos concluída para usuário ${userId}`);
+        }).catch(err => {
+          console.error(`[Background Sync] Erro na sincronização de carrinhos para usuário ${userId}:`, err.message);
+        });
+      }
+    } catch (error) {
+      // Silencioso pois é background
+      console.error(`[Background Sync] Falha ao listar conexões para usuário ${userId}:`, error.message);
+    }
+  }
+
   async getDashboardStats(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
+    // Disparar sincronização em background
+    this.triggerIntegrationsSync(userId);
+
     const { startDate, endDate, prevStartDate, prevEndDate } = this.getDateRange(period);
 
     const getCurrentStats = async (start: Date, end: Date) => {
@@ -322,8 +364,8 @@ export class SalesService {
     const engagedResult = await engagedQuery.getRawOne();
     const engagedCount = parseInt(engagedResult.count || '0');
 
-    // 3. Carrinho: Unique users who added to cart
-    const cartQuery = this.pixelEventRepository.createQueryBuilder('event')
+    // 3. Carrinho: Unique users who added to cart OR have a synced checkout
+    const cartPixelQuery = this.pixelEventRepository.createQueryBuilder('event')
       .leftJoin('event.pixel', 'pixel')
       .select('COUNT(DISTINCT event.ip)', 'count')
       .where('pixel.userId = :userId', { userId })
@@ -331,14 +373,29 @@ export class SalesService {
       .andWhere('event.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
     if (filters.campaignId) {
-      cartQuery.andWhere('event.data->>"$.campaignId" = :campaignId', { campaignId: filters.campaignId.toString() });
+      cartPixelQuery.andWhere('event.data->>"$.campaignId" = :campaignId', { campaignId: filters.campaignId.toString() });
     }
     if (filters.productId) {
-      cartQuery.andWhere('event.data->>"$.productId" = :productId', { productId: filters.productId.toString() });
+      cartPixelQuery.andWhere('event.data->>"$.productId" = :productId', { productId: filters.productId.toString() });
     }
 
-    const cartResult = await cartQuery.getRawOne();
-    const cartCount = parseInt(cartResult.count || '0');
+    const cartPixelResult = await cartPixelQuery.getRawOne();
+    const cartPixelCount = parseInt(cartPixelResult.count || '0');
+
+    // Also count checkouts from Sale table (Shopify/Nuvemshop)
+    const cartSaleQuery = this.saleRepository.createQueryBuilder('sale')
+      .select('COUNT(DISTINCT sale.contactId)', 'count')
+      .where('sale.userId = :userId', { userId })
+      .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+
+    if (filters.campaignId) cartSaleQuery.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.productId) cartSaleQuery.andWhere('sale.productId = :productId', { productId: filters.productId });
+
+    const cartSaleResult = await cartSaleQuery.getRawOne();
+    const cartSaleCount = parseInt(cartSaleResult.count || '0');
+
+    const cartCount = cartPixelCount + cartSaleCount;
 
     // 4. Compradores: Unique contacts with sales
     const buyersQuery = this.saleRepository.createQueryBuilder('sale')
@@ -468,18 +525,30 @@ export class SalesService {
 
     const totalBuyers = parseInt((await buyersQb.getRawOne()).count || '0');
 
-    // 3. Cart Events
-    const cartQb = this.pixelEventRepository.createQueryBuilder('event')
+    // 3. Cart Events (Pixel + Synced Checkouts)
+    const cartPixelQb = this.pixelEventRepository.createQueryBuilder('event')
       .leftJoin('event.pixel', 'pixel')
       .innerJoin(Contact, 'contact', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
       .select('COUNT(DISTINCT contact.id)', 'count')
       .where('pixel.userId = :userId', { userId })
       .andWhere('event.event = "AddToCart"');
 
-    if (filters.campaignId) cartQb.andWhere('event.data->>"$.campaignId" = :campId', { campId: filters.campaignId.toString() });
-    if (filters.productId) cartQb.andWhere('event.data->>"$.productId" = :prodId', { prodId: filters.productId.toString() });
+    if (filters.campaignId) cartPixelQb.andWhere('event.data->>"$.campaignId" = :campId', { campId: filters.campaignId.toString() });
+    if (filters.productId) cartPixelQb.andWhere('event.data->>"$.productId" = :prodId', { prodId: filters.productId.toString() });
 
-    const totalCart = parseInt((await cartQb.getRawOne()).count || '0');
+    const totalCartPixel = parseInt((await cartPixelQb.getRawOne()).count || '0');
+
+    const cartSaleQb = this.saleRepository.createQueryBuilder('sale')
+      .select('COUNT(DISTINCT sale.contactId)', 'count')
+      .where('sale.userId = :userId', { userId })
+      .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] });
+
+    if (filters.campaignId) cartSaleQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.productId) cartSaleQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+
+    const totalCartSale = parseInt((await cartSaleQb.getRawOne()).count || '0');
+
+    const totalCart = totalCartPixel + totalCartSale;
 
     // 4. Cart Abandonment (Cart without matching Purchase)
     const abandonedQb = this.pixelEventRepository.createQueryBuilder('event')

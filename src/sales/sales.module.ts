@@ -7,9 +7,15 @@ import { Product } from '../entities/product.entity';
 import { Campaign } from '../entities/campaign.entity';
 import { Contact } from '../entities/contact.entity';
 import { PixelEvent } from '../entities/pixel-event.entity';
+import { ShopifyModule } from '../shopify/shopify.module';
+import { NuvemshopModule } from '../nuvemshop/nuvemshop.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Sale, Product, Campaign, Contact, PixelEvent])],
+  imports: [
+    TypeOrmModule.forFeature([Sale, Product, Campaign, Contact, PixelEvent]),
+    ShopifyModule,
+    NuvemshopModule,
+  ],
   controllers: [SalesController],
   providers: [SalesService],
   exports: [SalesService],

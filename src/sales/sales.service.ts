@@ -803,11 +803,15 @@ export class SalesService {
   }
 
   async getDashboardHeatmap(userId: number, filters: { campaignId?: number; productId?: number }) {
+    // Disparar sincronização em background
+    this.triggerIntegrationsSync(userId);
+
     const rawQb = this.contactRepository.createQueryBuilder('contact')
       .select([
         'contact.id AS id',
         'contact.createdAt AS createdAt',
         'contact.updatedAt AS updatedAt',
+        'MAX(COALESCE(sale.createdAt, contact.updatedAt, event.createdAt)) AS lastActivityAt',
         'COUNT(DISTINCT CASE WHEN sale.status = "completed" THEN sale.id END) AS saleCount',
         'COUNT(DISTINCT CASE WHEN event.event IN ("PageView", "ViewContent") THEN event.id END) AS engagementCount',
         'COUNT(DISTINCT CASE WHEN event.event = "AddToCart" OR sale.status = "active_cart" THEN COALESCE(event.id, sale.id) END) AS cartCount',
@@ -841,14 +845,14 @@ export class SalesService {
 
     const segments = [
       { name: 'Novos Leads', filter: (c) => new Date(c.createdAt) >= ago7d && parseInt(c.saleCount || '0') == 0 },
-      { name: 'Engajados', filter: (c) => parseInt(c.engagementCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.updatedAt) >= ago30d },
-      { name: 'Carrinho Ativo', filter: (c) => parseInt(c.cartCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.updatedAt) >= ago7d },
+      { name: 'Engajados', filter: (c) => parseInt(c.engagementCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.lastActivityAt) >= ago30d },
+      { name: 'Carrinho Ativo', filter: (c) => parseInt(c.cartCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 && new Date(c.lastActivityAt) >= ago7d },
       { name: 'Carrinho Abandonado', filter: (c) => parseInt(c.abandonedCount || '0') > 0 && parseInt(c.saleCount || '0') == 0 },
       { name: 'Compradores', filter: (c) => parseInt(c.saleCount || '0') == 1 },
       { name: 'Clientes Fiéis', filter: (c) => parseInt(c.saleCount || '0') > 1 },
-      { name: 'Inativos 30d', filter: (c) => new Date(c.updatedAt) < ago30d && new Date(c.updatedAt) >= ago60d },
-      { name: 'Inativos 60d', filter: (c) => new Date(c.updatedAt) < ago60d },
-      { name: 'Recuperados', filter: (c) => parseInt(c.saleCount || '0') > 0 && new Date(c.updatedAt) >= ago7d && new Date(c.createdAt) < ago30d }
+      { name: 'Inativos 30d', filter: (c) => new Date(c.lastActivityAt) < ago30d && new Date(c.lastActivityAt) >= ago60d },
+      { name: 'Inativos 60d', filter: (c) => new Date(c.lastActivityAt) < ago60d },
+      { name: 'Recuperados', filter: (c) => parseInt(c.saleCount || '0') > 0 && new Date(c.lastActivityAt) >= ago7d && new Date(c.createdAt) < ago30d }
     ];
 
     return segments.map(seg => {

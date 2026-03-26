@@ -5,10 +5,6 @@ import {
 } from 'class-validator';
 
 export class UpdateScoreConfigDto {
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  emailOpens?: number;
 
   @IsOptional()
   @IsNumber()

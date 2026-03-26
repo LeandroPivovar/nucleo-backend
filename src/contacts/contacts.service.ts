@@ -431,6 +431,26 @@ export class ContactsService {
       .getRawMany();
     stats['clicked_campaign'] = engajados.length;
 
+    // 12. Carrinho Abandonado (Vendas com status active_cart ou abandoned_cart)
+    const abandonedCarts = await this.saleRepository.createQueryBuilder('sale')
+      .select('DISTINCT sale.contactId')
+      .innerJoin('sale.contact', 'contact')
+      .where('contact.userId = :userId', { userId })
+      .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
+      .getRawMany();
+
+    stats['abandoned_cart'] = abandonedCarts.length;
+
+    // 13. Cliente Recuperado (Teve carrinho abandonado E compra concluída)
+    const recovered = await this.contactsRepository.createQueryBuilder('contact')
+      .innerJoin('contact.sales', 's1', 's1.status = "completed"')
+      .innerJoin('contact.sales', 's2', 's2.status IN ("active_cart", "abandoned_cart")')
+      .where('contact.userId = :userId', { userId })
+      .select('COUNT(DISTINCT contact.id)', 'count')
+      .getRawOne();
+
+    stats['cart_recovered_customer'] = parseInt(recovered.count || '0');
+
 
     // 10. Contagem manual das segmentações persistidas (Fallback para o que ainda é manual)
 
@@ -454,7 +474,7 @@ export class ContactsService {
     const commonKeys = [
       'birthday', 'gender_male', 'gender_female',
       'active_coupon', 'cart_recovered_customer', 'no_purchase_x_days',
-      'clicked_campaign', 'opened_campaign'
+      'clicked_campaign', 'abandoned_cart'
     ];
     commonKeys.forEach(key => {
       if (stats[key] === undefined) stats[key] = 0;
@@ -570,6 +590,34 @@ export class ContactsService {
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
+      } else if (segId === 'abandoned_cart') {
+        const subQuery = this.saleRepository.createQueryBuilder('sale')
+          .select('DISTINCT sale.contactId')
+          .where('sale.userId = :userId', { userId })
+          .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] });
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
+      } else if (segId === 'cart_recovered_customer') {
+        const subQuery = this.contactsRepository.createQueryBuilder('c')
+          .select('c.id')
+          .innerJoin('c.sales', 's1', 's1.status = "completed"')
+          .innerJoin('c.sales', 's2', 's2.status IN ("active_cart", "abandoned_cart")')
+          .where('c.userId = :userId', { userId });
+
+        orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+        Object.assign(parameters, subQuery.getParameters());
+      } else if (segId === 'purchased_product') {
+        const productIds = segParams.productIds || [];
+        if (productIds.length > 0) {
+          const subQuery = this.saleRepository.createQueryBuilder('sale')
+            .select('DISTINCT sale.contactId')
+            .where('sale.productId IN (:...productIds)', { productIds })
+            .andWhere('sale.status = :completedStatus', { completedStatus: 'completed' });
+
+          orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+          Object.assign(parameters, subQuery.getParameters());
+        }
       } else {
         // Fallback para segmentações manuais persistidas
         orConditions.push(`cs.segmentationId = :${paramName}`);

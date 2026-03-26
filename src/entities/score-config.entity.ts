@@ -21,9 +21,6 @@ export class ScoreConfig {
   @Column()
   userId: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, default: 2 })
-  emailOpens: number;
-
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 3 })
   linkClicks: number;
 

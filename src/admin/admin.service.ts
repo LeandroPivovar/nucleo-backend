@@ -14,6 +14,13 @@ import { Campaign } from '../entities/campaign.entity';
 import { UserUsage } from '../entities/user-usage.entity';
 import { SystemSetting } from '../entities/system-setting.entity';
 import { JwtService } from '@nestjs/jwt';
+import { Category } from '../entities/category.entity';
+import { InternalAnalytics } from '../entities/internal-analytics.entity';
+import { ShopifyConnection } from '../entities/shopify-connection.entity';
+import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
+import { VtexConnection } from '../entities/vtex-connection.entity';
+import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.entity';
+import { CampaignClick } from '../entities/campaign-click.entity';
 import * as bcrypt from 'bcrypt';
 
 export interface MonthlyFinanceData {
@@ -59,6 +66,20 @@ export class AdminService {
         private emailConnectionRepository: Repository<EmailConnection>,
         @InjectRepository(Notification)
         private notificationRepository: Repository<Notification>,
+        @InjectRepository(Category)
+        private categoryRepository: Repository<Category>,
+        @InjectRepository(InternalAnalytics)
+        private analyticsRepository: Repository<InternalAnalytics>,
+        @InjectRepository(ShopifyConnection)
+        private shopifyConnectionRepository: Repository<ShopifyConnection>,
+        @InjectRepository(NuvemshopConnection)
+        private nuvemshopConnectionRepository: Repository<NuvemshopConnection>,
+        @InjectRepository(VtexConnection)
+        private vtexConnectionRepository: Repository<VtexConnection>,
+        @InjectRepository(LojaIntegradaConnection)
+        private liConnectionRepository: Repository<LojaIntegradaConnection>,
+        @InjectRepository(CampaignClick)
+        private campaignClickRepository: Repository<CampaignClick>,
         private jwtService: JwtService,
     ) { }
 
@@ -660,5 +681,88 @@ export class AdminService {
         await this.notificationRepository.save(notification);
 
         return connection;
+    }
+
+    async getSystemOverviewStats() {
+        const [
+            contactsCount,
+            campaignsCount,
+            categoriesCount,
+            trackingLinksCount, // Counting CampaignClicks as a proxy for link interaction or simply total campaign setups
+            shopifyCount,
+            nuvemshopCount,
+            vtexCount,
+            liCount,
+        ] = await Promise.all([
+            this.contactRepository.count(),
+            this.campaignRepository.count(),
+            this.categoryRepository.count(),
+            this.campaignClickRepository.count(),
+            this.shopifyConnectionRepository.count(),
+            this.nuvemshopConnectionRepository.count(),
+            this.vtexConnectionRepository.count(),
+            this.liConnectionRepository.count(),
+        ]);
+
+        const usageStats = await this.usageRepository.createQueryBuilder('usage')
+            .select('SUM(usage.emailsSent)', 'emails')
+            .addSelect('SUM(usage.smsSent)', 'sms')
+            .getRawOne();
+
+        const topPages = await this.analyticsRepository.createQueryBuilder('event')
+            .select('event.name', 'name')
+            .addSelect('COUNT(event.id)', 'count')
+            .where('event.type = :type', { type: 'page_view' })
+            .groupBy('event.name')
+            .orderBy('count', 'DESC')
+            .limit(10)
+            .getRawMany();
+
+        const topActions = await this.analyticsRepository.createQueryBuilder('event')
+            .select('event.name', 'name')
+            .addSelect('COUNT(event.id)', 'count')
+            .where('event.type = :type', { type: 'action' })
+            .groupBy('event.name')
+            .orderBy('count', 'DESC')
+            .limit(10)
+            .getRawMany();
+
+        return {
+            counts: {
+                contacts: contactsCount,
+                campaigns: campaignsCount,
+                categories: categoriesCount,
+                trackingLinks: trackingLinksCount,
+                integrations: Number(shopifyCount) + Number(nuvemshopCount) + Number(vtexCount) + Number(liCount),
+                emailsSent: Number(usageStats?.emails || 0),
+                smsSent: Number(usageStats?.sms || 0),
+            },
+            integrationsBreakdown: {
+                shopify: shopifyCount,
+                nuvemshop: nuvemshopCount,
+                vtex: vtexCount,
+                lojaIntegrada: liCount,
+            },
+            topPages,
+            topActions,
+        };
+    }
+
+    async getDailyEventStats(days = 30) {
+        const date = new Date();
+        date.setDate(date.getDate() - days);
+
+        const stats = await this.analyticsRepository.createQueryBuilder('event')
+            .select('DATE(event.timestamp)', 'date')
+            .addSelect('COUNT(event.id)', 'count')
+            .where('event.timestamp >= :date', { date })
+            .groupBy('DATE(event.timestamp)')
+            .orderBy('date', 'ASC')
+            .getRawMany();
+
+        return stats.map(s => ({
+            date: s.date,
+            count: Number(s.count),
+        }));
     }
 }

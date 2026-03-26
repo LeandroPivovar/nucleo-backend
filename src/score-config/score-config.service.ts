@@ -9,7 +9,7 @@ export class ScoreConfigService {
   constructor(
     @InjectRepository(ScoreConfig)
     private scoreConfigRepository: Repository<ScoreConfig>,
-  ) {}
+  ) { }
 
   async getOrCreate(userId: number): Promise<ScoreConfig> {
     let config = await this.scoreConfigRepository.findOne({
@@ -20,7 +20,6 @@ export class ScoreConfigService {
       // Criar configuração padrão
       config = this.scoreConfigRepository.create({
         userId,
-        emailOpens: 2,
         linkClicks: 3,
         purchases: 10,
         ltvDivisor: 10,
@@ -37,9 +36,6 @@ export class ScoreConfigService {
   ): Promise<ScoreConfig> {
     let config = await this.getOrCreate(userId);
 
-    if (updateDto.emailOpens !== undefined) {
-      config.emailOpens = updateDto.emailOpens;
-    }
     if (updateDto.linkClicks !== undefined) {
       config.linkClicks = updateDto.linkClicks;
     }
@@ -56,7 +52,6 @@ export class ScoreConfigService {
   async resetToDefaults(userId: number): Promise<ScoreConfig> {
     let config = await this.getOrCreate(userId);
 
-    config.emailOpens = 2;
     config.linkClicks = 3;
     config.purchases = 10;
     config.ltvDivisor = 10;

@@ -32,6 +32,7 @@ import { LoginAttempt } from '../entities/login-attempt.entity';
 import { NotificationPreference } from '../entities/notification-preference.entity';
 import { SystemSetting } from '../entities/system-setting.entity';
 import { WebhookLog } from '../entities/webhook-log.entity';
+import { InternalAnalytics } from '../entities/internal-analytics.entity';
 
 config();
 
@@ -74,7 +75,8 @@ export const AppDataSource = new DataSource({
     LoginAttempt,
     NotificationPreference,
     SystemSetting,
-    WebhookLog
+    WebhookLog,
+    InternalAnalytics
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

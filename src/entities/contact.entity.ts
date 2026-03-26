@@ -83,7 +83,6 @@ export class Contact {
 
   // Virtual fields populated in service
   hasClickedCampaign?: boolean;
-  hasOpenedCampaign?: boolean;
   hasActiveCoupon?: boolean;
 
   @CreateDateColumn()

@@ -15,6 +15,13 @@ import { Sale } from '../entities/sale.entity';
 import { SystemSetting } from '../entities/system-setting.entity';
 import { EmailConnection } from '../entities/email-connection.entity';
 import { Notification } from '../entities/notification.entity';
+import { Category } from '../entities/category.entity';
+import { InternalAnalytics } from '../entities/internal-analytics.entity';
+import { ShopifyConnection } from '../entities/shopify-connection.entity';
+import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
+import { VtexConnection } from '../entities/vtex-connection.entity';
+import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.entity';
+import { CampaignClick } from '../entities/campaign-click.entity';
 
 @Module({
     imports: [
@@ -30,6 +37,13 @@ import { Notification } from '../entities/notification.entity';
             SystemSetting,
             EmailConnection,
             Notification,
+            Category,
+            InternalAnalytics,
+            ShopifyConnection,
+            NuvemshopConnection,
+            VtexConnection,
+            LojaIntegradaConnection,
+            CampaignClick,
         ]),
         JwtModule.registerAsync({
             imports: [ConfigModule],

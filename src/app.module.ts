@@ -55,6 +55,7 @@ import { SystemSettingsModule } from './system-settings/system-settings.module';
 import { CategoriesModule } from './categories/categories.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { AdminModule } from './admin/admin.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -105,6 +106,7 @@ import { AdminModule } from './admin/admin.module';
     UploadsModule,
     AdminModule,
     LojaIntegradaModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

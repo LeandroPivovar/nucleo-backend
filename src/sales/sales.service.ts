@@ -250,7 +250,7 @@ export class SalesService {
       // Campaign Stats
       const campaignQb = this.campaignRepository.createQueryBuilder('campaign')
         .select('SUM(campaign.sentCount)', 'envios')
-        .addSelect('SUM(campaign.deliveredCount)', 'aberturas')
+        .addSelect('SUM(campaign.deliveredCount)', 'recebidos')
         .addSelect('SUM(campaign.clicksCount)', 'cliques')
         .where('campaign.userId = :userId', { userId })
         .andWhere('campaign.updatedAt BETWEEN :start AND :end', { start, end });
@@ -284,7 +284,7 @@ export class SalesService {
         faturamento: parseFloat(salesResult.faturamento || '0'),
         vendas: parseInt(salesResult.vendas || '0'),
         envios: parseInt(campaignResult.envios || '0'),
-        aberturas: parseInt(campaignResult.aberturas || '0'),
+        recebidos: parseInt(campaignResult.recebidos || '0'),
         cliques: parseInt(campaignResult.cliques || '0'),
         respostas: responseCount,
       };
@@ -301,8 +301,8 @@ export class SalesService {
     const ticketMedio = current.vendas > 0 ? current.faturamento / current.vendas : 0;
     const prevTicketMedio = previous.vendas > 0 ? previous.faturamento / previous.vendas : 0;
 
-    const openRate = current.envios > 0 ? (current.aberturas / current.envios) * 100 : 0;
-    const prevOpenRate = previous.envios > 0 ? (previous.aberturas / previous.envios) * 100 : 0;
+    const deliveryRate = current.envios > 0 ? (current.recebidos / current.envios) * 100 : 0;
+    const prevDeliveryRate = previous.envios > 0 ? (previous.recebidos / previous.envios) * 100 : 0;
 
     // CTR calculation (Clicks / Envios or Clicks / Opens?) Usually Clicks / Envios (or delivery)
     const ctr = current.envios > 0 ? (current.cliques / current.envios) * 100 : 0;
@@ -314,9 +314,9 @@ export class SalesService {
       faturamento: current.faturamento,
       vendas: current.vendas,
       envios: current.envios,
-      aberturas: current.aberturas,
+      recebidos: current.recebidos,
       cliques: current.cliques,
-      openRate,
+      deliveryRate,
       ctr,
       respostas: current.respostas,
       responseRate,
@@ -325,9 +325,9 @@ export class SalesService {
         faturamento: calculateTrend(current.faturamento, previous.faturamento),
         vendas: calculateTrend(current.vendas, previous.vendas),
         envios: calculateTrend(current.envios, previous.envios),
-        aberturas: calculateTrend(current.aberturas, previous.aberturas),
+        recebidos: calculateTrend(current.recebidos, previous.recebidos),
         cliques: calculateTrend(current.cliques, previous.cliques),
-        openRate: calculateTrend(openRate, prevOpenRate),
+        deliveryRate: calculateTrend(deliveryRate, prevDeliveryRate),
         ticketMedio: calculateTrend(ticketMedio, prevTicketMedio),
         respostas: calculateTrend(current.respostas, previous.respostas),
         responseRate: calculateTrend(responseRate, prevResponseRate)

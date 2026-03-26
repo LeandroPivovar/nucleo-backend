@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThanOrEqual, Repository } from 'typeorm';
+import { LessThanOrEqual, Repository, In, MoreThan } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Campaign } from '../../entities/campaign.entity';
 import { ZenviaService } from '../../zenvia/zenvia.service';
@@ -622,6 +622,28 @@ export class CampaignSchedulerService {
                 where: { campaignId, contactId: contact.id }
             });
             result = !!click;
+        } else if (condType === 'cart_abandoned') {
+            const cart = await this.saleRepository.findOne({
+                where: {
+                    contactId: contact.id,
+                    userId: campaign.userId,
+                    status: In(['active_cart', 'abandoned_cart'])
+                }
+            });
+            result = !!cart;
+        } else if (condType === 'has_active_coupon') {
+            const now = new Date();
+            const coupon = await this.campaignCouponRepository.findOne({
+                where: {
+                    contactId: contact.id,
+                    userId: campaign.userId,
+                    endsAt: MoreThan(now)
+                }
+            });
+            result = !!coupon;
+        } else if (condType === 'in_group') {
+            const targetGroupId = parseInt(node.data?.groupId);
+            result = contact.groupId === targetGroupId;
         } else if (eventContext) {
             if ((condType === 'order_value' || condType === 'min_value') && eventContext.value) {
                 const val = parseFloat(eventContext.value);

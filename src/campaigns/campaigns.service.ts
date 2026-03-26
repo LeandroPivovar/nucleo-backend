@@ -361,7 +361,7 @@ export class CampaignsService {
             type: camp.channel === 'email' ? 'E-mail' : camp.channel === 'sms' ? 'SMS' : 'WhatsApp',
             status: camp.status === 'ativa' ? 'Ativa' : camp.status === 'pausada' ? 'Pausada' : camp.status === 'agendada' ? 'Agendada' : camp.status === 'finalizada' ? 'Finalizada' : 'Rascunho',
             sent: camp.sentCount || 0,
-            opens: camp.deliveredCount || 0,
+            recebidos: camp.deliveredCount || 0,
             clicks: camp.clicksCount || 0
         }));
 
@@ -452,7 +452,6 @@ export class CampaignsService {
 
         const channelPerformance = Object.values(channelPerformanceMap).map(p => ({
             ...p,
-            taxaAbertura: p.envios > 0 ? (p.recebidos / p.envios) * 100 : 0,
             taxaEntrega: p.envios > 0 ? (p.recebidos / p.envios) * 100 : 0
         }));
 

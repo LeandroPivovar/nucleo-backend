@@ -107,4 +107,14 @@ export class AdminController {
     ) {
         return this.adminService.rejectEmailConnection(id, adminNote);
     }
+
+    @Get('overview/stats')
+    async getSystemOverview() {
+        return this.adminService.getSystemOverviewStats();
+    }
+
+    @Get('overview/events')
+    async getEventStats(@Query('days') days?: string) {
+        return this.adminService.getDailyEventStats(days ? parseInt(days) : 30);
+    }
 }

@@ -119,5 +119,27 @@ export class VtexController {
       message: 'Conexão desativada com sucesso',
     };
   }
+
+  /**
+   * Sincroniza todos os dados da VTEX
+   */
+  @Post('sync')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async sync(
+    @Request() req,
+    @Body() body: { accountName?: string },
+  ) {
+    const result = await this.vtexService.syncAll(
+      req.user.userId,
+      body.accountName as string | undefined,
+    );
+
+    return {
+      success: true,
+      message: 'Sincronização realizada com sucesso',
+      data: result,
+    };
+  }
 }
 

@@ -8,6 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { VtexConnection } from '../entities/vtex-connection.entity';
+import { Product } from '../entities/product.entity';
+import { Sale } from '../entities/sale.entity';
+import { Contact } from '../entities/contact.entity';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -17,6 +20,12 @@ export class VtexService {
   constructor(
     @InjectRepository(VtexConnection)
     private vtexConnectionRepository: Repository<VtexConnection>,
+    @InjectRepository(Product)
+    private productRepository: Repository<Product>,
+    @InjectRepository(Sale)
+    private saleRepository: Repository<Sale>,
+    @InjectRepository(Contact)
+    private contactRepository: Repository<Contact>,
     private configService: ConfigService,
   ) {
     // Usar uma chave de criptografia específica para VTEX ou uma chave geral
@@ -264,7 +273,306 @@ export class VtexService {
    * Obtém a URL base da API VTEX
    */
   getApiBaseUrl(accountName: string): string {
-    return `https://${accountName}.myvtex.com`;
+    return `https://${accountName}.vtexcommercestable.com.br`;
+  }
+
+  /**
+   * Helper para fazer requisições à VTEX
+   */
+  private async makeRequest(
+    userId: number,
+    accountName: string,
+    endpoint: string,
+    options: any = {},
+  ): Promise<any> {
+    const credentials = await this.getCredentials(userId, accountName);
+    const baseUrl = this.getApiBaseUrl(credentials.accountName);
+
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      ...options,
+      headers: {
+        'X-VTEX-API-AppKey': credentials.appKey,
+        'X-VTEX-API-AppToken': credentials.appToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      const errorText = await response.text();
+      throw new Error(`Erro na VTEX (${response.status}): ${errorText}`);
+    }
+
+    if (response.status === 204) return null;
+    return await response.json();
+  }
+
+  /**
+   * Sincroniza produtos da VTEX
+   */
+  async syncProducts(userId: number, accountName?: string): Promise<any> {
+    const connection = await this.getActiveConnection(userId, accountName);
+    const resolvedAccountName = connection.accountName;
+
+    const skuIds = await this.makeRequest(
+      userId,
+      resolvedAccountName,
+      '/api/catalog_system/pvt/sku/stockkeepingunitids?pagesize=100',
+    );
+
+    if (!skuIds || !Array.isArray(skuIds)) return { imported: 0, updated: 0 };
+
+    let imported = 0;
+    let updated = 0;
+
+    for (const skuId of skuIds) {
+      try {
+        const sku = await this.makeRequest(
+          userId,
+          accountName,
+          `/api/catalog_system/pvt/sku/stockkeepingunitbyid/${skuId}`,
+        );
+
+        if (!sku) continue;
+
+        let product = await this.productRepository.findOne({
+          where: [
+            { sku: sku.RefId || sku.Id.toString(), userId },
+          ],
+        });
+
+        // Tentar encontrar por externalId se não achou por SKU
+        if (!product) {
+          // SQL query para buscar no JSON externalIds
+          product = await this.productRepository
+            .createQueryBuilder('p')
+            .where('p.userId = :userId', { userId })
+            .andWhere("JSON_EXTRACT(p.externalIds, '$.vtex.\"${accountName}\"') = :extId", {
+              extId: sku.ProductId.toString(),
+            })
+            .getOne();
+        }
+
+        const productData = {
+          name: sku.NameComplete || sku.ProductName,
+          description: sku.ProductDescription || '',
+          price: sku.ListPrice || sku.Price || 0,
+          stock: sku.AvailableQuantity || 0,
+          sku: sku.RefId || sku.Id.toString(),
+          active: sku.IsActive,
+          userId,
+          externalIds: product?.externalIds || {},
+        };
+
+        if (!productData.externalIds) productData.externalIds = {};
+        if (!(productData.externalIds as any).vtex) (productData.externalIds as any).vtex = {};
+        (productData.externalIds as any).vtex[accountName] = sku.ProductId.toString();
+
+        if (product) {
+          Object.assign(product, productData);
+          updated++;
+        } else {
+          product = this.productRepository.create(productData);
+          imported++;
+        }
+
+        await this.productRepository.save(product);
+      } catch (err) {
+        console.error(`Erro ao sincronizar SKU ${skuId}:`, err);
+      }
+    }
+
+    return { imported, updated };
+  }
+
+  /**
+   * Sincroniza clientes da VTEX (Master Data CL)
+   */
+  async syncCustomers(userId: number, accountName?: string): Promise<any> {
+    const connection = await this.getActiveConnection(userId, accountName);
+    const resolvedAccountName = connection.accountName;
+
+    const customers = await this.makeRequest(
+      userId,
+      resolvedAccountName,
+      '/api/dataentities/CL/search?_fields=email,firstName,lastName,homePhone,phone,id',
+    );
+
+    if (!customers || !Array.isArray(customers)) return { imported: 0, updated: 0 };
+
+    let imported = 0;
+    let updated = 0;
+
+    for (const cust of customers) {
+      if (!cust.email) continue;
+
+      let contact = await this.contactRepository.findOne({
+        where: { email: cust.email, userId },
+      });
+
+      const contactData = {
+        name: cust.firstName || 'Cliente',
+        lastName: cust.lastName || '',
+        email: cust.email,
+        phone: cust.phone || cust.homePhone || '',
+        userId,
+        source: 'VTEX',
+      };
+
+      if (contact) {
+        Object.assign(contact, contactData);
+        updated++;
+      } else {
+        contact = this.contactRepository.create(contactData);
+        imported++;
+      }
+
+      await this.contactRepository.save(contact);
+    }
+
+    return { imported, updated };
+  }
+
+  /**
+   * Sincroniza pedidos da VTEX (OMS)
+   */
+  async syncOrders(userId: number, accountName?: string): Promise<any> {
+    const connection = await this.getActiveConnection(userId, accountName);
+    const resolvedAccountName = connection.accountName;
+
+    const orders = await this.makeRequest(
+      userId,
+      resolvedAccountName,
+      '/api/oms/pvt/orders',
+    );
+
+    if (!orders || !orders.list) return { imported: 0, updated: 0 };
+
+    let imported = 0;
+    let updated = 0;
+
+    for (const orderSummary of orders.list) {
+      try {
+        const order = await this.makeRequest(
+          userId,
+          accountName,
+          `/api/oms/pvt/orders/${orderSummary.orderId}`,
+        );
+
+        if (!order) continue;
+
+        let sale = await this.saleRepository.findOne({
+          where: { externalId: order.orderId, userId },
+        });
+
+        // Encontrar ou criar contato
+        let contact = await this.contactRepository.findOne({
+          where: { email: order.clientProfileData.email, userId },
+        });
+
+        if (!contact) {
+          contact = this.contactRepository.create({
+            name: order.clientProfileData.firstName,
+            lastName: order.clientProfileData.lastName,
+            email: order.clientProfileData.email,
+            phone: order.clientProfileData.phone,
+            userId,
+            source: 'VTEX',
+          });
+          await this.contactRepository.save(contact);
+        }
+
+        const saleData = {
+          externalId: order.orderId,
+          userId,
+          contactId: contact.id,
+          totalValue: order.value / 100, // VTEX envia em centavos
+          status: this.mapVtexStatus(order.status),
+          createdAt: new Date(order.creationDate),
+          quantity: order.items.length,
+          channel: 'VTEX',
+        };
+
+        if (sale) {
+          Object.assign(sale, saleData);
+          updated++;
+        } else {
+          sale = this.saleRepository.create(saleData);
+          imported++;
+        }
+
+        await this.saleRepository.save(sale);
+      } catch (err) {
+        console.error(`Erro ao sincronizar pedido ${orderSummary.orderId}:`, err);
+      }
+    }
+
+    return { imported, updated };
+  }
+
+  /**
+   * Sincroniza carrinhos abandonados da VTEX
+   */
+  async syncAbandonedCarts(userId: number, accountName?: string): Promise<any> {
+    const connection = await this.getActiveConnection(userId, accountName);
+    const resolvedAccountName = connection.accountName;
+    // Na VTEX, carrinhos abandonados costumam ser monitorados via Master Data (entidade CL ou checkout)
+    // Aqui usaremos uma busca por clientes que tenham carrinhos pendentes se disponível
+    // Ou simulamos via orders com status específicos se necessário.
+    // Conforme documentação típica: busca em CL com filtro de data de checkout
+    const abandoned = await this.makeRequest(
+      userId,
+      accountName,
+      '/api/dataentities/CL/search?_fields=email,lastCart,lastCartDate&_where=lastCartDate is not null',
+    );
+
+    if (!abandoned || !Array.isArray(abandoned)) return { imported: 0 };
+
+    let imported = 0;
+    for (const cart of abandoned) {
+      // Lógica de negócio: se lastCartDate < 24h e sem pedido concluído
+      // Simplificando: criar sale com status 'abandoned_cart'
+      // ... implementação similar ao syncOrders mas com status fixo
+    }
+
+    return { imported };
+  }
+
+  private mapVtexStatus(vtexStatus: string): string {
+    switch (vtexStatus) {
+      case 'invoiced':
+      case 'payment-approved':
+        return 'completed';
+      case 'canceled':
+        return 'cancelled';
+      case 'waiting-for-seller-decision':
+        return 'processing';
+      default:
+        return 'pending';
+    }
+  }
+
+  async syncAll(userId: number, accountName?: string): Promise<any> {
+    const connection = await this.getActiveConnection(userId, accountName);
+    const resolvedAccountName = connection.accountName;
+
+    const products = await this.syncProducts(userId, resolvedAccountName);
+    const customers = await this.syncCustomers(userId, resolvedAccountName);
+    const orders = await this.syncOrders(userId, resolvedAccountName);
+    // const abandoned = await this.syncAbandonedCarts(userId, resolvedAccountName);
+
+    // Atualizar lastSyncAt
+    connection.lastSyncAt = new Date();
+    await this.vtexConnectionRepository.save(connection);
+
+    return {
+      products,
+      customers,
+      orders,
+      // abandoned,
+    };
   }
 }
 

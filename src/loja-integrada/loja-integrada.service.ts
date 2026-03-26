@@ -290,4 +290,11 @@ export class LojaIntegradaService {
         }
         return { imported };
     }
+
+    async syncAll(userId: number): Promise<any> {
+        const products = await this.syncProducts(userId);
+        const orders = await this.syncOrders(userId);
+        const checkouts = await this.syncCheckouts(userId);
+        return { products, orders, checkouts };
+    }
 }

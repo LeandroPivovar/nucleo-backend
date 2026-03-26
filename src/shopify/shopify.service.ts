@@ -1231,5 +1231,25 @@ export class ShopifyService {
     // Na verdade, o externalId do checkout é diferente do externalId do pedido na Shopify.
     // Mas o contato agora terá uma venda 'completed', o que tira ele do filtro de cart no dashboard.
   }
+
+  /**
+   * Sincroniza todos os dados da Shopify (Clientes, Pedidos, Checkouts e Produtos)
+   */
+  async syncAll(userId: number, shop?: string): Promise<any> {
+    const connection = await this.getActiveConnection(userId, shop);
+    const resolvedShop = connection.shop;
+
+    const customers = await this.syncCustomers(userId, resolvedShop);
+    const orders = await this.syncOrders(userId, resolvedShop);
+    const checkouts = await this.syncCheckouts(userId, resolvedShop);
+    const products = await this.syncProductsToCrm(userId, resolvedShop);
+
+    return {
+      customers,
+      orders,
+      checkouts,
+      products,
+    };
+  }
 }
 

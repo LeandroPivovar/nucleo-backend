@@ -1396,4 +1396,31 @@ export class NuvemshopService {
       }
     }
   }
+  /**
+   * Sincroniza todos os dados da Nuvemshop (Clientes, Pedidos e Produtos)
+   */
+  async syncAll(userId: number, storeId?: string): Promise<any> {
+    const connection = await this.getActiveConnection(userId, storeId);
+    const resolvedStoreId = connection.storeId;
+
+    const customers = await this.syncCustomers(userId, resolvedStoreId);
+    const orders = await this.syncOrders(userId, resolvedStoreId);
+    const products = await this.syncProductsToCrm(userId, resolvedStoreId);
+    
+    // Buscar checkouts abandonados via API
+    let abandonedCount = 0;
+    try {
+      const checkouts = await this.makeApiRequest(userId, resolvedStoreId, '/checkouts?status=abandoned', 'GET', null, true);
+      abandonedCount = Array.isArray(checkouts) ? checkouts.length : 0;
+    } catch (e) {
+      this.logger.error(`Erro ao sincronizar checkouts da Nuvemshop: ${e.message}`);
+    }
+
+    return {
+      customers,
+      orders,
+      products,
+      checkouts: { imported: abandonedCount }
+    };
+  }
 }

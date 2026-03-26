@@ -294,8 +294,9 @@ export class SalesService {
     const previous = await getCurrentStats(prevStartDate, prevEndDate);
 
     const calculateTrend = (curr: number, prev: number) => {
-      if (prev === 0) return curr > 0 ? 100 : 0;
-      return ((curr - prev) / prev) * 100;
+      if (!prev || prev === 0) return curr > 0 ? 100 : 0;
+      const trend = ((curr - prev) / prev) * 100;
+      return isNaN(trend) ? 0 : trend;
     };
 
     const ticketMedio = current.vendas > 0 ? current.faturamento / current.vendas : 0;
@@ -615,10 +616,12 @@ export class SalesService {
     const loyaltyRate = totalBuyers > 0 ? (loyalCount / totalBuyers) * 100 : 0;
     const abandonmentRate = totalCart > 0 ? (totalCartNoPurchase / totalCart) * 100 : 0;
 
+    const safeRound = (val: number) => isNaN(val) ? 0 : Math.round(val);
+
     return {
-      conversionRate: Math.round(conversionRate),
-      loyaltyRate: Math.round(loyaltyRate),
-      abandonmentRate: Math.round(abandonmentRate),
+      conversionRate: safeRound(conversionRate),
+      loyaltyRate: safeRound(loyaltyRate),
+      abandonmentRate: safeRound(abandonmentRate),
       abandonedCart: totalCartNoPurchase,
       recentBuyers: totalBuyers,
       inactive: inactiveCount

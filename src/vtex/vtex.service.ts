@@ -331,7 +331,7 @@ export class VtexService {
       try {
         const sku = await this.makeRequest(
           userId,
-          accountName,
+          resolvedAccountName,
           `/api/catalog_system/pvt/sku/stockkeepingunitbyid/${skuId}`,
         );
 
@@ -349,7 +349,7 @@ export class VtexService {
           product = await this.productRepository
             .createQueryBuilder('p')
             .where('p.userId = :userId', { userId })
-            .andWhere("JSON_EXTRACT(p.externalIds, '$.vtex.\"${accountName}\"') = :extId", {
+            .andWhere("JSON_EXTRACT(p.externalIds, '$.vtex.\"${resolvedAccountName}\"') = :extId", {
               extId: sku.ProductId.toString(),
             })
             .getOne();
@@ -368,7 +368,7 @@ export class VtexService {
 
         if (!productData.externalIds) productData.externalIds = {};
         if (!(productData.externalIds as any).vtex) (productData.externalIds as any).vtex = {};
-        (productData.externalIds as any).vtex[accountName] = sku.ProductId.toString();
+        (productData.externalIds as any).vtex[resolvedAccountName] = sku.ProductId.toString();
 
         if (product) {
           Object.assign(product, productData);
@@ -457,7 +457,7 @@ export class VtexService {
       try {
         const order = await this.makeRequest(
           userId,
-          accountName,
+          resolvedAccountName,
           `/api/oms/pvt/orders/${orderSummary.orderId}`,
         );
 
@@ -524,7 +524,7 @@ export class VtexService {
     // Conforme documentação típica: busca em CL com filtro de data de checkout
     const abandoned = await this.makeRequest(
       userId,
-      accountName,
+      resolvedAccountName,
       '/api/dataentities/CL/search?_fields=email,lastCart,lastCartDate&_where=lastCartDate is not null',
     );
 

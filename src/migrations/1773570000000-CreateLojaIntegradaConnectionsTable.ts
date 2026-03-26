@@ -70,10 +70,14 @@ export class CreateLojaIntegradaConnectionsTable1773570000000 implements Migrati
 
     public async down(queryRunner: QueryRunner): Promise<void> {
         const table = await queryRunner.getTable("loja_integrada_connections");
-        const foreignKey = table.foreignKeys.find(
-            (fk) => fk.columnNames.indexOf("userId") !== -1
-        );
-        await queryRunner.dropForeignKey("loja_integrada_connections", foreignKey);
+        if (table) {
+            const foreignKey = table.foreignKeys.find(
+                (fk) => fk.columnNames.indexOf("userId") !== -1
+            );
+            if (foreignKey) {
+                await queryRunner.dropForeignKey("loja_integrada_connections", foreignKey);
+            }
+        }
         await queryRunner.dropTable("loja_integrada_connections");
     }
 

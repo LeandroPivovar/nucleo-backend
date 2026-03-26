@@ -444,7 +444,7 @@ export class ContactsService {
     // 13. Cliente Recuperado (Teve carrinho abandonado E compra concluída)
     const recovered = await this.contactsRepository.createQueryBuilder('contact')
       .innerJoin('contact.sales', 's1', "s1.status = 'completed'")
-      .innerJoin('contact.sales', 's2', "s2.status IN ('active_cart', 'abandoned_cart')")
+      .innerJoin('contact.sales', 's2', "s2.status IN ('active_cart', 'abandoned_cart') AND s1.createdAt > s2.createdAt")
       .where('contact.userId = :userId', { userId })
       .select('COUNT(DISTINCT contact.id)', 'count')
       .getRawOne();
@@ -610,8 +610,8 @@ export class ContactsService {
       } else if (segId === 'cart_recovered_customer') {
         const subQuery = this.contactsRepository.createQueryBuilder('c')
           .select('c.id')
-          .innerJoin('c.sales', 's1', 's1.status = "completed"')
-          .innerJoin('c.sales', 's2', 's2.status IN ("active_cart", "abandoned_cart")')
+          .innerJoin('c.sales', 's1', "s1.status = 'completed'")
+          .innerJoin('c.sales', 's2', "s2.status IN ('active_cart', 'abandoned_cart') AND s1.createdAt > s2.createdAt")
           .where('c.userId = :userId', { userId });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);

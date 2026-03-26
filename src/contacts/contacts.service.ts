@@ -443,14 +443,23 @@ export class ContactsService {
 
     // 13. Cliente Recuperado (Teve carrinho abandonado E compra concluída)
     const recovered = await this.contactsRepository.createQueryBuilder('contact')
-      .innerJoin('contact.sales', 's1', 's1.status = "completed"')
-      .innerJoin('contact.sales', 's2', 's2.status IN ("active_cart", "abandoned_cart")')
+      .innerJoin('contact.sales', 's1', "s1.status = 'completed'")
+      .innerJoin('contact.sales', 's2', "s2.status IN ('active_cart', 'abandoned_cart')")
       .where('contact.userId = :userId', { userId })
       .select('COUNT(DISTINCT contact.id)', 'count')
       .getRawOne();
 
     stats['cart_recovered_customer'] = parseInt(recovered.count || '0');
 
+    // 14. Compram Produto Específico (Total Geral de Compradores como baseline)
+    const totalShoppers = await this.saleRepository.createQueryBuilder('sale')
+      .select('DISTINCT sale.contactId')
+      .innerJoin('sale.contact', 'contact')
+      .where('contact.userId = :userId', { userId })
+      .andWhere("sale.status = 'completed'")
+      .getRawMany();
+
+    stats['purchased_product'] = totalShoppers.length;
 
     // 10. Contagem manual das segmentações persistidas (Fallback para o que ainda é manual)
 

@@ -779,6 +779,19 @@ export class NuvemshopService {
         const createdAt = new Date(sOrder.created_at);
         const externalId = `nuvemshop_${sOrder.id}_${item.id || index}`;
 
+        let statusMatch = 'processing';
+        if (sOrder.status === 'cancelled') {
+          statusMatch = 'cancelled';
+        } else if (sOrder.shipping_status === 'delivered') {
+          statusMatch = 'delivered';
+        } else if (sOrder.payment_status === 'paid') {
+          statusMatch = 'completed';
+        } else if (sOrder.payment_status === 'pending') {
+          statusMatch = 'pending';
+        }
+
+        const paymentMethod = sOrder.payment_details?.method || sOrder.gateway_name || null;
+
         let existingSale: Sale | null = null;
         try {
           existingSale = await this.saleRepository.findOne({
@@ -810,9 +823,6 @@ export class NuvemshopService {
 
         if (existingSale) {
           let needsUpdate = false;
-          const statusMatch = sOrder.payment_status === 'paid' ? 'completed' : 'processing';
-
-          const paymentMethod = sOrder.gateway_name || sOrder.payment_details?.method || null;
 
           if (!existingSale.contactId && contact?.id) {
             console.log(`[Nuvemshop Sync] Vinculando Contato ID ${contact.id} à Venda ID ${existingSale.id}`);
@@ -850,8 +860,8 @@ export class NuvemshopService {
             customerName: contact ? `${contact.name} ${contact.lastName}` : sOrder.customer?.name,
             customerEmail: customerEmail,
             channel: 'nuvemshop',
-            status: sOrder.payment_status === 'paid' ? 'completed' : 'processing',
-            paymentMethod: sOrder.gateway_name || sOrder.payment_details?.method || null,
+            status: statusMatch,
+            paymentMethod: paymentMethod,
             createdAt: createdAt,
             externalId: externalId,
             couponCode: sOrder.coupon && sOrder.coupon.length > 0 ? sOrder.coupon[0].code : null,

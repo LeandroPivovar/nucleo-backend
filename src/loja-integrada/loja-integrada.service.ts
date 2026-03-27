@@ -200,6 +200,19 @@ export class LojaIntegradaService {
                         await this.productRepository.save(product);
                     }
 
+                    let statusMatch = 'processing';
+                    if (order.situacao?.codigo === 'pedido_cancelado') {
+                        statusMatch = 'cancelled';
+                    } else if (order.situacao?.codigo === 'pedido_entregue') {
+                        statusMatch = 'delivered';
+                    } else if (order.situacao?.codigo === 'pedido_pago') {
+                        statusMatch = 'completed';
+                    } else if (order.situacao?.codigo === 'aguardando_pagamento') {
+                        statusMatch = 'pending';
+                    }
+
+                    const paymentMethod = order.pagamento?.codigo || order.pagamento?.nome || null;
+
                     const sale = this.saleRepository.create({
                         userId,
                         productId: product.id,
@@ -210,7 +223,8 @@ export class LojaIntegradaService {
                         customerName: contact.name,
                         customerEmail: customerEmail,
                         channel: 'loja_integrada',
-                        status: order.situacao.id === 'pedido_cancelado' ? 'cancelled' : (order.situacao.id === 'pagamento_confirmado' ? 'completed' : 'processing'),
+                        status: statusMatch,
+                        paymentMethod: paymentMethod,
                         createdAt: new Date(order.data_criacao),
                         externalId,
                     });

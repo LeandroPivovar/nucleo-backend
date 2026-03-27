@@ -20,6 +20,8 @@ import { EmailModule } from '../email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ShopifyModule } from '../shopify/shopify.module';
 import { NuvemshopModule } from '../nuvemshop/nuvemshop.module';
+import { LojaIntegradaModule } from '../loja-integrada/loja-integrada.module';
+import { VtexModule } from '../vtex/vtex.module';
 
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -32,7 +34,9 @@ import { Subscription } from '../entities/subscription.entity';
         EmailModule,
         NotificationsModule,
         ShopifyModule,
-        NuvemshopModule
+        NuvemshopModule,
+        LojaIntegradaModule,
+        VtexModule
     ],
     providers: [CampaignsService, CampaignSchedulerService],
     controllers: [CampaignsController, CampaignsWebhookController, CampaignsTrackingController],

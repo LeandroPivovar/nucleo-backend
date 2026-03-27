@@ -605,6 +605,19 @@ export class ShopifyService {
         const createdAt = new Date(sOrder.created_at);
         const externalId = `shopify_${sOrder.id}_${item.id || item.variant_id || index}`;
 
+        let statusMatch = 'processing';
+        if (sOrder.financial_status === 'voided' || sOrder.financial_status === 'refunded' || sOrder.cancelled_at) {
+          statusMatch = 'cancelled';
+        } else if (sOrder.fulfillment_status === 'fulfilled') {
+          statusMatch = 'delivered';
+        } else if (sOrder.financial_status === 'paid') {
+          statusMatch = 'completed';
+        } else if (sOrder.financial_status === 'pending') {
+          statusMatch = 'pending';
+        }
+
+        const paymentMethod = sOrder.gateway || (sOrder.payment_gateway_names && sOrder.payment_gateway_names.length > 0 ? sOrder.payment_gateway_names[0] : null);
+
         let existingSale: Sale | null = null;
         try {
           existingSale = await this.saleRepository.findOne({
@@ -636,9 +649,6 @@ export class ShopifyService {
 
         if (existingSale) {
           let needsUpdate = false;
-          const statusMatch = sOrder.financial_status === 'paid' ? 'completed' : 'processing';
-
-          const paymentMethod = sOrder.gateway || (sOrder.payment_gateway_names && sOrder.payment_gateway_names.length > 0 ? sOrder.payment_gateway_names[0] : null);
 
           if (!existingSale.contactId && contact?.id) {
             console.log(`[Shopify Sync] Vinculando Contato ID ${contact.id} à Venda ID ${existingSale.id}`);
@@ -676,8 +686,8 @@ export class ShopifyService {
             customerName: contact ? `${contact.name} ${contact.lastName}` : sOrder.customer?.first_name,
             customerEmail: customerEmail,
             channel: 'shopify',
-            status: sOrder.financial_status === 'paid' ? 'completed' : 'processing',
-            paymentMethod: sOrder.gateway || (sOrder.payment_gateway_names && sOrder.payment_gateway_names.length > 0 ? sOrder.payment_gateway_names[0] : null),
+            status: statusMatch,
+            paymentMethod: paymentMethod,
             createdAt: createdAt,
             externalId: externalId,
             couponCode: sOrder.discount_codes && sOrder.discount_codes.length > 0 ? sOrder.discount_codes[0].code : null,

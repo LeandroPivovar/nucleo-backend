@@ -14,6 +14,8 @@ import { Contact } from '../../entities/contact.entity';
 import { Sale } from '../../entities/sale.entity';
 import { ShopifyService } from '../../shopify/shopify.service';
 import { NuvemshopService } from '../../nuvemshop/nuvemshop.service';
+import { LojaIntegradaService } from '../../loja-integrada/loja-integrada.service';
+import { VtexService } from '../../vtex/vtex.service';
 import { CampaignQueue } from '../../entities/campaign-queue.entity';
 import { ShopifyConnection } from '../../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../../entities/nuvemshop-connection.entity';
@@ -52,6 +54,8 @@ export class CampaignSchedulerService {
         private emailService: EmailService,
         private shopifyService: ShopifyService,
         private nuvemshopService: NuvemshopService,
+        private lojaIntegradaService: LojaIntegradaService,
+        private vtexService: VtexService,
         private configService: ConfigService
     ) { }
 
@@ -122,6 +126,50 @@ export class CampaignSchedulerService {
         await this.campaignsRepository.save(campaign);
 
         try {
+            this.logger.log(`Sincronizando dados de e-commerce antes de processar a campanha [ID: ${campaign.id}]...`);
+            const syncPromises: Promise<any>[] = [];
+
+            try {
+                const shopifyConn = await this.shopifyService.getActiveConnection(campaign.userId);
+                if (shopifyConn) {
+                    syncPromises.push(this.shopifyService.syncOrders(campaign.userId, shopifyConn.shop).catch(e => this.logger.warn(`[Pre-Sync] Shopify Orders: ${e.message}`)));
+                    syncPromises.push(this.shopifyService.syncCheckouts(campaign.userId, shopifyConn.shop).catch(e => this.logger.warn(`[Pre-Sync] Shopify Checkouts: ${e.message}`)));
+                }
+            } catch (e) { }
+
+            try {
+                const nuvemshopConn = await this.nuvemshopService.getActiveConnection(campaign.userId);
+                if (nuvemshopConn) {
+                    syncPromises.push(this.nuvemshopService.syncOrders(campaign.userId, nuvemshopConn.storeId).catch(e => this.logger.warn(`[Pre-Sync] Nuvemshop Orders: ${e.message}`)));
+                    syncPromises.push(this.nuvemshopService.syncCheckouts(campaign.userId, nuvemshopConn.storeId).catch(e => this.logger.warn(`[Pre-Sync] Nuvemshop Checkouts: ${e.message}`)));
+                }
+            } catch (e) { }
+
+            try {
+                const liConn = await this.lojaIntegradaService.getActiveConnection(campaign.userId);
+                if (liConn) {
+                    syncPromises.push(this.lojaIntegradaService.syncOrders(campaign.userId).catch(e => this.logger.warn(`[Pre-Sync] Loja Integrada Orders: ${e.message}`)));
+                    if (this.lojaIntegradaService.syncCheckouts) {
+                        syncPromises.push(this.lojaIntegradaService.syncCheckouts(campaign.userId).catch(e => this.logger.warn(`[Pre-Sync] Loja Integrada Checkouts: ${e.message}`)));
+                    }
+                }
+            } catch (e) { }
+
+            try {
+                const vtexConn = await this.vtexService.getActiveConnection(campaign.userId);
+                if (vtexConn) {
+                    syncPromises.push(this.vtexService.syncOrders(campaign.userId, vtexConn.accountName).catch(e => this.logger.warn(`[Pre-Sync] VTEX Orders: ${e.message}`)));
+                    if ('syncCheckouts' in this.vtexService) {
+                        syncPromises.push((this.vtexService as any).syncCheckouts(campaign.userId, vtexConn.accountName).catch((e: any) => this.logger.warn(`[Pre-Sync] VTEX Checkouts: ${e.message}`)));
+                    }
+                }
+            } catch (e) { }
+
+            if (syncPromises.length > 0) {
+                await Promise.allSettled(syncPromises);
+                this.logger.log(`Sincronização de pré-campanha finalizada.`);
+            }
+
             const groups = campaign.config?.groups || [];
             const segmentations = campaign.config?.segmentations || [];
             const specificContacts = campaign.config?.specificContacts || [];
@@ -595,7 +643,7 @@ export class CampaignSchedulerService {
         const campaignId = campaign.id;
         let result = false;
 
-        if (condType === 'order_placed' || condType === 'product_purchased' || condType === 'order_delivered') {
+        if (condType === 'order_placed' || condType === 'product_purchased' || condType === 'order_delivered' || condType === 'order_cancelled' || condType === 'order_awaiting_payment' || condType === 'payment_method') {
             const query = this.saleRepository.createQueryBuilder('sale')
                 .where('sale.contactId = :contactId', { contactId: contact.id });
 
@@ -615,6 +663,24 @@ export class CampaignSchedulerService {
                 query.andWhere('sale.status = :status', { status: 'delivered' });
             }
 
+            if (condType === 'order_cancelled') {
+                query.andWhere('sale.status = :status', { status: 'cancelled' });
+            }
+
+            if (condType === 'order_awaiting_payment') {
+                query.andWhere('sale.status = :status', { status: 'pending' });
+            }
+
+            if (condType === 'payment_method' && node.data?.paymentMethod) {
+                let pmMatch = node.data.paymentMethod;
+                // Mapeamento dinâmico básico para cobrir diferentes retornos como 'wire_transfer' e 'credit_card'
+                if (pmMatch === 'credit_card') pmMatch = 'credit';
+                else if (pmMatch === 'debit_card') pmMatch = 'debit';
+                else if (pmMatch === 'bank_transfer') pmMatch = 'transfer';
+                
+                query.andWhere('LOWER(sale.paymentMethod) LIKE LOWER(:paymentMethod)', { paymentMethod: `%${pmMatch}%` });
+            }
+
             const recentSale = await query.orderBy('sale.createdAt', 'DESC').getOne();
             result = !!recentSale;
         } else if (condType === 'clicked_link') {
@@ -631,6 +697,62 @@ export class CampaignSchedulerService {
                 }
             });
             result = !!cart;
+        } else if (condType === 'cart_recovered') {
+            // Buscar se há uma venda concluída recente
+            const completedSale = await this.saleRepository.createQueryBuilder('sale')
+                .where('sale.contactId = :contactId', { contactId: contact.id })
+                .andWhere('sale.status IN (:...statuses)', { statuses: ['completed', 'pago'] })
+                .andWhere('sale.createdAt >= :campaignDate', { campaignDate: campaign.createdAt })
+                .orderBy('sale.createdAt', 'DESC')
+                .getOne();
+
+            if (completedSale) {
+                // Verificar se houve um carrinho abandonado antes dessa compra
+                const previousCart = await this.saleRepository.createQueryBuilder('cart')
+                    .where('cart.contactId = :contactId', { contactId: contact.id })
+                    .andWhere('cart.status IN (:...cartStatuses)', { cartStatuses: ['active_cart', 'abandoned_cart'] })
+                    .andWhere('cart.createdAt < :purchaseDate', { purchaseDate: completedSale.createdAt })
+                    .getOne();
+                result = !!previousCart;
+            }
+        } else if (condType === 'date_condition') {
+            const now = new Date();
+            let isValid = true;
+            if (node.data?.dateFrom) {
+                const dateFrom = new Date(node.data.dateFrom);
+                if (now < dateFrom) isValid = false;
+            }
+            if (node.data?.dateTo) {
+                const dateTo = new Date(node.data.dateTo);
+                dateTo.setHours(23, 59, 59, 999);
+                if (now > dateTo) isValid = false;
+            }
+            // Precisamos que pelo menos uma data seja configurada para avaliar
+            result = isValid && (!!node.data?.dateFrom || !!node.data?.dateTo);
+        } else if (condType === 'giftback_value') {
+            const now = new Date();
+            const coupons = await this.campaignCouponRepository.find({
+                where: {
+                    contactId: contact.id,
+                    userId: campaign.userId,
+                    type: 'absolute',
+                    endsAt: MoreThan(now)
+                }
+            });
+            
+            const totalGiftback = coupons.reduce((sum, c) => sum + Number(c.value || 0), 0);
+            const target = parseFloat(node.data?.value || '0');
+            const op = node.data?.operator;
+
+            if (op === 'greater') result = totalGiftback > target;
+            else if (op === 'less') result = totalGiftback < target;
+            else if (op === 'greater_equal') result = totalGiftback >= target;
+            else if (op === 'less_equal') result = totalGiftback <= target;
+            else if (op === 'between') {
+                 const target2 = parseFloat(node.data?.value2 || '0');
+                 result = totalGiftback >= target && totalGiftback <= target2;
+            }
+            else result = totalGiftback === target;
         } else if (condType === 'has_active_coupon') {
             const now = new Date();
             const coupon = await this.campaignCouponRepository.findOne({
@@ -644,6 +766,34 @@ export class CampaignSchedulerService {
         } else if (condType === 'in_group') {
             const targetGroupId = parseInt(node.data?.groupId);
             result = contact.groupId === targetGroupId;
+        } else if (condType === 'total_sales_value') {
+            const { sum } = await this.saleRepository.createQueryBuilder('sale')
+                .select('SUM(sale.totalValue)', 'sum')
+                .where('sale.contactId = :contactId', { contactId: contact.id })
+                .andWhere('sale.status IN (:...statuses)', { statuses: ['completed', 'pago'] })
+                .getRawOne();
+            const ltv = parseFloat(sum || '0');
+            const target = parseFloat(node.data?.value || '0');
+            const op = node.data?.operator;
+            if (op === 'greater') result = ltv > target;
+            else if (op === 'less') result = ltv < target;
+            else if (op === 'greater_equal') result = ltv >= target;
+            else if (op === 'less_equal') result = ltv <= target;
+            else if (op === 'between') {
+                 const target2 = parseFloat(node.data?.value2 || '0');
+                 result = ltv >= target && ltv <= target2;
+            }
+            else result = ltv === target;
+        } else if (condType === 'first_purchase_product' || condType === 'last_purchase_product') {
+            const orderDirection = condType === 'first_purchase_product' ? 'ASC' : 'DESC';
+            const sale = await this.saleRepository.createQueryBuilder('sale')
+                .where('sale.contactId = :contactId', { contactId: contact.id })
+                .orderBy('sale.createdAt', orderDirection)
+                .getOne();
+            
+            if (sale && node.data?.productId) {
+                result = sale.productId?.toString() === node.data.productId.toString();
+            }
         } else if (eventContext) {
             if ((condType === 'order_value' || condType === 'min_value') && eventContext.value) {
                 const val = parseFloat(eventContext.value);

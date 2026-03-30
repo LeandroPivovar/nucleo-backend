@@ -539,7 +539,9 @@ export class ContactsService {
           .andWhere('c.status = :activeStatus', { activeStatus: 'ativa' })
           .andWhere('coupon.endsAt > :nowCoupon', { nowCoupon: now });
 
-        if (segParams.couponName) {
+        if (segParams.campaignId) {
+          subQuery.andWhere('coupon.campaignId = :couponCampaignId', { couponCampaignId: Number(segParams.campaignId) });
+        } else if (segParams.couponName) {
           subQuery.andWhere('coupon.name = :couponSearchName', { couponSearchName: segParams.couponName });
         }
 

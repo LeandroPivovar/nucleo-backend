@@ -534,8 +534,14 @@ export class ContactsService {
         const now = new Date();
         const subQuery = this.campaignCouponRepository.createQueryBuilder('coupon')
           .select('DISTINCT coupon.contactId')
+          .innerJoin('coupon.campaign', 'c')
           .where('coupon.userId = :userId', { userId })
+          .andWhere('c.status = :activeStatus', { activeStatus: 'ativa' })
           .andWhere('coupon.endsAt > :nowCoupon', { nowCoupon: now });
+
+        if (segParams.couponName) {
+          subQuery.andWhere('coupon.name = :couponSearchName', { couponSearchName: segParams.couponName });
+        }
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());

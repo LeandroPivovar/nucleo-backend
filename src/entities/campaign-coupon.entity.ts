@@ -37,6 +37,9 @@ export class CampaignCoupon {
     @JoinColumn({ name: 'contactId' })
     contact: Contact;
 
+    @Column({ nullable: true })
+    name: string;
+
     @Column()
     code: string;
 

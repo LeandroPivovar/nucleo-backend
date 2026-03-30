@@ -483,6 +483,7 @@ export class CampaignSchedulerService {
                         userId: campaign.userId,
                         campaignId: campaign.id,
                         contactId: contact.id,
+                        name: newActiveCoupon.couponName || (node.type === 'giftback' ? 'Giftback' : 'Cupom'),
                         code: newActiveCoupon._generatedCode || newActiveCoupon.couponName,
                         platform: shopifyConnection ? 'shopify' : (nuvemshopConnection ? 'nuvemshop' : 'internal'),
                         value: parseFloat(newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0'),

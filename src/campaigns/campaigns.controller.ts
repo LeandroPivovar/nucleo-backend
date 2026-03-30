@@ -22,6 +22,11 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 export class CampaignsController {
     constructor(private readonly campaignsService: CampaignsService) { }
 
+    @Get('active-coupons')
+    getActiveCoupons(@Request() req) {
+        return this.campaignsService.getActiveCoupons(req.user.userId);
+    }
+
     @Get()
     findAll(
         @Request() req,

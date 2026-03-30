@@ -10,6 +10,7 @@ import { NotificationType } from '../entities/notification.entity';
 import { ShopifyConnection } from '../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 import { CampaignClick } from '../entities/campaign-click.entity';
+import { CampaignCoupon } from '../entities/campaign-coupon.entity';
 
 @Injectable()
 export class CampaignsService {
@@ -28,9 +29,58 @@ export class CampaignsService {
         private nuvemshopConnectionRepository: Repository<NuvemshopConnection>,
         @InjectRepository(CampaignClick)
         private campaignClicksRepository: Repository<CampaignClick>,
+        @InjectRepository(CampaignCoupon)
+        private campaignCouponRepository: Repository<CampaignCoupon>,
         private campaignSchedulerService: CampaignSchedulerService,
         private notificationsService: NotificationsService
     ) { }
+
+    async getActiveCoupons(userId: number): Promise<any[]> {
+        const now = new Date();
+        try {
+            const coupons = await this.campaignCouponRepository.createQueryBuilder('coupon')
+                .innerJoin('coupon.campaign', 'campaign')
+                .select('coupon.code', 'couponCode')
+                .addSelect('coupon.name', 'couponName')
+                .addSelect('campaign.name', 'campaignName')
+                .addSelect('campaign.id', 'campaignId')
+                .where('coupon.userId = :userId', { userId })
+                .andWhere('campaign.status = :status', { status: 'ativa' })
+                .andWhere('coupon.endsAt > :now', { now })
+                .groupBy('coupon.code')
+                .addGroupBy('coupon.name')
+                .addGroupBy('campaign.name')
+                .addGroupBy('campaign.id')
+                .getRawMany();
+
+            return coupons.map(c => ({
+                name: c.couponName || c.couponCode || 'Sem nome',
+                campaignName: c.campaignName,
+                campaignId: c.campaignId
+            }));
+        } catch (error) {
+            // Fallback if 'name' column doesn't exist yet (migration not run)
+            this.logger.warn('Falling back to code-only query for active coupons: ' + error.message);
+            const coupons = await this.campaignCouponRepository.createQueryBuilder('coupon')
+                .innerJoin('coupon.campaign', 'campaign')
+                .select('coupon.code', 'couponCode')
+                .addSelect('campaign.name', 'campaignName')
+                .addSelect('campaign.id', 'campaignId')
+                .where('coupon.userId = :userId', { userId })
+                .andWhere('campaign.status = :status', { status: 'ativa' })
+                .andWhere('coupon.endsAt > :now', { now })
+                .groupBy('coupon.code')
+                .addGroupBy('campaign.name')
+                .addGroupBy('campaign.id')
+                .getRawMany();
+
+            return coupons.map(c => ({
+                name: c.couponCode || 'Sem nome',
+                campaignName: c.campaignName,
+                campaignId: c.campaignId
+            }));
+        }
+    }
 
     async findAll(userId: number, filters: {
         startDate?: string;

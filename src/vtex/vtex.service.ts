@@ -518,26 +518,96 @@ export class VtexService {
   async syncAbandonedCarts(userId: number, accountName?: string): Promise<any> {
     const connection = await this.getActiveConnection(userId, accountName);
     const resolvedAccountName = connection.accountName;
-    // Na VTEX, carrinhos abandonados costumam ser monitorados via Master Data (entidade CL ou checkout)
-    // Aqui usaremos uma busca por clientes que tenham carrinhos pendentes se disponível
-    // Ou simulamos via orders com status específicos se necessário.
-    // Conforme documentação típica: busca em CL com filtro de data de checkout
+    
+    // Busca clientes na Entidade CL que possuem lastCart e lastCartDate
     const abandoned = await this.makeRequest(
       userId,
       resolvedAccountName,
-      '/api/dataentities/CL/search?_fields=email,lastCart,lastCartDate&_where=lastCartDate is not null',
+      '/api/dataentities/CL/search?_fields=email,firstName,lastName,phone,homePhone,lastCart,lastCartDate&_where=lastCartDate is not null',
     );
 
-    if (!abandoned || !Array.isArray(abandoned)) return { imported: 0 };
+    if (!abandoned || !Array.isArray(abandoned)) return { imported: 0, updated: 0 };
 
     let imported = 0;
+    let updated = 0;
+
     for (const cart of abandoned) {
-      // Lógica de negócio: se lastCartDate < 24h e sem pedido concluído
-      // Simplificando: criar sale com status 'abandoned_cart'
-      // ... implementação similar ao syncOrders mas com status fixo
+      if (!cart.email || !cart.lastCart) continue;
+
+      try {
+        // Encontrar ou criar contato
+        let contact = await this.contactRepository.findOne({
+          where: { email: cart.email, userId },
+        });
+
+        if (!contact) {
+          contact = this.contactRepository.create({
+            name: cart.firstName || 'Cliente',
+            lastName: cart.lastName || '',
+            email: cart.email,
+            phone: cart.phone || cart.homePhone || '',
+            userId,
+            source: 'VTEX',
+          });
+          await this.contactRepository.save(contact);
+        }
+
+        // Extrair o ID gerado pelo VTEX
+        let orderFormId = cart.lastCart;
+        if (orderFormId.includes('orderFormId=')) {
+          orderFormId = new URLSearchParams(orderFormId.split('?')[1]).get('orderFormId') || orderFormId;
+        }
+
+        // Tentar obter informações adicionais do OrderForm Checkout se possível
+        let cartValue = 0;
+        let quantity = 1;
+        try {
+          const orderForm = await this.makeRequest(
+            userId,
+            resolvedAccountName,
+            `/api/checkout/pub/orderForm/${orderFormId}`
+          );
+          if (orderForm && orderForm.value) {
+            cartValue = orderForm.value / 100; // Centavos para formato monetário
+            quantity = orderForm.items?.length || 1;
+          }
+        } catch (err) {
+          // Ignora caso o orderForm tenha expirado ou não seja encontrado
+        }
+
+        let sale = await this.saleRepository.findOne({
+          where: { externalId: orderFormId, userId },
+        });
+
+        // Se a venda já existir mas com status diferente de abandonada (ex: foi paga), não atualizamos de volta
+        if (sale && sale.status !== 'abandoned_cart') continue;
+
+        const saleData = {
+          externalId: orderFormId,
+          userId,
+          contactId: contact.id,
+          totalValue: cartValue,
+          status: 'abandoned_cart',
+          createdAt: new Date(cart.lastCartDate),
+          quantity: quantity,
+          channel: 'VTEX',
+        };
+
+        if (sale) {
+          Object.assign(sale, saleData);
+          updated++;
+        } else {
+          sale = this.saleRepository.create(saleData);
+          imported++;
+        }
+
+        await this.saleRepository.save(sale);
+      } catch (err) {
+        console.error(`Erro ao sincronizar carrinho abandonado ${cart.lastCart}:`, err);
+      }
     }
 
-    return { imported };
+    return { imported, updated };
   }
 
   private mapVtexStatus(vtexStatus: string): string {
@@ -561,7 +631,7 @@ export class VtexService {
     const products = await this.syncProducts(userId, resolvedAccountName);
     const customers = await this.syncCustomers(userId, resolvedAccountName);
     const orders = await this.syncOrders(userId, resolvedAccountName);
-    // const abandoned = await this.syncAbandonedCarts(userId, resolvedAccountName);
+    const abandoned = await this.syncAbandonedCarts(userId, resolvedAccountName);
 
     // Atualizar lastSyncAt
     connection.lastSyncAt = new Date();
@@ -571,7 +641,7 @@ export class VtexService {
       products,
       customers,
       orders,
-      // abandoned,
+      abandoned,
     };
   }
 }

@@ -36,5 +36,9 @@ export class CreateSaleDto {
   @IsOptional()
   @IsNumber()
   contactId?: number;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
 }
 

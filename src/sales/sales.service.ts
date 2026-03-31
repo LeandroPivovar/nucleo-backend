@@ -40,7 +40,7 @@ export class SalesService {
   ) { }
 
   async create(userId: number, createSaleDto: CreateSaleDto): Promise<Sale> {
-    const { productId, quantity, customerName, customerEmail, status, unitPrice: dtoUnitPrice, totalValue: dtoTotalValue, channel } = createSaleDto;
+    const { productId, quantity, customerName, customerEmail, status, unitPrice: dtoUnitPrice, totalValue: dtoTotalValue, channel, paymentMethod } = createSaleDto;
 
     // Buscar produto
     const product = await this.productRepository.findOne({
@@ -86,6 +86,7 @@ export class SalesService {
       customerName,
       customerEmail,
       channel: channel || 'direct',
+      paymentMethod: paymentMethod || undefined,
       status: status || 'completed',
       contactId: createSaleDto.contactId,
     });

@@ -1051,74 +1051,57 @@ export class ShopifyService {
     params: {
       initialValue: string;
       note?: string;
-      customerId?: string; // GID from Shopify
+      customerId?: string; // GID from Shopify or numeric
       endsAt?: string;
     }
   ): Promise<{ code: string }> {
     const accessToken = await this.getAccessToken(userId, shop);
 
-    const mutation = `
-      mutation giftCardCreate($input: GiftCardCreateInput!) {
-        giftCardCreate(input: $input) {
-          giftCard {
-            id
-            initialValue {
-              amount
-              currencyCode
-            }
-            code
-            expiresOn
-            note
-          }
-          userErrors {
-            field
-            message
-          }
-        }
-      }
-    `;
+    // REST API is used because GraphQL doesn't return the full gift card code for security Reasons.
+    const url = `https://${shop}/admin/api/${this.apiVersion}/gift_cards.json`;
 
-    const variables = {
-      input: {
-        initialValue: parseFloat(params.initialValue).toFixed(2),
+    // Handle customer ID extraction if it's a GID
+    const numericCustomerId = params.customerId?.includes('/')
+      ? params.customerId.split('/').pop()
+      : params.customerId;
+
+    const body = {
+      gift_card: {
+        initial_value: parseFloat(params.initialValue).toFixed(2),
         ...(params.note && { note: params.note }),
-        ...(params.customerId && { customerId: params.customerId }),
-        ...(params.endsAt && { expiresOn: params.endsAt })
+        ...(numericCustomerId && { customer_id: numericCustomerId }),
+        ...(params.endsAt && { expires_on: params.endsAt.split('T')[0] }) // REST expects YYYY-MM-DD
       }
     };
 
-    const response = await fetch(
-      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken,
-        },
-        body: JSON.stringify({
-          query: mutation,
-          variables,
-        }),
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken,
       },
-    );
+      body: JSON.stringify(body),
+    });
 
     if (!response.ok) {
-      throw new BadRequestException('Falha ao criar Gift Card na Shopify');
+      const errorData = await response.json().catch(() => ({}));
+      this.logger.error(`[Shopify REST] Erro ao criar Gift Card: ${JSON.stringify(errorData)}`);
+      throw new BadRequestException(
+        typeof errorData.errors === 'string'
+          ? errorData.errors
+          : JSON.stringify(errorData.errors) || 'Falha ao criar Gift Card na Shopify (REST API)'
+      );
     }
 
     const result = await response.json();
 
-    if (result.errors) {
-      throw new BadRequestException(result.errors[0].message);
+    if (!result.gift_card || !result.gift_card.code) {
+      throw new BadRequestException('Código do Gift Card não retornado pela Shopify.');
     }
 
-    if (result.data?.giftCardCreate?.userErrors?.length > 0) {
-      throw new BadRequestException(
-        result.data.giftCardCreate.userErrors[0].message,
-      );
-    }
-
-    return result.data?.giftCardCreate?.giftCard;
+    return {
+      code: result.gift_card.code
+    };
   }
 
   /**

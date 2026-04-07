@@ -694,10 +694,8 @@ export class ShopifyService {
           });
           await this.saleRepository.save(sale);
           imported++;
-        } else {
-          console.log(`[Shopify Sync] Venda já existente no CRM para o Produto ID: ${product.id} e Data: ${createdAt}`);
-          updated++;
         }
+        console.log(`[Shopify Sync] Venda processada: Pedido ${sOrder.name || sOrder.id} - Status: ${statusMatch} - Cliente: ${customerEmail}`);
       }
     }
 
@@ -716,7 +714,20 @@ export class ShopifyService {
     let imported = 0;
     let updated = 0;
 
+    const now = new Date();
+    const twoHoursAgo = new Date(now.getTime() - (2 * 60 * 60 * 1000));
+    
+    console.log(`[Shopify Sync] Buscando carrinhos criados antes de: ${twoHoursAgo.toISOString()}`);
+
     for (const checkout of allCheckouts) {
+      const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
+      
+      // Critério: Apenas considerar abandonado se tiver mais de 2 horas
+      if (createdAt > twoHoursAgo) {
+        console.log(`[Shopify Sync] Checkout ${checkout.id} ignorado (muito recente: ${createdAt.toISOString()})`);
+        continue;
+      }
+
       const customerEmail = checkout.email || checkout.customer?.email;
       if (!customerEmail) continue;
 
@@ -794,6 +805,7 @@ export class ShopifyService {
           });
           await this.saleRepository.save(sale);
           imported++;
+          console.log(`[Shopify Sync] Novo carrinho importado: ${externalId} - Cliente: ${customerEmail} - Criado em: ${createdAt.toISOString()}`);
         }
       }
     }

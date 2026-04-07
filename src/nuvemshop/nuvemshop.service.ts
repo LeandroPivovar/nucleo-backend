@@ -846,10 +846,8 @@ export class NuvemshopService {
             await this.saleRepository.save(existingSale);
             console.log(`[Nuvemshop Sync] Venda ID ${existingSale.id} atualizada com sucesso.`);
           }
-        }
-
-        if (!existingSale) {
-          console.log(`[Nuvemshop Sync] Relacionando Venda ao Produto ID: ${product.id}`);
+        } else {
+          // Criar nova venda se não existir
           const sale = this.saleRepository.create({
             userId,
             productId: product.id,
@@ -868,10 +866,8 @@ export class NuvemshopService {
           });
           await this.saleRepository.save(sale);
           imported++;
-        } else {
-          console.log(`[Nuvemshop Sync] Venda já existente no CRM para o Produto ID: ${product.id} e Data: ${createdAt}`);
-          updated++;
         }
+        console.log(`[Nuvemshop Sync] Venda processada: Pedido #${sOrder.number || sOrder.id} - Status: ${statusMatch} - Cliente: ${customerEmail}`);
       }
     }
 
@@ -889,10 +885,22 @@ export class NuvemshopService {
     const allCheckouts = await this.getAbandonedCheckouts(userId, storeId, { limit: 250 });
     let imported = 0;
     let updated = 0;
+    const now = new Date();
+    const twoHoursAgo = new Date(now.getTime() - (2 * 60 * 60 * 1000));
+    
+    console.log(`[Nuvemshop Sync] Buscando carrinhos criados antes de: ${twoHoursAgo.toISOString()}`);
 
     for (const checkout of allCheckouts) {
       const customerEmail = checkout.email || checkout.customer?.email;
       if (!customerEmail) continue;
+
+      const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
+      
+      // Critério: Apenas considerar abandonado se tiver mais de 2 horas
+      if (createdAt > twoHoursAgo) {
+        console.log(`[Nuvemshop Sync] Checkout ${checkout.id} ignorado (muito recente: ${createdAt.toISOString()})`);
+        continue;
+      }
 
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
       if (!contact) {
@@ -908,8 +916,6 @@ export class NuvemshopService {
       }
 
       const externalId = `nuvemshop_checkout_${checkout.id || checkout.token}`;
-      const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
-
       const items = checkout.products || checkout.line_items || [];
       if (items.length === 0) continue;
 
@@ -936,8 +942,6 @@ export class NuvemshopService {
           await this.productRepository.save(product);
         }
 
-        // Na Nuvemshop, o status do checkout abandonado é inferido se ele existir na lista
-        // de checkouts (que são todos tecnicamente não finalizados ou pendentes)
         const checkoutStatus = checkout.abandoned ? 'abandoned_cart' : 'active_cart';
 
         const existingSale = await this.saleRepository.findOne({
@@ -945,12 +949,8 @@ export class NuvemshopService {
         });
 
         if (existingSale) {
-          let needsUpdate = false;
           if (existingSale.status !== checkoutStatus) {
             existingSale.status = checkoutStatus;
-            needsUpdate = true;
-          }
-          if (needsUpdate) {
             await this.saleRepository.save(existingSale);
             updated++;
           }
@@ -971,6 +971,7 @@ export class NuvemshopService {
           });
           await this.saleRepository.save(sale);
           imported++;
+          console.log(`[Nuvemshop Sync] Novo carrinho importado: ${externalId} - Cliente: ${customerEmail} - Criado em: ${createdAt.toISOString()}`);
         }
       }
     }

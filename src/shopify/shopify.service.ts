@@ -745,7 +745,6 @@ export class ShopifyService {
       }
 
       const externalId = checkout.id ? checkout.id.toString() : checkout.token;
-      const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
 
       if (!checkout.line_items) continue;
 

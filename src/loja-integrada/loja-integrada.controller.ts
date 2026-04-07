@@ -18,14 +18,18 @@ export class LojaIntegradaController {
   @Get('connection')
   @UseGuards(JwtAuthGuard)
   async getConnection(@Request() req) {
-    const connection = await this.lojaIntegradaService.getConnection(req.user.userId);
-    return connection || { isActive: false };
+    try {
+      const connection = await this.lojaIntegradaService.getActiveConnection(req.user.userId);
+      return connection;
+    } catch (error) {
+      return { isActive: false };
+    }
   }
 
   @Post('sync')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async sync(@Request() req) {
-    return await this.lojaIntegradaService.sync(req.user.userId);
+    return await this.lojaIntegradaService.syncAll(req.user.userId);
   }
 }

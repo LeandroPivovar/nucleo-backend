@@ -1,42 +1,31 @@
 import {
-    Controller,
-    Post,
-    Body,
-    UseGuards,
-    Request,
-    Get,
+  Controller,
+  Get,
+  Post,
+  Body,
+  UseGuards,
+  Request,
+  HttpStatus,
+  HttpCode,
 } from '@nestjs/common';
-import { LojaIntegradaService } from './loja-integrada.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { LojaIntegradaService } from './loja-integrada.service';
 
 @Controller('loja-integrada')
-@UseGuards(JwtAuthGuard)
 export class LojaIntegradaController {
-    constructor(private readonly liService: LojaIntegradaService) { }
+  constructor(private readonly lojaIntegradaService: LojaIntegradaService) {}
 
-    @Post('connect')
-    async connect(
-        @Request() req,
-        @Body() body: { storeName: string; apiKey: string; applicationKey?: string },
-    ) {
-        return this.liService.createOrUpdateConnection(
-            req.user.userId,
-            body.storeName,
-            body.apiKey,
-            body.applicationKey,
-        );
-    }
+  @Get('connection')
+  @UseGuards(JwtAuthGuard)
+  async getConnection(@Request() req) {
+    const connection = await this.lojaIntegradaService.getConnection(req.user.userId);
+    return connection || { isActive: false };
+  }
 
-    @Get('connection')
-    async getConnection(@Request() req) {
-        return this.liService.getActiveConnection(req.user.userId);
-    }
-
-    @Post('sync')
-    async sync(@Request() req) {
-        const products = await this.liService.syncProducts(req.user.userId);
-        const orders = await this.liService.syncOrders(req.user.userId);
-        const checkouts = await this.liService.syncCheckouts(req.user.userId);
-        return { products, orders, checkouts };
-    }
+  @Post('sync')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async sync(@Request() req) {
+    return await this.lojaIntegradaService.sync(req.user.userId);
+  }
 }

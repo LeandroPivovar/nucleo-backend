@@ -332,6 +332,20 @@ export class NuvemshopController {
   }
 
   /**
+   * Sincroniza todos os dados da Nuvemshop (Clientes, Pedidos e Produtos)
+   */
+  @Post('sync-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncAll(@Request() req, @Body() body: { storeId: string }) {
+    const result = await this.nuvemshopService.syncAll(req.user.userId, body.storeId);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  /**
    * Busca produtos da loja
    */
   @Get('products')

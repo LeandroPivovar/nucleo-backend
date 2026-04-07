@@ -601,7 +601,7 @@ export class ShopifyService {
         }
 
         // Criar a venda
-        // Evitar duplicidade usando externalId
+        // Evitar duplicidade usando externalId único por item de linha
         const createdAt = new Date(sOrder.created_at);
         const externalId = `shopify_${sOrder.id}_${item.id || item.variant_id || index}`;
 

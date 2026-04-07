@@ -1413,15 +1413,18 @@ export class NuvemshopService {
     const connection = await this.getActiveConnection(userId, storeId);
     const resolvedStoreId = connection.storeId;
 
+    this.logger.log(`[Nuvemshop Sync] Iniciando sincronização global para loja ${resolvedStoreId}`);
+
     const customers = await this.syncCustomers(userId, resolvedStoreId);
     const orders = await this.syncOrders(userId, resolvedStoreId);
     const products = await this.syncProductsToCrm(userId, resolvedStoreId);
     
-    // Buscar checkouts abandonados via API
-    let abandonedCount = 0;
+    // Sincronizar e persistir checkouts abandonados
+    let checkoutSyncResult = { imported: 0, updated: 0 };
     try {
-      const checkouts = await this.makeApiRequest(userId, resolvedStoreId, '/checkouts?status=abandoned', 'GET', null, true);
-      abandonedCount = Array.isArray(checkouts) ? checkouts.length : 0;
+      this.logger.log(`[Nuvemshop Sync] Iniciando sincronização de checkouts...`);
+      checkoutSyncResult = await this.syncCheckouts(userId, resolvedStoreId);
+      this.logger.log(`[Nuvemshop Sync] Checkouts sincronizados: ${checkoutSyncResult.imported} novos, ${checkoutSyncResult.updated} atualizados`);
     } catch (e) {
       this.logger.error(`Erro ao sincronizar checkouts da Nuvemshop: ${e.message}`);
     }
@@ -1430,7 +1433,7 @@ export class NuvemshopService {
       customers,
       orders,
       products,
-      checkouts: { imported: abandonedCount }
+      checkouts: checkoutSyncResult
     };
   }
 }

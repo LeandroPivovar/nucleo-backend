@@ -22,6 +22,9 @@ import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 import { VtexConnection } from '../entities/vtex-connection.entity';
 import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.entity';
 import { CampaignClick } from '../entities/campaign-click.entity';
+import { LeadRequest } from '../entities/lead-request.entity';
+import { LeadRequestsController } from './lead-requests.controller';
+import { LeadRequestsService } from './lead-requests.service';
 
 @Module({
     imports: [
@@ -44,6 +47,7 @@ import { CampaignClick } from '../entities/campaign-click.entity';
             VtexConnection,
             LojaIntegradaConnection,
             CampaignClick,
+            LeadRequest,
         ]),
         JwtModule.registerAsync({
             imports: [ConfigModule],
@@ -54,8 +58,8 @@ import { CampaignClick } from '../entities/campaign-click.entity';
             inject: [ConfigService],
         }),
     ],
-    controllers: [AdminController],
-    providers: [AdminService],
-    exports: [AdminService],
+    controllers: [AdminController, LeadRequestsController],
+    providers: [AdminService, LeadRequestsService],
+    exports: [AdminService, LeadRequestsService],
 })
 export class AdminModule { }

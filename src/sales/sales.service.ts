@@ -848,7 +848,12 @@ export class SalesService {
       });
     }
 
-    const contacts = await rawQb.getRawMany();
+    const contactsQb = rawQb.getRawMany();
+
+    const contacts = (await contactsQb).map(c => ({
+      ...c,
+      isAnonymous: false
+    }));
 
     // Buscar carrinhos anônimos (sem contato vinculado)
     const anonymousQb = this.saleRepository.createQueryBuilder('sale')
@@ -860,7 +865,8 @@ export class SalesService {
         '0 AS saleCount',
         '0 AS engagementCount',
         'COUNT(DISTINCT CASE WHEN sale.status = "active_cart" THEN sale.id END) AS cartCount',
-        'COUNT(DISTINCT CASE WHEN sale.status = "abandoned_cart" THEN sale.id END) AS abandonedCount'
+        'COUNT(DISTINCT CASE WHEN sale.status = "abandoned_cart" THEN sale.id END) AS abandonedCount',
+        'TRUE AS isAnonymous'
       ])
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.contactId IS NULL')
@@ -894,7 +900,7 @@ export class SalesService {
       const segContacts = allEntities.filter(seg.filter);
       return {
         name: seg.name,
-        leads: segContacts.length,
+        leads: segContacts.filter(c => !c.isAnonymous).length, // Apenas contatos registrados são leads
         engaged: segContacts.filter(c => parseInt(c.engagementCount || '0') > 0).length,
         cart: segContacts.filter(c => parseInt(c.cartCount || '0') > 0).length,
         abandoned: segContacts.filter(c => parseInt(c.abandonedCount || '0') > 0).length,

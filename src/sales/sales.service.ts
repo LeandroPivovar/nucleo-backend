@@ -385,18 +385,18 @@ export class SalesService {
       .getRawMany();
 
     const cartContactsSale = await this.saleRepository.createQueryBuilder('sale')
-      .select('DISTINCT sale.contactId', 'contactId')
+      .select('DISTINCT COALESCE(CAST(sale.contactId AS CHAR), sale.externalId)', 'id')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
       .getRawMany();
 
-    // Unique contact IDs from both sources
-    const allCartContactIds = new Set([
+    // Unique IDs from both sources (Pixel Contact IDs and Sale [Contact or External] IDs)
+    const allCartIds = new Set([
       ...cartContactsPixel.map(c => c.contactId),
-      ...cartContactsSale.map(c => c.contactId)
+      ...cartContactsSale.map(c => c.id)
     ]);
-    const cartCount = allCartContactIds.size;
+    const cartCount = allCartIds.size;
 
     // 4. Compradores: Unique contacts with sales
     const buyersQuery = this.saleRepository.createQueryBuilder('sale')
@@ -571,7 +571,7 @@ export class SalesService {
       .getRawMany();
 
     const abandonedSaleIds = await this.saleRepository.createQueryBuilder('sale')
-      .select('DISTINCT sale.contactId', 'id')
+      .select('DISTINCT COALESCE(CAST(sale.contactId AS CHAR), sale.externalId)', 'id')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
       .getRawMany();

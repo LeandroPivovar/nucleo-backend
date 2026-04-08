@@ -892,8 +892,7 @@ export class NuvemshopService {
     this.logger.log(`[Nuvemshop Sync] Buscando carrinhos criados antes de: ${fifteenMinutesAgo.toISOString()}`);
 
     for (const checkout of allCheckouts) {
-      const customerEmail = checkout.email || checkout.customer?.email;
-      if (!customerEmail) continue;
+      const customerEmail = checkout.email || checkout.customer?.email || null;
 
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
@@ -904,17 +903,20 @@ export class NuvemshopService {
       }
       this.logger.log(`[Nuvemshop Sync] Processando checkout ${checkout.id} de ${customerEmail}`);
 
-      let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-      if (!contact) {
-        contact = this.contactRepository.create({
-          userId,
-          email: customerEmail,
-          name: checkout.customer?.name?.split(' ')[0] || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome',
-          lastName: checkout.customer?.name?.split(' ').slice(1).join(' ') || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '',
-          source: 'nuvemshop',
-          status: 'customer',
-        });
-        await this.contactRepository.save(contact);
+      let contact: any = null;
+      if (customerEmail) {
+        contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+        if (!contact) {
+          contact = this.contactRepository.create({
+            userId,
+            email: customerEmail,
+            name: checkout.customer?.name?.split(' ')[0] || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome',
+            lastName: checkout.customer?.name?.split(' ').slice(1).join(' ') || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '',
+            source: 'nuvemshop',
+            status: 'customer',
+          });
+          await this.contactRepository.save(contact);
+        }
       }
 
       const externalId = `nuvemshop_checkout_${checkout.id || checkout.token}`;
@@ -964,8 +966,8 @@ export class NuvemshopService {
             quantity: item.quantity || 1,
             unitPrice: parseFloat(item.price || '0'),
             totalValue: parseFloat(item.price || '0') * (item.quantity || 1),
-            customerName: contact ? `${contact.name} ${contact.lastName}` : checkout.customer?.name,
-            customerEmail: customerEmail,
+            customerName: contact ? `${contact.name} ${contact.lastName}` : (checkout.customer?.name || 'Cliente Anônimo'),
+            customerEmail: customerEmail || 'anonimo@nuvemshop.com.br',
             channel: 'nuvemshop',
             status: checkoutStatus,
             createdAt: createdAt,

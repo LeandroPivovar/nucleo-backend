@@ -850,6 +850,29 @@ export class SalesService {
 
     const contacts = await rawQb.getRawMany();
 
+    // Buscar carrinhos anônimos (sem contato vinculado)
+    const anonymousQb = this.saleRepository.createQueryBuilder('sale')
+      .select([
+        'sale.externalId AS id',
+        'sale.createdAt AS createdAt',
+        'sale.createdAt AS updatedAt',
+        'sale.createdAt AS lastActivityAt',
+        '0 AS saleCount',
+        '0 AS engagementCount',
+        'COUNT(DISTINCT CASE WHEN sale.status = "active_cart" THEN sale.id END) AS cartCount',
+        'COUNT(DISTINCT CASE WHEN sale.status = "abandoned_cart" THEN sale.id END) AS abandonedCount'
+      ])
+      .where('sale.userId = :userId', { userId })
+      .andWhere('sale.contactId IS NULL')
+      .andWhere('sale.status IN ("active_cart", "abandoned_cart")');
+
+    if (filters.campaignId) anonymousQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.productId) anonymousQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+
+    const anonymousSales = await anonymousQb.groupBy('sale.externalId').getRawMany();
+
+    const allEntities = [...contacts, ...anonymousSales];
+
     const now = new Date();
     const ago7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const ago30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -868,7 +891,7 @@ export class SalesService {
     ];
 
     return segments.map(seg => {
-      const segContacts = contacts.filter(seg.filter);
+      const segContacts = allEntities.filter(seg.filter);
       return {
         name: seg.name,
         leads: segContacts.length,

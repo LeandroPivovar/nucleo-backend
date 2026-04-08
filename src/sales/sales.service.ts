@@ -374,37 +374,29 @@ export class SalesService {
     const engagedCount = parseInt(engagedResult.count || '0');
 
     // 3. Carrinho: Unique users who added to cart OR have a synced checkout
-    const cartPixelQuery = this.pixelEventRepository.createQueryBuilder('event')
+    // We use a union approach or distinct contact IDs where possible
+    const cartContactsPixel = await this.pixelEventRepository.createQueryBuilder('event')
       .leftJoin('event.pixel', 'pixel')
-      .select('COUNT(DISTINCT event.ip)', 'count')
+      .innerJoin(Contact, 'contact', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
+      .select('DISTINCT contact.id', 'contactId')
       .where('pixel.userId = :userId', { userId })
       .andWhere('event.event = :event', { event: 'AddToCart' })
-      .andWhere('event.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+      .andWhere('event.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .getRawMany();
 
-    if (filters.campaignId) {
-      cartPixelQuery.andWhere('event.data->>"$.campaignId" = :campaignId', { campaignId: filters.campaignId.toString() });
-    }
-    if (filters.productId) {
-      cartPixelQuery.andWhere('event.data->>"$.productId" = :productId', { productId: filters.productId.toString() });
-    }
-
-    const cartPixelResult = await cartPixelQuery.getRawOne();
-    const cartPixelCount = parseInt(cartPixelResult.count || '0');
-
-    // Also count checkouts from Sale table (Shopify/Nuvemshop)
-    const cartSaleQuery = this.saleRepository.createQueryBuilder('sale')
-      .select('COUNT(DISTINCT sale.contactId)', 'count')
+    const cartContactsSale = await this.saleRepository.createQueryBuilder('sale')
+      .select('DISTINCT sale.contactId', 'contactId')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .getRawMany();
 
-    if (filters.campaignId) cartSaleQuery.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
-    if (filters.productId) cartSaleQuery.andWhere('sale.productId = :productId', { productId: filters.productId });
-
-    const cartSaleResult = await cartSaleQuery.getRawOne();
-    const cartSaleCount = parseInt(cartSaleResult.count || '0');
-
-    const cartCount = cartPixelCount + cartSaleCount;
+    // Unique contact IDs from both sources
+    const allCartContactIds = new Set([
+      ...cartContactsPixel.map(c => c.contactId),
+      ...cartContactsSale.map(c => c.contactId)
+    ]);
+    const cartCount = allCartContactIds.size;
 
     // 4. Compradores: Unique contacts with sales
     const buyersQuery = this.saleRepository.createQueryBuilder('sale')
@@ -560,10 +552,11 @@ export class SalesService {
     const totalCart = totalCartPixel + totalCartSale;
 
     // 4. Cart Abandonment (Cart without matching Purchase)
-    const abandonedQb = this.pixelEventRepository.createQueryBuilder('event')
+    // We count unique contacts who had a cart event but never completed a sale in this account
+    const abandonedPixelIds = await this.pixelEventRepository.createQueryBuilder('event')
       .leftJoin('event.pixel', 'pixel')
       .innerJoin(Contact, 'contact', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
-      .select('COUNT(DISTINCT contact.id)', 'count')
+      .select('DISTINCT contact.id', 'id')
       .where('pixel.userId = :userId', { userId })
       .andWhere('event.event = "AddToCart"')
       .andWhere((qb) => {
@@ -574,12 +567,29 @@ export class SalesService {
           .andWhere('sale.userId = :userId')
           .getQuery();
         return 'contact.id NOT IN ' + subQuery;
-      });
+      })
+      .getRawMany();
 
-    if (filters.campaignId) abandonedQb.andWhere('event.data->>"$.campaignId" = :campId', { campId: filters.campaignId.toString() });
-    if (filters.productId) abandonedQb.andWhere('event.data->>"$.productId" = :prodId', { prodId: filters.productId.toString() });
+    const abandonedSaleIds = await this.saleRepository.createQueryBuilder('sale')
+      .select('DISTINCT sale.contactId', 'id')
+      .where('sale.userId = :userId', { userId })
+      .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
+      .andWhere((qb) => {
+        const subQuery = qb.subQuery()
+          .select('s.contactId')
+          .from(Sale, 's')
+          .where('s.status = "completed"')
+          .andWhere('s.userId = :userId')
+          .getQuery();
+        return 'sale.contactId NOT IN ' + subQuery;
+      })
+      .getRawMany();
 
-    const totalCartNoPurchase = parseInt((await abandonedQb.getRawOne()).count || '0');
+    const allAbandonedContactIds = new Set([
+      ...abandonedPixelIds.map(c => c.id),
+      ...abandonedSaleIds.map(c => c.id)
+    ]);
+    const totalCartNoPurchase = allAbandonedContactIds.size;
 
     // 5. Inactive Clients (No sales in last 90 days)
     const ninetyDaysAgo = new Date();

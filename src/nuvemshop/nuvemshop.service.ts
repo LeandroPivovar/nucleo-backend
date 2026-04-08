@@ -896,9 +896,9 @@ export class NuvemshopService {
 
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
-      // Critério: Apenas considerar abandonado se tiver mais de 2 horas
+      // Critério: Apenas considerar abandonado se tiver mais de 2 horas de inatividade
       if (createdAt > twoHoursAgo) {
-        console.log(`[Nuvemshop Sync] Checkout ${checkout.id} ignorado (muito recente: ${createdAt.toISOString()})`);
+        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id} ignorado por ser muito recente (${createdAt.toISOString()}). Threshold: ${twoHoursAgo.toISOString()}. O CRM aguarda 2 horas para confirmar o abandono.`);
         continue;
       }
 

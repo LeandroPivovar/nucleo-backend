@@ -882,6 +882,7 @@ export class NuvemshopService {
    * Sincroniza carrinhos ativos/abandonados da Nuvemshop para o CRM
    */
   async syncCheckouts(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {
+    this.logger.log(`[Nuvemshop Sync] Iniciando busca de checkouts para loja ${storeId}...`);
     const allCheckouts = await this.getAbandonedCheckouts(userId, storeId, { limit: 250 });
     let imported = 0;
     let updated = 0;
@@ -1091,10 +1092,11 @@ export class NuvemshopService {
     const accessToken = await this.getAccessToken(userId, storeId);
 
     const queryParams = new URLSearchParams();
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.limit) queryParams.append('per_page', params.limit.toString());
     if (params?.since_id) queryParams.append('since_id', params.since_id.toString());
 
     const url = `${this.apiBaseUrl}/${storeId}/checkouts${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+    this.logger.log(`[Nuvemshop API] Solicitando checkouts: ${url}`);
 
     const response = await fetch(url, {
       headers: {

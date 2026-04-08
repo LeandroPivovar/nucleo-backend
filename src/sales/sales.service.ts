@@ -574,15 +574,6 @@ export class SalesService {
       .select('DISTINCT sale.contactId', 'id')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
-      .andWhere((qb) => {
-        const subQuery = qb.subQuery()
-          .select('s.contactId')
-          .from(Sale, 's')
-          .where('s.status = "completed"')
-          .andWhere('s.userId = :userId')
-          .getQuery();
-        return 'sale.contactId NOT IN ' + subQuery;
-      })
       .getRawMany();
 
     const allAbandonedContactIds = new Set([

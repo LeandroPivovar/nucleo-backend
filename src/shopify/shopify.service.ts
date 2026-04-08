@@ -715,18 +715,19 @@ export class ShopifyService {
     let updated = 0;
 
     const now = new Date();
-    const twoHoursAgo = new Date(now.getTime() - (2 * 60 * 60 * 1000));
+    const fifteenMinutesAgo = new Date(now.getTime() - (15 * 60 * 1000));
     
-    console.log(`[Shopify Sync] Buscando carrinhos criados antes de: ${twoHoursAgo.toISOString()}`);
+    this.logger.log(`[Shopify Sync] Buscando carrinhos criados antes de: ${fifteenMinutesAgo.toISOString()}`);
 
     for (const checkout of allCheckouts) {
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
-      // Critério: Apenas considerar abandonado se tiver mais de 2 horas
-      if (createdAt > twoHoursAgo) {
-        console.log(`[Shopify Sync] Checkout ${checkout.id} ignorado (muito recente: ${createdAt.toISOString()})`);
+      // Critério: Apenas considerar abandonado se tiver mais de 15 minutos para testes rápidos
+      if (createdAt > fifteenMinutesAgo) {
+        this.logger.log(`[Shopify Sync] Checkout ${checkout.id} ignorado (muito recente: ${createdAt.toISOString()})`);
         continue;
       }
+      this.logger.log(`[Shopify Sync] Processando checkout ${checkout.id} de email ${checkout.email || checkout.customer?.email}`);
 
       const customerEmail = checkout.email || checkout.customer?.email;
       if (!customerEmail) continue;

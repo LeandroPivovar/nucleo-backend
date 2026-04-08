@@ -886,9 +886,9 @@ export class NuvemshopService {
     let imported = 0;
     let updated = 0;
     const now = new Date();
-    const twoHoursAgo = new Date(now.getTime() - (2 * 60 * 60 * 1000));
+    const fifteenMinutesAgo = new Date(now.getTime() - (15 * 60 * 1000));
     
-    console.log(`[Nuvemshop Sync] Buscando carrinhos criados antes de: ${twoHoursAgo.toISOString()}`);
+    this.logger.log(`[Nuvemshop Sync] Buscando carrinhos criados antes de: ${fifteenMinutesAgo.toISOString()}`);
 
     for (const checkout of allCheckouts) {
       const customerEmail = checkout.email || checkout.customer?.email;
@@ -896,11 +896,12 @@ export class NuvemshopService {
 
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
-      // Critério: Apenas considerar abandonado se tiver mais de 2 horas de inatividade
-      if (createdAt > twoHoursAgo) {
-        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id} ignorado por ser muito recente (${createdAt.toISOString()}). Threshold: ${twoHoursAgo.toISOString()}. O CRM aguarda 2 horas para confirmar o abandono.`);
+      // Critério: Apenas considerar abandonado se tiver mais de 15 minutos de inatividade para testes rápidos
+      if (createdAt > fifteenMinutesAgo) {
+        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id} ignorado por ser muito recente (${createdAt.toISOString()}). Threshold: ${fifteenMinutesAgo.toISOString()}.`);
         continue;
       }
+      this.logger.log(`[Nuvemshop Sync] Processando checkout ${checkout.id} de ${customerEmail}`);
 
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
       if (!contact) {

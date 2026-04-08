@@ -883,7 +883,7 @@ export class NuvemshopService {
    */
   async syncCheckouts(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {
     this.logger.log(`[Nuvemshop Sync] Iniciando busca de checkouts para loja ${storeId}...`);
-    const allCheckouts = await this.getAbandonedCheckouts(userId, storeId, { limit: 250 });
+    const allCheckouts = await this.getAbandonedCheckouts(userId, storeId, { limit: 200 });
     let imported = 0;
     let updated = 0;
     const now = new Date();
@@ -1108,12 +1108,14 @@ export class NuvemshopService {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
+      this.logger.error(`[Nuvemshop API Error] ${url} - Status: ${response.status} ${JSON.stringify(error)}`);
       throw new BadRequestException(
         error.error_description || error.message || 'Falha ao buscar carrinhos abandonados',
       );
     }
 
     const data = await response.json();
+    this.logger.log(`[Nuvemshop API] Loja ${storeId}/checkouts retornou ${Array.isArray(data) ? data.length + ' itens' : 'não é um array'}`);
     return data || [];
   }
 

@@ -854,9 +854,9 @@ export class SalesService {
     const anonymousQb = this.saleRepository.createQueryBuilder('sale')
       .select([
         'sale.externalId AS id',
-        'sale.createdAt AS createdAt',
-        'sale.createdAt AS updatedAt',
-        'sale.createdAt AS lastActivityAt',
+        'MAX(sale.createdAt) AS createdAt',
+        'MAX(sale.createdAt) AS updatedAt',
+        'MAX(sale.createdAt) AS lastActivityAt',
         '0 AS saleCount',
         '0 AS engagementCount',
         'COUNT(DISTINCT CASE WHEN sale.status = "active_cart" THEN sale.id END) AS cartCount',

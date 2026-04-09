@@ -297,7 +297,7 @@ export class SalesService {
     const calculateTrend = (curr: number, prev: number) => {
       if (!prev || prev === 0) return curr > 0 ? 100 : 0;
       const trend = ((curr - prev) / prev) * 100;
-      return isNaN(trend) ? 0 : trend;
+      return isNaN(trend) ? 0 : parseFloat(trend.toFixed(2));
     };
 
     const ticketMedio = current.vendas > 0 ? current.faturamento / current.vendas : 0;

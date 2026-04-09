@@ -946,7 +946,7 @@ export class NuvemshopService {
           await this.productRepository.save(product);
         }
 
-        const checkoutStatus = checkout.abandoned ? 'abandoned_cart' : 'active_cart';
+        const checkoutStatus = 'abandoned_cart'; // Após 15min de inatividade, consideramos abandonado
 
         const existingSale = await this.saleRepository.findOne({
           where: { userId, externalId, productId: product.id }

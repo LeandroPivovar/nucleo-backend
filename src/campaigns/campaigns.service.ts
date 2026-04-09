@@ -502,7 +502,7 @@ export class CampaignsService {
 
         const channelPerformance = Object.values(channelPerformanceMap).map(p => ({
             ...p,
-            taxaEntrega: p.envios > 0 ? (p.recebidos / p.envios) * 100 : 0
+            taxaEntrega: p.envios > 0 ? Math.min((p.recebidos / p.envios) * 100, 100) : 0
         }));
 
         return {

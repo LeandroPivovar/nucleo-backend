@@ -303,14 +303,14 @@ export class SalesService {
     const ticketMedio = current.vendas > 0 ? current.faturamento / current.vendas : 0;
     const prevTicketMedio = previous.vendas > 0 ? previous.faturamento / previous.vendas : 0;
 
-    const deliveryRate = current.envios > 0 ? (current.recebidos / current.envios) * 100 : 0;
-    const prevDeliveryRate = previous.envios > 0 ? (previous.recebidos / previous.envios) * 100 : 0;
+    const deliveryRate = current.envios > 0 ? Math.min((current.recebidos / current.envios) * 100, 100) : 0;
+    const prevDeliveryRate = previous.envios > 0 ? Math.min((previous.recebidos / previous.envios) * 100, 100) : 0;
 
     // CTR calculation (Clicks / Envios or Clicks / Opens?) Usually Clicks / Envios (or delivery)
-    const ctr = current.envios > 0 ? (current.cliques / current.envios) * 100 : 0;
+    const ctr = current.envios > 0 ? Math.min((current.cliques / current.envios) * 100, 100) : 0;
 
-    const responseRate = current.envios > 0 ? (current.respostas / current.envios) * 100 : 0;
-    const prevResponseRate = previous.envios > 0 ? (previous.respostas / previous.envios) * 100 : 0;
+    const responseRate = current.envios > 0 ? Math.min((current.respostas / current.envios) * 100, 100) : 0;
+    const prevResponseRate = previous.envios > 0 ? Math.min((previous.respostas / previous.envios) * 100, 100) : 0;
 
     return {
       faturamento: current.faturamento,
@@ -462,7 +462,7 @@ export class SalesService {
         description: 'Abriram campanhas/site',
         count: engagedCount,
         value: engagedCount,
-        percentage: Math.round((engagedCount / safeLeads) * 100)
+        percentage: Math.min(Math.round((engagedCount / safeLeads) * 100), 100)
       },
       {
         id: 'cart',
@@ -471,7 +471,7 @@ export class SalesService {
         description: 'Adicionaram produtos',
         count: cartCount,
         value: cartCount,
-        percentage: Math.round((cartCount / safeLeads) * 100)
+        percentage: Math.min(Math.round((cartCount / safeLeads) * 100), 100)
       },
       {
         id: 'purchase',
@@ -480,7 +480,7 @@ export class SalesService {
         description: 'Finalizaram compra',
         count: buyersCount,
         value: buyersCount,
-        percentage: Math.round((buyersCount / safeLeads) * 100)
+        percentage: Math.min(Math.round((buyersCount / safeLeads) * 100), 100)
       },
       {
         id: 'loyal',
@@ -489,7 +489,7 @@ export class SalesService {
         description: '2+ compras',
         count: loyalCount,
         value: loyalCount,
-        percentage: Math.round((loyalCount / safeLeads) * 100)
+        percentage: Math.min(Math.round((loyalCount / safeLeads) * 100), 100)
       }
     ];
   }
@@ -614,9 +614,9 @@ export class SalesService {
 
     const loyalCount = (await loyalQb.getRawMany()).length;
 
-    const conversionRate = totalLeads > 0 ? (totalBuyers / totalLeads) * 100 : 0;
-    const loyaltyRate = totalBuyers > 0 ? (loyalCount / totalBuyers) * 100 : 0;
-    const abandonmentRate = totalCart > 0 ? (totalCartNoPurchase / totalCart) * 100 : 0;
+    const conversionRate = totalLeads > 0 ? Math.min((totalBuyers / totalLeads) * 100, 100) : 0;
+    const loyaltyRate = totalBuyers > 0 ? Math.min((loyalCount / totalBuyers) * 100, 100) : 0;
+    const abandonmentRate = totalCart > 0 ? Math.min((totalCartNoPurchase / totalCart) * 100, 100) : 0;
 
     const safeRound = (val: number) => isNaN(val) ? 0 : Math.round(val);
 

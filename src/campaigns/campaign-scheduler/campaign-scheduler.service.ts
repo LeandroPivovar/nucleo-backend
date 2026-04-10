@@ -356,6 +356,7 @@ export class CampaignSchedulerService {
         let currentNode = startNode;
         let stats = { sentEmailCount: 0, sentSmsCount: 0, sentWhatsappCount: 0 };
         let currentActiveCoupon = activeCoupon;
+        const preProcessedNodeIds = new Set<string>(); // nodes already executed by look-ahead
 
         // If starting from a delay node (resume), move to the NEXT node immediately
         if (currentNode.type === 'delay') {
@@ -403,8 +404,42 @@ export class CampaignSchedulerService {
                 return;
             }
 
-            const result = await this.processSingleNode(campaign, contact, currentNode, context, currentActiveCoupon, stats);
-            if (result.activeCoupon) currentActiveCoupon = result.activeCoupon;
+            // ── Coupon look-ahead for message nodes ──────────────────────────
+            // If this is a message node and we don't have an active coupon yet,
+            // check if any coupon/giftback node is DIRECTLY connected (in either
+            // direction) so that both `email → coupon` and `coupon → email` work.
+            const isMessageNode = (currentNode.type === 'email' || currentNode.type === 'sms' || currentNode.type === 'whatsapp');
+            if (isMessageNode && !currentActiveCoupon) {
+                // Find all node IDs directly connected to the current node via any edge
+                const adjacentNodeIds = edges
+                    .filter((e: any) => e.source === currentNode.id || e.target === currentNode.id)
+                    .map((e: any) => e.source === currentNode.id ? e.target : e.source)
+                    .filter((id: string) => id !== currentNode.id);
+
+                for (const adjId of adjacentNodeIds) {
+                    const adjNode = nodes.find((n: any) => n.id === adjId);
+                    if (adjNode && (adjNode.type === 'coupon' || adjNode.type === 'giftback')) {
+                        this.logger.log(`[COUPON LOOK-AHEAD] Found ${adjNode.type} node (${adjId}) adjacent to ${currentNode.type} node (${currentNode.id}) for contact ${contact.id}`);
+                        // Pre-process the coupon node to populate currentActiveCoupon
+                        const couponResult = await this.processSingleNode(campaign, contact, adjNode, context, null, stats);
+                        if (couponResult.activeCoupon) {
+                            currentActiveCoupon = couponResult.activeCoupon;
+                            preProcessedNodeIds.add(adjId); // mark as already processed
+                            this.logger.log(`[COUPON LOOK-AHEAD] Coupon pre-loaded: ${currentActiveCoupon._generatedCode || currentActiveCoupon.couponName || 'unnamed'}`);
+                        }
+                        break; // Use first coupon found
+                    }
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────
+
+            // Skip this node if it was already executed by look-ahead (avoid double coupon generation)
+            if (preProcessedNodeIds.has(currentNode.id)) {
+                this.logger.debug(`[FLOW] Skipping node ${currentNode.id} (${currentNode.type}) — already executed by look-ahead`);
+            } else {
+                const result = await this.processSingleNode(campaign, contact, currentNode, context, currentActiveCoupon, stats);
+                if (result.activeCoupon) currentActiveCoupon = result.activeCoupon;
+            }
 
             let nextNodeId: string | undefined;
             if (currentNode.type === 'condition') {

@@ -23,6 +23,7 @@ import { VtexConnection } from '../entities/vtex-connection.entity';
 import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.entity';
 import { CampaignClick } from '../entities/campaign-click.entity';
 import { LeadRequest } from '../entities/lead-request.entity';
+import { Product } from '../entities/product.entity';
 import { LeadRequestsController } from './lead-requests.controller';
 import { LeadRequestsService } from './lead-requests.service';
 
@@ -48,6 +49,7 @@ import { LeadRequestsService } from './lead-requests.service';
             LojaIntegradaConnection,
             CampaignClick,
             LeadRequest,
+            Product,
         ]),
         JwtModule.registerAsync({
             imports: [ConfigModule],

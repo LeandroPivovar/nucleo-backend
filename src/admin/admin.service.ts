@@ -21,6 +21,7 @@ import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 import { VtexConnection } from '../entities/vtex-connection.entity';
 import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.entity';
 import { CampaignClick } from '../entities/campaign-click.entity';
+import { Product } from '../entities/product.entity';
 import * as bcrypt from 'bcrypt';
 
 export interface MonthlyFinanceData {
@@ -80,6 +81,8 @@ export class AdminService {
         private liConnectionRepository: Repository<LojaIntegradaConnection>,
         @InjectRepository(CampaignClick)
         private campaignClickRepository: Repository<CampaignClick>,
+        @InjectRepository(Product)
+        private productRepository: Repository<Product>,
         private jwtService: JwtService,
     ) { }
 
@@ -764,5 +767,248 @@ export class AdminService {
             date: s.date,
             count: Number(s.count),
         }));
+    }
+
+    // ─── Generate Test Account ────────────────────────────────────────────────
+    async generateTestAccount(level: 'low' | 'medium' | 'high') {
+        // --- Volume config per level ---
+        const config = {
+            low: { contacts: 50, campaigns: 3, sales: 30, minPrice: 50, maxPrice: 800 },
+            medium: { contacts: 300, campaigns: 10, sales: 200, minPrice: 80, maxPrice: 2000 },
+            high: { contacts: 1000, campaigns: 30, sales: 1000, minPrice: 100, maxPrice: 5000 },
+        }[level];
+
+        const uid = Math.random().toString(36).slice(2, 10);
+        const email = `teste.${uid}@demo.nucleocrm.com.br`;
+        const plainPassword = 'Teste@123';
+        const hashedPassword = await bcrypt.hash(plainPassword, 10);
+
+        // --- STEP 1: Create User ---
+        const firstNames = ['Ana', 'Carlos', 'Fernanda', 'Rafael', 'Juliana', 'Marcos', 'Camila', 'Lucas', 'Patrícia', 'Bruno'];
+        const lastNames = ['Silva', 'Oliveira', 'Santos', 'Costa', 'Pereira', 'Alves', 'Rodrigues', 'Gomes', 'Martins', 'Ferreira'];
+        const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
+        const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+
+        const user = this.usersRepository.create({
+            firstName,
+            lastName,
+            email,
+            password: hashedPassword,
+            active: true,
+            subscriptionStatus: 'ACTIVE',
+            referralCode: `DEMO${uid.toUpperCase()}`,
+        });
+        const savedUser = await this.usersRepository.save(user);
+        const userId = savedUser.id;
+
+        // --- STEP 2: Create Products ---
+        const productNames = [
+            'Camiseta Premium', 'Tênis Esportivo', 'Mochila Urbana', 'Relógio Clássico',
+            'Óculos de Sol', 'Bolsa Feminina', 'Calça Jeans', 'Jaqueta de Couro',
+            'Perfume Importado', 'Notebook Ultrafino', 'Fone Bluetooth', 'Smartwatch',
+        ];
+        const productsToCreate = productNames.slice(0, Math.min(6, productNames.length));
+        const savedProducts: Product[] = [];
+        for (const name of productsToCreate) {
+            const price = parseFloat((Math.random() * (config.maxPrice - config.minPrice) + config.minPrice).toFixed(2));
+            const prod = this.productRepository.create({
+                name,
+                description: `Produto fake gerado para conta de demonstração. Nível: ${level}`,
+                price,
+                stock: Math.floor(Math.random() * 500) + 50,
+                sku: `DEMO-${uid.toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+                active: true,
+                userId,
+            });
+            const sp = await this.productRepository.save(prod);
+            savedProducts.push(sp);
+        }
+
+        // --- STEP 3: Create Contacts ---
+        const contactFirstNames = [
+            'Maria', 'João', 'Ana', 'Pedro', 'Luisa', 'Ricardo', 'Beatriz', 'Felipe', 'Sandra', 'André',
+            'Juliana', 'Fernando', 'Paula', 'Rodrigo', 'Tânia', 'Gustavo', 'Cláudia', 'Thiago', 'Mariana', 'Leonardo',
+        ];
+        const contactLastNames = [
+            'Almeida', 'Barbosa', 'Carvalho', 'Dias', 'Fonseca', 'Guimarães', 'Henriques', 'Ives', 'Junqueira', 'Krause',
+            'Lima', 'Melo', 'Neto', 'Orsi', 'Pinto', 'Queiroz', 'Ramos', 'Sousa', 'Torres', 'Vargas',
+        ];
+        const contactSources = ['website', 'referral', 'social_media', 'email', 'ads', 'organic'];
+        const contactStatuses = ['active', 'lead', 'customer', 'inactive'];
+        const states = ['SP', 'RJ', 'MG', 'RS', 'PR', 'SC', 'BA', 'GO', 'PE', 'CE'];
+        const cities: Record<string, string[]> = {
+            SP: ['São Paulo', 'Campinas', 'Santos', 'Ribeirão Preto'],
+            RJ: ['Rio de Janeiro', 'Niterói', 'Petrópolis'],
+            MG: ['Belo Horizonte', 'Uberlândia', 'Juiz de Fora'],
+            RS: ['Porto Alegre', 'Caxias do Sul', 'Pelotas'],
+            PR: ['Curitiba', 'Londrina', 'Maringá'],
+            SC: ['Florianópolis', 'Joinville', 'Blumenau'],
+            BA: ['Salvador', 'Feira de Santana'],
+            GO: ['Goiânia', 'Anápolis'],
+            PE: ['Recife', 'Caruaru'],
+            CE: ['Fortaleza', 'Caucaia'],
+        };
+
+        const savedContacts: { id: number }[] = [];
+        const batchSize = 50;
+        for (let i = 0; i < config.contacts; i += batchSize) {
+            const batch: Contact[] = [];
+            const end = Math.min(i + batchSize, config.contacts);
+            for (let j = i; j < end; j++) {
+                const fn = contactFirstNames[j % contactFirstNames.length];
+                const ln = contactLastNames[j % contactLastNames.length];
+                const state = states[j % states.length];
+                const cityList = cities[state];
+                const city = cityList[j % cityList.length];
+                const demoNum = `55119${String(Math.floor(Math.random() * 90000000) + 10000000)}`;
+                const contactEmail = `${fn.toLowerCase()}.${ln.toLowerCase()}${j}@demo.com`;
+
+                // random birth date between 1970 and 2000
+                const birthYear = 1970 + Math.floor(Math.random() * 30);
+                const birthDate = new Date(birthYear, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1);
+
+                batch.push(this.contactRepository.create({
+                    name: fn,
+                    lastName: ln,
+                    email: contactEmail,
+                    phone: demoNum,
+                    status: contactStatuses[j % contactStatuses.length],
+                    source: contactSources[j % contactSources.length],
+                    state,
+                    city,
+                    birthDate,
+                    gender: j % 2 === 0 ? 'M' : 'F',
+                    userId,
+                }));
+            }
+            const saved = await this.contactRepository.save(batch);
+            savedContacts.push(...saved.map(c => ({ id: c.id })));
+        }
+
+        // --- STEP 4: Create Campaigns ---
+        const campaignTemplates = [
+            { name: 'Boas-vindas', channel: 'email' },
+            { name: 'Promoção Relâmpago', channel: 'email' },
+            { name: 'Recuperação de Carrinho', channel: 'email' },
+            { name: 'SMS Fim de Semana', channel: 'sms' },
+            { name: 'Oferta Exclusiva SMS', channel: 'sms' },
+            { name: 'WhatsApp Black Friday', channel: 'whatsapp' },
+            { name: 'WhatsApp Fidelização', channel: 'whatsapp' },
+            { name: 'Newsletter Semanal', channel: 'email' },
+            { name: 'Reativação de Clientes', channel: 'email' },
+            { name: 'Flash Sale 24h', channel: 'sms' },
+            { name: 'Lançamento de Produto', channel: 'email' },
+            { name: 'Cashback Especial', channel: 'whatsapp' },
+            { name: 'Aniversariantes', channel: 'email' },
+            { name: 'Indicação de Amigos', channel: 'email' },
+            { name: 'Pós-venda Satisfação', channel: 'email' },
+            { name: 'Upsell Premium', channel: 'email' },
+            { name: 'SMS Urgente', channel: 'sms' },
+            { name: 'Promoção Verão', channel: 'email' },
+            { name: 'Clube de Membros', channel: 'whatsapp' },
+            { name: 'Recuperar Inativos', channel: 'sms' },
+            { name: 'Dia dos Namorados', channel: 'email' },
+            { name: 'Desconto Cliente VIP', channel: 'email' },
+            { name: 'Notícias do Produto', channel: 'whatsapp' },
+            { name: 'Queima de Estoque', channel: 'sms' },
+            { name: 'Programa de Pontos', channel: 'email' },
+            { name: 'Cross-sell Acessórios', channel: 'email' },
+            { name: 'Recompra Automática', channel: 'email' },
+            { name: 'Strike 48h', channel: 'sms' },
+            { name: 'Natal Especial', channel: 'email' },
+            { name: 'Ano Novo Oferta', channel: 'whatsapp' },
+        ];
+        const campaignStatuses = ['finalizada', 'ativa', 'pausada', 'finalizada', 'finalizada'];
+        const channelTypes: Record<string, string> = { email: 'advanced', sms: 'simple', whatsapp: 'simple' };
+
+        const savedCampaigns: { id: number }[] = [];
+        for (let i = 0; i < config.campaigns; i++) {
+            const template = campaignTemplates[i % campaignTemplates.length];
+            const recipients = Math.floor(Math.random() * config.contacts * 0.8) + 10;
+            const sent = Math.floor(recipients * (0.7 + Math.random() * 0.3));
+            const delivered = Math.floor(sent * (0.85 + Math.random() * 0.14));
+            const clicks = Math.floor(delivered * (0.05 + Math.random() * 0.2));
+            const revenue = parseFloat((clicks * (Math.random() * 200 + 50)).toFixed(2));
+            const daysAgo = Math.floor(Math.random() * 180);
+            const createdDate = new Date();
+            createdDate.setDate(createdDate.getDate() - daysAgo);
+
+            const camp = this.campaignRepository.create({
+                name: template.name,
+                complexity: channelTypes[template.channel],
+                channel: template.channel,
+                status: campaignStatuses[i % campaignStatuses.length],
+                recipientsCount: recipients,
+                sentCount: sent,
+                deliveredCount: delivered,
+                clicksCount: clicks,
+                revenue,
+                config: { subject: `${template.name} — Demo`, body: 'Conteúdo de demonstração' },
+                userId,
+            });
+            const saved = await this.campaignRepository.save(camp);
+            savedCampaigns.push({ id: saved.id });
+        }
+
+        // --- STEP 5: Create Sales ---
+        const paymentMethods = ['credit_card', 'pix', 'boleto', 'debit_card'];
+        const channels = ['organic', 'email', 'sms', 'whatsapp', 'ads', 'referral'];
+        const salesStatuses = ['completed', 'completed', 'completed', 'processing', 'cancelled'];
+
+        let totalRevenue = 0;
+        const batchSaleSize = 100;
+        for (let i = 0; i < config.sales; i += batchSaleSize) {
+            const batch: any[] = [];
+            const end = Math.min(i + batchSaleSize, config.sales);
+            for (let j = i; j < end; j++) {
+                const product = savedProducts[j % savedProducts.length];
+                const contact = savedContacts[j % savedContacts.length];
+                const campaign = savedCampaigns.length > 0 ? savedCampaigns[j % savedCampaigns.length] : undefined;
+                const quantity = Math.floor(Math.random() * 3) + 1;
+                const unitPrice = parseFloat(product.price.toString());
+                const totalValue = parseFloat((quantity * unitPrice).toFixed(2));
+                totalRevenue += totalValue;
+
+                // spread dates across last 12 months
+                const daysAgo = Math.floor(Math.random() * 365);
+                const saleDate = new Date();
+                saleDate.setDate(saleDate.getDate() - daysAgo);
+
+                const sale = this.saleRepository.create({
+                    productId: product.id,
+                    userId,
+                    quantity,
+                    unitPrice,
+                    totalValue,
+                    customerName: `Demo Cliente ${j + 1}`,
+                    customerEmail: `cliente${j}@demo.com`,
+                    paymentMethod: paymentMethods[j % paymentMethods.length],
+                    campaignId: campaign?.id,
+                    channel: channels[j % channels.length],
+                    contactId: contact.id,
+                    status: salesStatuses[j % salesStatuses.length],
+                    externalId: `DEMO-${uid}-${j}`,
+                } as any);
+                (sale as any).createdAt = saleDate;
+                batch.push(sale);
+            }
+            await this.saleRepository.save(batch as any);
+        }
+
+        return {
+            userId: savedUser.id,
+            email,
+            password: plainPassword,
+            firstName: savedUser.firstName,
+            lastName: savedUser.lastName,
+            level,
+            summary: {
+                contacts: savedContacts.length,
+                campaigns: savedCampaigns.length,
+                products: savedProducts.length,
+                sales: config.sales,
+                estimatedRevenue: totalRevenue,
+            },
+        };
     }
 }

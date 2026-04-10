@@ -117,4 +117,9 @@ export class AdminController {
     async getEventStats(@Query('days') days?: string) {
         return this.adminService.getDailyEventStats(days ? parseInt(days) : 30);
     }
+
+    @Post('generate-test-account')
+    async generateTestAccount(@Body('level') level: 'low' | 'medium' | 'high') {
+        return this.adminService.generateTestAccount(level || 'low');
+    }
 }

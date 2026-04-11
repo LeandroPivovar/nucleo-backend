@@ -564,8 +564,8 @@ export class CampaignSchedulerService {
                         .replace(/{{cupom_valor}}/g, valStr)
                         .replace(/{{cupom_validade}}/g, validity);
 
-                    // Auto-append if no variables used (Simple campaign standard mode)
-                    if (!hasVariables && campaign.complexity === 'simple') {
+                    // Auto-append if no variables used
+                    if (!hasVariables) {
                         content += `<br/><br/>CUPOM: ${code}<br/>DESCONTO: ${valStr}<br/>DATA DE VALIDADE: ${validity} dias`;
                     }
 
@@ -609,7 +609,7 @@ export class CampaignSchedulerService {
                         .replace(/{{cupom_valor}}/g, valStr)
                         .replace(/{{cupom_validade}}/g, validity);
 
-                    if (!hasVariables && campaign.complexity === 'simple') {
+                    if (!hasVariables) {
                         content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity} dias`;
                     }
 
@@ -657,7 +657,7 @@ export class CampaignSchedulerService {
                     .replace(/{{cupom_valor}}/g, valStr)
                     .replace(/{{cupom_validade}}/g, validity);
 
-                if (!hasVariables && campaign.complexity === 'simple') {
+                if (!hasVariables) {
                     content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity} dias`;
                 }
 

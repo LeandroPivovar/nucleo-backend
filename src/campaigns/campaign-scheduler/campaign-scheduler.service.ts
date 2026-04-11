@@ -471,8 +471,9 @@ export class CampaignSchedulerService {
         const { usage, user, shopifyConnection, nuvemshopConnection, planEmailsLimit, planSmsLimit, backendUrl } = context;
         let newActiveCoupon = activeCoupon;
 
-        const currentEmailsSent = (Number(usage.emailsSent) || 0) + stats.sentEmailCount;
-        const currentSmsSent = (Number(usage.smsSent) || 0) + stats.sentSmsCount;
+        const currentEmailsSent = Number(usage.emailsSent) || 0;
+        const currentSmsSent = Number(usage.smsSent) || 0;
+        const currentWhatsappSent = Number(usage.whatsappSent) || 0;
 
         if (node.type === 'coupon' || node.type === 'giftback') {
             this.logger.log(`[NODE EXECUTING] ${node.type.toUpperCase()} | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
@@ -573,6 +574,8 @@ export class CampaignSchedulerService {
                 try {
                     await this.emailService.sendEmail({ to: contact.email, subject: node.data?.subject || 'Nova Campanha', html: content, text: content.replace(/<[^>]*>?/gm, '') });
                     stats.sentEmailCount++;
+                    usage.emailsSent = (Number(usage.emailsSent) || 0) + 1;
+                    await this.userUsageRepository.save(usage);
                     this.logger.log(`[CAMPAIGN EMAIL EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                 } catch (error) {
                     this.logger.error(`[CAMPAIGN EMAIL EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
@@ -616,6 +619,8 @@ export class CampaignSchedulerService {
                     const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
                     if (success) {
                         stats.sentSmsCount++;
+                        usage.smsSent = (Number(usage.smsSent) || 0) + 1;
+                        await this.userUsageRepository.save(usage);
                         this.logger.log(`[CAMPAIGN SMS EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                     } else {
                         this.logger.error(`[CAMPAIGN SMS EXECUTED] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
@@ -628,7 +633,8 @@ export class CampaignSchedulerService {
             }
         } else if (node.type === 'whatsapp' && contact.phone) {
             this.logger.log(`[NODE EXECUTING] WHATSAPP | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
-            let content = node.data?.content || 'Olá!';
+            if (currentWhatsappSent < (planSmsLimit + (user?.extraSmsBalance || 0))) { // Assuming WA uses SMS limit or its own
+                let content = node.data?.content || 'Olá!';
             if (newActiveCoupon) {
                 const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
                 const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
@@ -657,16 +663,21 @@ export class CampaignSchedulerService {
 
             }
             content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
-            try {
-                const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato', contact.phone, content);
-                if (success) {
-                    stats.sentWhatsappCount++;
-                    this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
-                } else {
-                    this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                try {
+                    const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato', contact.phone, content);
+                    if (success) {
+                        stats.sentWhatsappCount++;
+                        usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
+                        await this.userUsageRepository.save(usage);
+                        this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                    } else {
+                        this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                    }
+                } catch (error) {
+                    this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
                 }
-            } catch (error) {
-                this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
+            } else {
+                this.logger.warn(`[CAMPAIGN WHATSAPP EXECUTED] Limite atingido | User ID: ${campaign.userId} | Contact ID: ${contact.id}`);
             }
         }
 

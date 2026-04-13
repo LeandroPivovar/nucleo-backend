@@ -49,6 +49,7 @@ import { Notification } from './entities/notification.entity';
 import { UserNotification } from './entities/user-notification.entity';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ZenviaModule } from './zenvia/zenvia.module';
+import { TwilioModule } from './twilio/twilio.module';
 import { UserUsage } from './entities/user-usage.entity';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { SystemSettingsModule } from './system-settings/system-settings.module';
@@ -98,6 +99,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     SubscriptionsModule,
     PixelsModule,
     ZenviaModule,
+    TwilioModule,
     ReferralsModule,
     WebhooksModule,
     SystemSettingsModule,

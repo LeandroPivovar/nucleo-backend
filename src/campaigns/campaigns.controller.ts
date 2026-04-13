@@ -13,6 +13,7 @@ import {
     HttpStatus,
     Res,
     ParseIntPipe,
+    Req,
 } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -102,6 +103,28 @@ export class CampaignsWebhookController {
     @HttpCode(HttpStatus.OK)
     handleDelivered(@Body() payload: any) {
         return this.campaignsService.handleDeliveredWebhook(payload);
+    }
+
+    @Post('twilio-status')
+    @HttpCode(HttpStatus.OK)
+    handleTwilioStatus(
+        @Body() payload: any,
+        @Query('campaignId') campaignId?: string,
+        @Query('contactId') contactId?: string,
+        @Req() req?: any,
+    ) {
+        const host = req?.get?.('host') || req?.headers?.host || '';
+        const proto = req?.headers?.['x-forwarded-proto'] || req?.protocol || 'http';
+        const fullUrl = `${proto}://${host}${req?.originalUrl || ''}`;
+        const signature = req?.headers?.['x-twilio-signature'] || '';
+
+        return this.campaignsService.handleTwilioStatusWebhook(payload, {
+            campaignId: campaignId || req?.query?.campaignId,
+            contactId: contactId || req?.query?.contactId,
+        }, {
+            fullUrl,
+            signature,
+        });
     }
 }
 

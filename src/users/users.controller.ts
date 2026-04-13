@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Patch,
+  Put,
   Post,
   Body,
   UseGuards,
@@ -42,5 +43,32 @@ export class UsersController {
   async wipeData(@Request() req) {
     await this.usersService.wipeData(req.user.userId);
   }
-}
 
+  // ── Twilio WhatsApp ────────────────────────────────────────────
+
+  /** GET /api/users/me/twilio — lê config atual (sem expor o authToken) */
+  @Get('me/twilio')
+  async getTwilioConfig(@Request() req) {
+    return this.usersService.getTwilioConfig(req.user.userId);
+  }
+
+  /** PUT /api/users/me/twilio — salva credenciais da subconta manualmente */
+  @Put('me/twilio')
+  @HttpCode(HttpStatus.OK)
+  async saveTwilioConfig(
+    @Request() req,
+    @Body() body: { accountSid: string; authToken: string; whatsappFrom: string },
+  ) {
+    return this.usersService.saveTwilioConfig(req.user.userId, body);
+  }
+
+  /** POST /api/users/me/twilio/create-subaccount — cria subconta via API Twilio */
+  @Post('me/twilio/create-subaccount')
+  @HttpCode(HttpStatus.CREATED)
+  async createTwilioSubaccount(
+    @Request() req,
+    @Body() body: { friendlyName: string; whatsappFrom: string },
+  ) {
+    return this.usersService.createTwilioSubaccount(req.user.userId, body);
+  }
+}

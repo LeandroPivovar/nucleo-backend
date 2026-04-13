@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
 import { Campaign } from '../entities/campaign.entity';
@@ -11,6 +11,10 @@ import { ShopifyConnection } from '../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 import { CampaignClick } from '../entities/campaign-click.entity';
 import { CampaignCoupon } from '../entities/campaign-coupon.entity';
+import { User } from '../entities/user.entity';
+import { CampaignMessageEvent } from '../entities/campaign-message-event.entity';
+import * as Twilio from 'twilio';
+import { TwilioService } from '../twilio/twilio.service';
 
 @Injectable()
 export class CampaignsService {
@@ -31,9 +35,31 @@ export class CampaignsService {
         private campaignClicksRepository: Repository<CampaignClick>,
         @InjectRepository(CampaignCoupon)
         private campaignCouponRepository: Repository<CampaignCoupon>,
+        @InjectRepository(User)
+        private usersRepository: Repository<User>,
+        @InjectRepository(CampaignMessageEvent)
+        private campaignMessageEventsRepository: Repository<CampaignMessageEvent>,
         private campaignSchedulerService: CampaignSchedulerService,
-        private notificationsService: NotificationsService
+        private notificationsService: NotificationsService,
+        private twilioService: TwilioService,
     ) { }
+
+    private campaignUsesWhatsapp(channel?: string, config?: any): boolean {
+        if (channel === 'whatsapp') return true;
+        const workflowNodes = config?.workflow?.nodes || [];
+        return Array.isArray(workflowNodes) && workflowNodes.some((node: any) => node?.type === 'whatsapp');
+    }
+
+    private async ensureTwilioConfiguredIfWhatsapp(userId: number, channel?: string, config?: any): Promise<void> {
+        const usesWhatsapp = this.campaignUsesWhatsapp(channel, config);
+        if (!usesWhatsapp) return;
+
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        const hasTwilio = !!(user?.twilioAccountSid && user?.twilioAuthToken && user?.twilioWhatsappFrom);
+        if (!hasTwilio) {
+            throw new BadRequestException('Para usar WhatsApp em campanhas, configure a Twilio na tela de Conexões.');
+        }
+    }
 
     async getActiveCoupons(userId: number): Promise<any[]> {
         const now = new Date();
@@ -140,6 +166,7 @@ export class CampaignsService {
 
     async create(userId: number, campaignData: Partial<Campaign>): Promise<Campaign> {
         this.logger.log(`Criando nova campanha para o usuário ${userId}`);
+        await this.ensureTwilioConfiguredIfWhatsapp(userId, campaignData.channel, campaignData.config);
         const campaign = this.campaignsRepository.create({
             ...campaignData,
             userId,
@@ -177,6 +204,9 @@ export class CampaignsService {
     async update(id: number, userId: number, campaignData: Partial<Campaign>): Promise<Campaign> {
         const campaign = await this.findOne(id, userId);
         const previousStatus = campaign.status;
+        const nextChannel = campaignData.channel || campaign.channel;
+        const nextConfig = campaignData.config || campaign.config;
+        await this.ensureTwilioConfiguredIfWhatsapp(userId, nextChannel, nextConfig);
 
         this.logger.log(`Atualizando campanha [ID: ${id}] para o usuário ${userId}`);
         Object.assign(campaign, campaignData);
@@ -544,6 +574,81 @@ export class CampaignsService {
             this.logger.log(`deliveredCount incrementado na campanha [ID: ${campaign.id}] - canal: ${channel}`);
         } catch (error: any) {
             this.logger.error(`Erro ao processar webhook de entrega: ${error.message}`);
+        }
+    }
+
+    async handleTwilioStatusWebhook(
+        payload: any,
+        query: { campaignId?: string; contactId?: string },
+        requestContext?: { fullUrl?: string; signature?: string },
+    ): Promise<void> {
+        try {
+            const messageStatus = String(payload?.MessageStatus || payload?.SmsStatus || '').toLowerCase();
+            const campaignId = Number(query?.campaignId);
+            const contactId = Number(query?.contactId);
+            const messageSid = payload?.MessageSid || payload?.SmsSid;
+
+            if (!campaignId || Number.isNaN(campaignId)) {
+                this.logger.warn(`[TWILIO WEBHOOK] campaignId inválido. status=${messageStatus}, sid=${messageSid || 'N/A'}`);
+                return;
+            }
+
+            this.logger.log(`[TWILIO WEBHOOK] campaign=${campaignId}, contact=${contactId || 'N/A'}, status=${messageStatus}, sid=${messageSid || 'N/A'}`);
+
+            const campaign = await this.campaignsRepository.findOne({ where: { id: campaignId } });
+            if (!campaign) {
+                this.logger.warn(`[TWILIO WEBHOOK] Campanha ${campaignId} não encontrada.`);
+                return;
+            }
+
+            const user = await this.usersRepository.findOne({ where: { id: campaign.userId } });
+            const decryptedToken = this.twilioService.decryptAuthToken(user?.twilioAuthToken || '');
+            const signature = requestContext?.signature || '';
+            const requestUrl = requestContext?.fullUrl || '';
+
+            if (!decryptedToken || !signature || !requestUrl) {
+                this.logger.warn(`[TWILIO WEBHOOK] Contexto inválido para validação de assinatura. campaign=${campaignId}`);
+                return;
+            }
+
+            const signatureValid = Twilio.validateRequest(decryptedToken, signature, requestUrl, payload || {});
+            const signatureValidWithHttpsFallback = requestUrl.startsWith('http://')
+                ? Twilio.validateRequest(decryptedToken, signature, requestUrl.replace('http://', 'https://'), payload || {})
+                : false;
+
+            if (!signatureValid && !signatureValidWithHttpsFallback) {
+                this.logger.warn(`[TWILIO WEBHOOK] Assinatura inválida para campanha ${campaignId}.`);
+                return;
+            }
+
+            // Contabiliza entrega somente quando o provedor marca como delivered.
+            if (messageStatus !== 'delivered') {
+                return;
+            }
+
+            if (messageSid) {
+                try {
+                    await this.campaignMessageEventsRepository.save({
+                        campaignId,
+                        contactId: Number.isNaN(contactId) ? null : contactId,
+                        messageSid,
+                        status: messageStatus,
+                        provider: 'twilio',
+                    });
+                } catch (error: any) {
+                    if (error?.code === 'ER_DUP_ENTRY') {
+                        this.logger.warn(`[TWILIO WEBHOOK] MessageSid duplicado ignorado: ${messageSid}`);
+                        return;
+                    }
+                    throw error;
+                }
+            }
+
+            await this.campaignsRepository.update(campaignId, {
+                deliveredCount: () => 'deliveredCount + 1',
+            } as any);
+        } catch (error: any) {
+            this.logger.error(`Erro ao processar webhook de status Twilio: ${error.message}`);
         }
     }
 

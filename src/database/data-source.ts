@@ -33,6 +33,7 @@ import { NotificationPreference } from '../entities/notification-preference.enti
 import { SystemSetting } from '../entities/system-setting.entity';
 import { WebhookLog } from '../entities/webhook-log.entity';
 import { InternalAnalytics } from '../entities/internal-analytics.entity';
+import { CampaignMessageEvent } from '../entities/campaign-message-event.entity';
 
 config();
 
@@ -76,7 +77,8 @@ export const AppDataSource = new DataSource({
     NotificationPreference,
     SystemSetting,
     WebhookLog,
-    InternalAnalytics
+    InternalAnalytics,
+    CampaignMessageEvent
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

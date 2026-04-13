@@ -72,6 +72,17 @@ export class User {
   @Column({ default: 0 })
   extraSmsBalance: number;
 
+  // ── Twilio WhatsApp (subconta por usuário) ──────────────────────────────
+  @Column({ length: 50, nullable: true })
+  twilioAccountSid: string | null; // AC...
+
+  @Column({ length: 255, nullable: true })
+  twilioAuthToken: string | null; // Auth Token da subconta
+
+  @Column({ length: 30, nullable: true })
+  twilioWhatsappFrom: string | null; // número E.164, ex: +14155238886
+  // ───────────────────────────────────────────────────────────────────────
+
   @Column({ type: 'boolean', default: false })
   twoFactorEnabled: boolean;
 

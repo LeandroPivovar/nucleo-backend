@@ -6,12 +6,12 @@ import { AdminController } from './admin.controller';
 import { User } from '../entities/user.entity';
 import { Plan } from '../entities/plan.entity';
 import { Subscription } from '../entities/subscription.entity';
+import { TwilioModule } from '../twilio/twilio.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, Plan, Subscription])],
+  imports: [TypeOrmModule.forFeature([User, Plan, Subscription]), TwilioModule],
   controllers: [UsersController, AdminController],
   providers: [UsersService],
   exports: [UsersService],
 })
 export class UsersModule { }
-

@@ -1,13 +1,24 @@
-import { MigrationInterface, QueryRunner } from "typeorm";
+import { MigrationInterface, QueryRunner, TableColumn } from "typeorm";
 
 export class AddEmailsSentMonthToUser1770265712559 implements MigrationInterface {
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE \`users\` ADD \`emailsSentMonth\` int NOT NULL DEFAULT '0'`);
+        const table = await queryRunner.getTable('users');
+        if (table && !table.findColumnByName('emailsSentMonth')) {
+            await queryRunner.addColumn('users', new TableColumn({
+                name: "emailsSentMonth",
+                type: "int",
+                isNullable: false,
+                default: 0
+            }));
+        }
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE \`users\` DROP COLUMN \`emailsSentMonth\``);
+        const table = await queryRunner.getTable('users');
+        if (table && table.findColumnByName('emailsSentMonth')) {
+            await queryRunner.dropColumn('users', 'emailsSentMonth');
+        }
     }
 
 }

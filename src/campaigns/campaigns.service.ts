@@ -630,7 +630,7 @@ export class CampaignsService {
                 try {
                     await this.campaignMessageEventsRepository.save({
                         campaignId,
-                        contactId: Number.isNaN(contactId) ? null : contactId,
+                        contactId: Number.isNaN(contactId) ? undefined : contactId,
                         messageSid,
                         status: messageStatus,
                         provider: 'twilio',

@@ -69,7 +69,7 @@ export class ContactsService {
     const contact = this.contactsRepository.create({
       ...contactData,
       userId,
-      groupId: groupId ?? null,
+      groupId: groupId ?? undefined,
     });
     const savedContact = await this.contactsRepository.save(contact);
 
@@ -189,7 +189,7 @@ export class ContactsService {
     // Atualizar grupo se fornecido
     if (groupId !== undefined) {
       if (groupId === null) {
-        contact.groupId = null;
+        contact.groupId = undefined;
       } else {
         const group = await this.groupsRepository.findOne({
           where: { id: groupId, userId },

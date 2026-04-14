@@ -349,14 +349,14 @@ export class UsersService {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    user.twilioAccountSid = dto.accountSid?.trim() || null;
+    user.twilioAccountSid = dto.accountSid?.trim() || undefined;
     const normalizedToken = dto.authToken?.trim();
     if (normalizedToken && !normalizedToken.startsWith('****')) {
       user.twilioAuthToken = this.twilioService.encryptAuthToken(normalizedToken);
     } else if (!user.twilioAuthToken) {
-      user.twilioAuthToken = null;
+      user.twilioAuthToken = undefined;
     }
-    user.twilioWhatsappFrom = dto.whatsappFrom?.trim() || null;
+    user.twilioWhatsappFrom = dto.whatsappFrom?.trim() || undefined;
 
     await this.userRepository.save(user);
     this.logger.log(`[TWILIO] Credenciais salvas para o usuário ${userId}`);
@@ -384,7 +384,7 @@ export class UsersService {
 
     user.twilioAccountSid = result.sid;
     user.twilioAuthToken = this.twilioService.encryptAuthToken(result.authToken);
-    user.twilioWhatsappFrom = dto.whatsappFrom?.trim() || null;
+    user.twilioWhatsappFrom = dto.whatsappFrom?.trim() || undefined;
     await this.userRepository.save(user);
 
     this.logger.log(`[TWILIO] Subconta criada e salva para o usuário ${userId}: ${result.sid}`);

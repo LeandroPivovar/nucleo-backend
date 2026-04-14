@@ -300,8 +300,8 @@ export class AuthService {
     }
 
     // Limpar código após uso bem-sucedido e atualizar último login
-    user.twoFactorCode = null;
-    user.twoFactorExpires = null;
+    user.twoFactorCode = undefined;
+    user.twoFactorExpires = undefined;
     user.lastLoginAt = new Date();
     await this.userRepository.save(user);
 

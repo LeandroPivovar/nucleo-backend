@@ -10,7 +10,7 @@ export class AnalyticsService {
     private readonly analyticsRepository: Repository<InternalAnalytics>,
   ) {}
 
-  async trackEvent(userId: number | null, type: 'page_view' | 'action', name: string, metadata?: any) {
+  async trackEvent(userId: number | undefined, type: 'page_view' | 'action', name: string, metadata?: any) {
     const event = this.analyticsRepository.create({
       userId,
       type,

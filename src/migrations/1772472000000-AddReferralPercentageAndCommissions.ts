@@ -1,12 +1,18 @@
-import { MigrationInterface, QueryRunner, Table, TableForeignKey } from "typeorm";
+import { MigrationInterface, QueryRunner, Table, TableForeignKey, TableColumn } from "typeorm";
 
 export class AddReferralPercentageAndCommissions1772472000000 implements MigrationInterface {
     public async up(queryRunner: QueryRunner): Promise<void> {
         // 1. Adicionar coluna referralPercentage à tabela users
-        await queryRunner.query(`
-            ALTER TABLE users 
-            ADD COLUMN \`referralPercentage\` DECIMAL(5,2) DEFAULT 3.00
-        `);
+        const tableUsers = await queryRunner.getTable('users');
+        if (tableUsers && !tableUsers.findColumnByName('referralPercentage')) {
+            await queryRunner.addColumn('users', new TableColumn({
+                name: "referralPercentage",
+                type: "decimal",
+                precision: 5,
+                scale: 2,
+                default: 3.00
+            }));
+        }
 
         // 2. Criar tabela referral_commissions
         await queryRunner.createTable(

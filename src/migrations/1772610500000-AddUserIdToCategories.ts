@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner, TableColumn, TableForeignKey } from "typeorm";
 
-export class AddUserIdToCategories1712610000000 implements MigrationInterface {
-    name = 'AddUserIdToCategories1712610000000'
+export class AddUserIdToCategories1772610500000 implements MigrationInterface {
+    name = 'AddUserIdToCategories1772610500000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         // Obter um ID de usuário padrão para associar as categorias existentes (ex: o primeiro usuário administrador)

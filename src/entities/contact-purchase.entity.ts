@@ -26,7 +26,7 @@ export class ContactPurchase {
   product: Product;
 
   @Column({ nullable: true })
-  productId: number | null;
+  productId?: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   value: number;

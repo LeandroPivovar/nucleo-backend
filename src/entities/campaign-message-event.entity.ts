@@ -17,7 +17,7 @@ export class CampaignMessageEvent {
 
     @Index()
     @Column({ nullable: true })
-    contactId: number | null;
+    contactId?: number;
 
     @Index({ unique: true })
     @Column({ length: 80 })

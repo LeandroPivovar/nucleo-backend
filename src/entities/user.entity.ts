@@ -73,27 +73,27 @@ export class User {
   extraSmsBalance: number;
 
   // ── Twilio WhatsApp (subconta por usuário) ──────────────────────────────
-  @Column({ length: 50, nullable: true })
-  twilioAccountSid: string | null; // AC...
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  twilioAccountSid?: string; // AC...
 
-  @Column({ length: 255, nullable: true })
-  twilioAuthToken: string | null; // Auth Token da subconta
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  twilioAuthToken?: string; // Auth Token da subconta
 
-  @Column({ length: 30, nullable: true })
-  twilioWhatsappFrom: string | null; // número E.164, ex: +14155238886
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  twilioWhatsappFrom?: string; // número E.164, ex: +14155238886
   // ───────────────────────────────────────────────────────────────────────
 
   @Column({ type: 'boolean', default: false })
   twoFactorEnabled: boolean;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
-  twoFactorCode: string | null;
+  twoFactorCode?: string;
 
   @Column({ type: 'datetime', nullable: true })
-  twoFactorExpires: Date | null;
+  twoFactorExpires?: Date;
 
   @Column({ type: 'datetime', nullable: true })
-  lastLoginAt: Date | null;
+  lastLoginAt?: Date;
 
   @CreateDateColumn()
   createdAt: Date;

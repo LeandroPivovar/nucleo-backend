@@ -79,7 +79,7 @@ export class Contact {
   group: Group;
 
   @Column({ nullable: true })
-  groupId: number | null;
+  groupId?: number;
 
   // Virtual fields populated in service
   hasClickedCampaign?: boolean;

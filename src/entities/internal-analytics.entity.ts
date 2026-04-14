@@ -16,7 +16,7 @@ export class InternalAnalytics {
 
     @Index()
     @Column({ nullable: true })
-    userId: number | null;
+    userId?: number;
 
     @ManyToOne(() => User)
     @JoinColumn({ name: 'userId' })

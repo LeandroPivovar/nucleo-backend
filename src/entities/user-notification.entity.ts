@@ -18,10 +18,10 @@ export class UserNotification {
     notificationId: number;
 
     @Column({ type: 'timestamp', nullable: true })
-    readAt: Date | null;
+    readAt?: Date;
 
     @Column({ type: 'timestamp', nullable: true, default: null })
-    deletedAt: Date | null;
+    deletedAt?: Date;
 
     @ManyToOne(() => User, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'userId' })

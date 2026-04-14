@@ -4,6 +4,11 @@ export class AddUserIdToCategories1772610500000 implements MigrationInterface {
     name = 'AddUserIdToCategories1772610500000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        const hasUserId = await queryRunner.hasColumn("categories", "userId");
+        if (hasUserId) {
+            return;
+        }
+
         // Obter um ID de usuário padrão para associar as categorias existentes (ex: o primeiro usuário administrador)
         // Se a tabela de usuários estiver vazia, usa 1 como fallback.
         const defaultUser = await queryRunner.query(`SELECT id FROM users ORDER BY id ASC LIMIT 1`);

@@ -667,82 +667,62 @@ export class CampaignSchedulerService {
             }
             content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
 
-                // ── Roteamento por provedor ─────────────────────────────────────────────
-                const provider: string = node.data?.provider || 'zenvia'; // Default to zenvia if not specified, but we'll check for Twilio config
-
+                // ── Sempre usar Twilio para Campanhas ────────────────────────────────────
                 const verifiedConnection = await this.twilioConnectionsService.getVerifiedConnection(campaign.userId);
-                const isTwilioUser = !!verifiedConnection || provider === 'twilio';
 
-                if (isTwilioUser) {
-                    // Montar credenciais da subconta do usuário (se existirem)
-                    let twilioCredentials: TwilioCredentials | undefined;
-                    if (verifiedConnection) {
-                        twilioCredentials = {
-                            accountSid: verifiedConnection.accountSid,
-                            authToken: this.twilioService.decryptAuthToken(verifiedConnection.authToken),
-                            whatsappFrom: verifiedConnection.whatsappFrom,
-                        };
+                // Montar credenciais da subconta do usuário (se existirem)
+                let twilioCredentials: TwilioCredentials | undefined;
+                if (verifiedConnection) {
+                    twilioCredentials = {
+                        accountSid: verifiedConnection.accountSid,
+                        authToken: this.twilioService.decryptAuthToken(verifiedConnection.authToken),
+                        whatsappFrom: verifiedConnection.whatsappFrom,
+                    };
+                }
+
+                const contentSid: string | undefined = node.data?.contentSid;
+                let success = false;
+                const twilioStatusCallback = `${backendUrl}/api/campaigns/webhook/twilio-status?campaignId=${campaign.id}&contactId=${contact.id}`;
+
+                if (contentSid) {
+                    // Modo template aprovado: substitui variáveis do template
+                    const templateVars: Record<string, string> = {
+                        ...(node.data?.templateVariables || {}),
+                    };
+                    // Injeta variáveis de cupom nas vars do template, se enviadas pelo nó
+                    if (newActiveCoupon) {
+                        const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
+                        const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                        const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+                        templateVars['cupom_nome'] = code;
+                        templateVars['cupom_valor'] = valStr;
                     }
-
-                    const contentSid: string | undefined = node.data?.contentSid;
-                    let success = false;
-                    const twilioStatusCallback = `${backendUrl}/api/campaigns/webhook/twilio-status?campaignId=${campaign.id}&contactId=${contact.id}`;
-
-                    if (contentSid) {
-                        // Modo template aprovado: substitui variáveis do template
-                        const templateVars: Record<string, string> = {
-                            ...(node.data?.templateVariables || {}),
-                        };
-                        // Injeta variáveis de cupom nas vars do template, se enviadas pelo nó
-                        if (newActiveCoupon) {
-                            const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
-                            const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
-                            const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
-                            templateVars['cupom_nome'] = code;
-                            templateVars['cupom_valor'] = valStr;
-                        }
-                        this.logger.log(`[TWILIO TEMPLATE] contentSid: ${contentSid} | vars: ${JSON.stringify(templateVars)}`);
-                        success = await this.twilioService.sendWhatsAppTemplate(
-                            contact.phone,
-                            contentSid,
-                            templateVars,
-                            twilioCredentials,
-                            { statusCallback: twilioStatusCallback },
-                        );
-                    } else {
-                        // Modo texto livre (Sandbox / Approved Sender)
-                        this.logger.log(`[TWILIO FREEFORM] Enviando texto livre para ${contact.phone}`);
-                        success = await this.twilioService.sendWhatsAppText(
-                            contact.phone,
-                            content,
-                            twilioCredentials,
-                            { statusCallback: twilioStatusCallback },
-                        );
-                    }
-
-                    if (success) {
-                        stats.sentWhatsappCount++;
-                        usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
-                        await this.userUsageRepository.save(usage);
-                        this.logger.log(`[CAMPAIGN WHATSAPP TWILIO] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
-                    } else {
-                        this.logger.error(`[CAMPAIGN WHATSAPP TWILIO] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
-                    }
+                    this.logger.log(`[TWILIO TEMPLATE] contentSid: ${contentSid} | vars: ${JSON.stringify(templateVars)}`);
+                    success = await this.twilioService.sendWhatsAppTemplate(
+                        contact.phone,
+                        contentSid,
+                        templateVars,
+                        twilioCredentials,
+                        { statusCallback: twilioStatusCallback },
+                    );
                 } else {
-                    // Provedor padrão: Zenvia
-                    try {
-                        const success = await this.zenviaService.sendWhatsapp(contact.name || 'Contato', contact.phone, content);
-                        if (success) {
-                            stats.sentWhatsappCount++;
-                            usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
-                            await this.userUsageRepository.save(usage);
-                            this.logger.log(`[CAMPAIGN WHATSAPP ZENVIA] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
-                        } else {
-                            this.logger.error(`[CAMPAIGN WHATSAPP ZENVIA] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
-                        }
-                    } catch (error) {
-                        this.logger.error(`[CAMPAIGN WHATSAPP ZENVIA] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
-                    }
+                    // Modo texto livre (Sandbox / Approved Sender)
+                    this.logger.log(`[TWILIO FREEFORM] Enviando texto livre para ${contact.phone}`);
+                    success = await this.twilioService.sendWhatsAppText(
+                        contact.phone,
+                        content,
+                        twilioCredentials,
+                        { statusCallback: twilioStatusCallback },
+                    );
+                }
+
+                if (success) {
+                    stats.sentWhatsappCount++;
+                    usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
+                    await this.userUsageRepository.save(usage);
+                    this.logger.log(`[CAMPAIGN WHATSAPP TWILIO] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                } else {
+                    this.logger.error(`[CAMPAIGN WHATSAPP TWILIO] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                 }
                 // ───────────────────────────────────────────────────────────────────────
             } else {

@@ -1,8 +1,6 @@
 import { Controller, Get, Post, Body, Param, Delete, UseGuards, Request } from '@nestjs/common';
 import { TwilioConnectionsService } from './twilio-connections.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('twilio-connections')
 @UseGuards(JwtAuthGuard)
@@ -26,22 +24,16 @@ export class TwilioConnectionsController {
 
   // Admin endpoints
   @Get('admin/pending')
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
   findAllPending() {
     return this.twilioConnectionsService.findAllPending();
   }
 
   @Post('admin/:id/approve')
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
   approve(@Param('id') id: string, @Body() credentials: { accountSid: string; authToken: string }) {
     return this.twilioConnectionsService.approve(+id, credentials);
   }
 
   @Post('admin/:id/reject')
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
   reject(@Param('id') id: string, @Body() dto: { reason: string }) {
     return this.twilioConnectionsService.reject(+id, dto.reason);
   }

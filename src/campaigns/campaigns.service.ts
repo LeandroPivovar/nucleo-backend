@@ -50,16 +50,6 @@ export class CampaignsService {
         return Array.isArray(workflowNodes) && workflowNodes.some((node: any) => node?.type === 'whatsapp');
     }
 
-    private async ensureTwilioConfiguredIfWhatsapp(userId: number, channel?: string, config?: any): Promise<void> {
-        const usesWhatsapp = this.campaignUsesWhatsapp(channel, config);
-        if (!usesWhatsapp) return;
-
-        const user = await this.usersRepository.findOne({ where: { id: userId } });
-        const hasTwilio = !!(user?.twilioAccountSid && user?.twilioAuthToken && user?.twilioWhatsappFrom);
-        if (!hasTwilio) {
-            throw new BadRequestException('Para usar WhatsApp em campanhas, configure a Twilio na tela de Conexões.');
-        }
-    }
 
     async getActiveCoupons(userId: number): Promise<any[]> {
         const now = new Date();
@@ -166,7 +156,6 @@ export class CampaignsService {
 
     async create(userId: number, campaignData: Partial<Campaign>): Promise<Campaign> {
         this.logger.log(`Criando nova campanha para o usuário ${userId}`);
-        await this.ensureTwilioConfiguredIfWhatsapp(userId, campaignData.channel, campaignData.config);
         const campaign = this.campaignsRepository.create({
             ...campaignData,
             userId,
@@ -204,9 +193,6 @@ export class CampaignsService {
     async update(id: number, userId: number, campaignData: Partial<Campaign>): Promise<Campaign> {
         const campaign = await this.findOne(id, userId);
         const previousStatus = campaign.status;
-        const nextChannel = campaignData.channel || campaign.channel;
-        const nextConfig = campaignData.config || campaign.config;
-        await this.ensureTwilioConfiguredIfWhatsapp(userId, nextChannel, nextConfig);
 
         this.logger.log(`Atualizando campanha [ID: ${id}] para o usuário ${userId}`);
         Object.assign(campaign, campaignData);

@@ -15,6 +15,7 @@ import { User } from '../entities/user.entity';
 import { CampaignMessageEvent } from '../entities/campaign-message-event.entity';
 import * as Twilio from 'twilio';
 import { TwilioService } from '../twilio/twilio.service';
+import { TwilioConnectionsService } from '../twilio-connections/twilio-connections.service';
 
 @Injectable()
 export class CampaignsService {
@@ -42,6 +43,7 @@ export class CampaignsService {
         private campaignSchedulerService: CampaignSchedulerService,
         private notificationsService: NotificationsService,
         private twilioService: TwilioService,
+        private twilioConnectionsService: TwilioConnectionsService,
     ) { }
 
     private campaignUsesWhatsapp(channel?: string, config?: any): boolean {
@@ -587,19 +589,29 @@ export class CampaignsService {
                 return;
             }
 
-            const user = await this.usersRepository.findOne({ where: { id: campaign.userId } });
-            const decryptedToken = this.twilioService.decryptAuthToken(user?.twilioAuthToken || '');
+            // Identificar o token correto: Subconta verificada ou Global (.env)
+            let authToken = '';
+            const verifiedConn = await this.twilioConnectionsService.getVerifiedConnection(campaign.userId);
+            
+            if (verifiedConn) {
+                authToken = this.twilioService.decryptAuthToken(verifiedConn.authToken);
+                this.logger.debug(`[TWILIO WEBHOOK] Usando token da subconta verificada para o usuário ${campaign.userId}`);
+            } else {
+                authToken = this.twilioService.getGlobalAuthToken();
+                this.logger.debug(`[TWILIO WEBHOOK] Usando token global (.env)`);
+            }
+
             const signature = requestContext?.signature || '';
             const requestUrl = requestContext?.fullUrl || '';
 
-            if (!decryptedToken || !signature || !requestUrl) {
-                this.logger.warn(`[TWILIO WEBHOOK] Contexto inválido para validação de assinatura. campaign=${campaignId}`);
+            if (!authToken || !signature || !requestUrl) {
+                this.logger.warn(`[TWILIO WEBHOOK] Contexto insuficiente para validação (Token: ${!!authToken}, Sig: ${!!signature}, URL: ${!!requestUrl}). campaign=${campaignId}`);
                 return;
             }
 
-            const signatureValid = Twilio.validateRequest(decryptedToken, signature, requestUrl, payload || {});
+            const signatureValid = Twilio.validateRequest(authToken, signature, requestUrl, payload || {});
             const signatureValidWithHttpsFallback = requestUrl.startsWith('http://')
-                ? Twilio.validateRequest(decryptedToken, signature, requestUrl.replace('http://', 'https://'), payload || {})
+                ? Twilio.validateRequest(authToken, signature, requestUrl.replace('http://', 'https://'), payload || {})
                 : false;
 
             if (!signatureValid && !signatureValidWithHttpsFallback) {

@@ -33,6 +33,10 @@ export class TwilioService {
             : null;
     }
 
+    getGlobalAuthToken(): string {
+        return this.globalAuthToken;
+    }
+
     encryptAuthToken(token: string): string {
         if (!token) return token;
         if (token.startsWith('enc:')) return token;

@@ -13,6 +13,7 @@ import { User } from '../../entities/user.entity';
 import { Subscription } from '../../entities/subscription.entity';
 import { Contact } from '../../entities/contact.entity';
 import { Sale } from '../../entities/sale.entity';
+import { TwilioConnectionsService } from '../../twilio-connections/twilio-connections.service';
 import { ShopifyService } from '../../shopify/shopify.service';
 import { NuvemshopService } from '../../nuvemshop/nuvemshop.service';
 import { LojaIntegradaService } from '../../loja-integrada/loja-integrada.service';
@@ -53,6 +54,7 @@ export class CampaignSchedulerService {
 
         private contactsService: ContactsService,
         private emailService: EmailService,
+        private twilioConnectionsService: TwilioConnectionsService,
         private shopifyService: ShopifyService,
         private nuvemshopService: NuvemshopService,
         private lojaIntegradaService: LojaIntegradaService,
@@ -666,16 +668,19 @@ export class CampaignSchedulerService {
             content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
 
                 // ── Roteamento por provedor ─────────────────────────────────────────────
-                const provider: string = node.data?.provider || (user?.twilioAccountSid && user?.twilioAuthToken && user?.twilioWhatsappFrom ? 'twilio' : 'zenvia');
+                const provider: string = node.data?.provider || 'zenvia'; // Default to zenvia if not specified, but we'll check for Twilio config
 
-                if (provider === 'twilio') {
+                const verifiedConnection = await this.twilioConnectionsService.getVerifiedConnection(campaign.userId);
+                const isTwilioUser = !!verifiedConnection || provider === 'twilio';
+
+                if (isTwilioUser) {
                     // Montar credenciais da subconta do usuário (se existirem)
                     let twilioCredentials: TwilioCredentials | undefined;
-                    if (user?.twilioAccountSid && user?.twilioAuthToken && user?.twilioWhatsappFrom) {
+                    if (verifiedConnection) {
                         twilioCredentials = {
-                            accountSid: user.twilioAccountSid,
-                            authToken: this.twilioService.decryptAuthToken(user.twilioAuthToken),
-                            whatsappFrom: user.twilioWhatsappFrom,
+                            accountSid: verifiedConnection.accountSid,
+                            authToken: this.twilioService.decryptAuthToken(verifiedConnection.authToken),
+                            whatsappFrom: verifiedConnection.whatsappFrom,
                         };
                     }
 

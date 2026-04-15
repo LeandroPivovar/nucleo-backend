@@ -24,6 +24,7 @@ import { NuvemshopModule } from '../nuvemshop/nuvemshop.module';
 import { LojaIntegradaModule } from '../loja-integrada/loja-integrada.module';
 import { VtexModule } from '../vtex/vtex.module';
 import { TwilioModule } from '../twilio/twilio.module';
+import { TwilioConnectionsModule } from '../twilio-connections/twilio-connections.module';
 
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -40,6 +41,7 @@ import { Subscription } from '../entities/subscription.entity';
         LojaIntegradaModule,
         VtexModule,
         TwilioModule,
+        TwilioConnectionsModule,
     ],
     providers: [CampaignsService, CampaignSchedulerService],
     controllers: [CampaignsController, CampaignsWebhookController, CampaignsTrackingController],

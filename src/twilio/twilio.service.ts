@@ -125,7 +125,7 @@ export class TwilioService {
         const toFormatted = this.formatPhone(to);
 
         try {
-            this.logger.log(`[TWILIO] Enviando template ${contentSid} para ${toFormatted}`);
+            this.logger.log(`[TWILIO] Enviando template ${contentSid} para ${toFormatted} (From: ${fromNumber})`);
 
             const message = await client.messages.create({
                 from: `whatsapp:${fromNumber}`,
@@ -170,7 +170,7 @@ export class TwilioService {
         const toFormatted = this.formatPhone(to);
 
         try {
-            this.logger.log(`[TWILIO] Enviando texto livre para ${toFormatted}`);
+            this.logger.log(`[TWILIO] Enviando texto livre para ${toFormatted} (From: ${fromNumber})`);
 
             const message = await client.messages.create({
                 from: `whatsapp:${fromNumber}`,

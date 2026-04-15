@@ -57,6 +57,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { AdminModule } from './admin/admin.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { TwilioConnectionsModule } from './twilio-connections/twilio-connections.module';
 
 @Module({
   imports: [
@@ -109,6 +110,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     AdminModule,
     LojaIntegradaModule,
     AnalyticsModule,
+    TwilioConnectionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

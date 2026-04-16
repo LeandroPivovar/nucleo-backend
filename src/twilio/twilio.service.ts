@@ -131,13 +131,18 @@ export class TwilioService {
         try {
             this.logger.log(`[TWILIO] Enviando template ${contentSid} para ${toFormatted} (From: ${fromNumber})`);
 
-            const message = await client.messages.create({
+            const messagePayload: any = {
                 from: `whatsapp:${fromNumber}`,
                 to: `whatsapp:${toFormatted}`,
                 contentSid,
-                contentVariables: JSON.stringify(variables),
                 statusCallback: options?.statusCallback,
-            });
+            };
+
+            if (variables && Object.keys(variables).length > 0) {
+                messagePayload.contentVariables = JSON.stringify(variables);
+            }
+
+            const message = await client.messages.create(messagePayload);
 
             this.logger.log(`[TWILIO] Mensagem enviada com sucesso. SID: ${message.sid}`);
             return true;

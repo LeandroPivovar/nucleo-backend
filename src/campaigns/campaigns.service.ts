@@ -52,6 +52,19 @@ export class CampaignsService {
         return Array.isArray(workflowNodes) && workflowNodes.some((node: any) => node?.type === 'whatsapp');
     }
 
+    async getTwilioTemplates(userId: number): Promise<any[]> {
+        let credentials;
+        const verifiedConn = await this.twilioConnectionsService.getVerifiedConnection(userId);
+        if (verifiedConn) {
+            credentials = {
+                accountSid: verifiedConn.accountSid,
+                authToken: this.twilioService.decryptAuthToken(verifiedConn.authToken),
+                whatsappFrom: verifiedConn.whatsappFrom,
+            };
+        }
+        return this.twilioService.getTemplates(credentials);
+    }
+
 
     async getActiveCoupons(userId: number): Promise<any[]> {
         const now = new Date();

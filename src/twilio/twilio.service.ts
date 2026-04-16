@@ -216,4 +216,27 @@ export class TwilioService {
             return null;
         }
     }
+
+    /**
+     * Busca a lista de templates (Content API) disponíveis na conta/subconta.
+     */
+    async getTemplates(credentials?: TwilioCredentials): Promise<any[]> {
+        const client = this.getClient(credentials);
+        if (!client) return [];
+
+        try {
+            this.logger.log(`[TWILIO] Buscando templates do Content API...`);
+            const contents = await client.content.v1.contents.list({ limit: 100 });
+            return contents.map((c: any) => ({
+                sid: c.sid,
+                friendlyName: c.friendlyName,
+                variables: c.variables,
+                language: c.language,
+                types: c.types
+            }));
+        } catch (error: any) {
+            this.logger.error(`[TWILIO] Erro ao listar templates: ${error.message}`);
+            return [];
+        }
+    }
 }

@@ -232,13 +232,16 @@ export class TwilioService {
         try {
             this.logger.log(`[TWILIO] Buscando templates do Content API...`);
             const contents = await client.content.v1.contents.list({ limit: 100 });
-            return contents.map((c: any) => ({
-                sid: c.sid,
-                friendlyName: c.friendlyName,
-                variables: c.variables,
-                language: c.language,
-                types: c.types
-            }));
+            return contents.map((c: any) => {
+                this.logger.log(`[TWILIO TEMPLATE DEBUG] SID: ${c.sid} | Variables: ${JSON.stringify(c.variables)} | Types: ${JSON.stringify(c.types)}`);
+                return {
+                    sid: c.sid,
+                    friendlyName: c.friendlyName,
+                    variables: c.variables,
+                    language: c.language,
+                    types: c.types
+                };
+            });
         } catch (error: any) {
             this.logger.error(`[TWILIO] Erro ao listar templates: ${error.message}`);
             return [];

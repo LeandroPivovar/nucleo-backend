@@ -689,14 +689,48 @@ export class CampaignSchedulerService {
                     const templateVars: Record<string, string> = {
                         ...(node.data?.templateVariables || {}),
                     };
-                    // Injeta variáveis de cupom nas vars do template, se enviadas pelo nó
+
+                    // Preparar valores para substituição
+                    let code = 'CUPOM';
+                    let valStr = '0';
+                    let validity = '30 dias';
+                    const trackUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`;
+
                     if (newActiveCoupon) {
                         const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
-                        const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
-                        const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+                        valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                        code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+
+                        if (newActiveCoupon.validityDate) {
+                            try {
+                                validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
+                            } catch (e) {
+                                validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                            }
+                        } else {
+                            validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                        }
+                    }
+
+                    // Iterar sobre as variáveis do template e substituir placeholders do sistema
+                    Object.keys(templateVars).forEach(key => {
+                        if (typeof templateVars[key] === 'string') {
+                            templateVars[key] = templateVars[key]
+                                .replace(/{{cupom_nome}}/g, code)
+                                .replace(/{{cupom_valor}}/g, valStr)
+                                .replace(/{{cupom_validade}}/g, validity)
+                                .replace(/{{link_rastreio}}/g, trackUrl);
+                        }
+                    });
+
+                    // Fallback legibilidade (opcional, se o template usar nomes literais)
+                    if (newActiveCoupon) {
                         templateVars['cupom_nome'] = code;
                         templateVars['cupom_valor'] = valStr;
+                        templateVars['cupom_validade'] = validity;
                     }
+                    templateVars['link_rastreio'] = trackUrl;
+
                     this.logger.log(`[TWILIO TEMPLATE] contentSid: ${contentSid} | vars: ${JSON.stringify(templateVars)}`);
                     success = await this.twilioService.sendWhatsAppTemplate(
                         contact.phone,

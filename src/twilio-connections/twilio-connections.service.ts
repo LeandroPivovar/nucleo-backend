@@ -12,7 +12,7 @@ export class TwilioConnectionsService {
     private readonly twilioService: TwilioService,
   ) { }
 
-  async createRequest(userId: number, dto: { friendlyName?: string; whatsappFrom: string }): Promise<TwilioConnection> {
+  async createRequest(userId: number, dto: { friendlyName?: string; whatsappFrom?: string }): Promise<TwilioConnection> {
     const request = this.twilioConnectionRepository.create({
       userId,
       friendlyName: dto.friendlyName,
@@ -51,13 +51,14 @@ export class TwilioConnectionsService {
     });
   }
 
-  async approve(id: number, credentials: { accountSid: string; authToken: string }): Promise<TwilioConnection> {
+  async approve(id: number, data: { accountSid: string; authToken: string; whatsappFrom: string }): Promise<TwilioConnection> {
     const connection = await this.twilioConnectionRepository.findOne({ where: { id } });
     if (!connection) throw new NotFoundException('Solicitação não encontrada');
 
     connection.status = 'verified';
-    connection.accountSid = credentials.accountSid;
-    connection.authToken = this.twilioService.encryptAuthToken(credentials.authToken);
+    connection.accountSid = data.accountSid;
+    connection.authToken = this.twilioService.encryptAuthToken(data.authToken);
+    connection.whatsappFrom = data.whatsappFrom;
     
     return this.twilioConnectionRepository.save(connection);
   }

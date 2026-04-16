@@ -17,7 +17,7 @@ export class TwilioConnection {
   @Column({ length: 255, nullable: true })
   friendlyName: string;
 
-  @Column({ length: 255 })
+  @Column({ length: 255, nullable: true })
   whatsappFrom: string;
 
   @Column({ length: 255, nullable: true })

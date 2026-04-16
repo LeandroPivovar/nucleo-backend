@@ -8,7 +8,7 @@ export class TwilioConnectionsController {
   constructor(private readonly twilioConnectionsService: TwilioConnectionsService) {}
 
   @Post()
-  create(@Request() req, @Body() dto: { friendlyName?: string; whatsappFrom: string }) {
+  create(@Request() req, @Body() dto: { friendlyName?: string; whatsappFrom?: string }) {
     return this.twilioConnectionsService.createRequest(req.user.id, dto);
   }
 
@@ -29,8 +29,8 @@ export class TwilioConnectionsController {
   }
 
   @Post('admin/:id/approve')
-  approve(@Param('id') id: string, @Body() credentials: { accountSid: string; authToken: string }) {
-    return this.twilioConnectionsService.approve(+id, credentials);
+  approve(@Param('id') id: string, @Body() data: { accountSid: string; authToken: string; whatsappFrom: string }) {
+    return this.twilioConnectionsService.approve(+id, data);
   }
 
   @Post('admin/:id/reject')

@@ -519,15 +519,17 @@ export class CampaignsService {
         });
 
         const channelPerformanceMap: Record<string, any> = {
-            whatsapp: { channel: 'whatsapp', envios: 0, recebidos: 0 },
-            email: { channel: 'email', envios: 0, recebidos: 0 },
-            sms: { channel: 'sms', envios: 0, recebidos: 0 }
+            whatsapp: { channel: 'whatsapp', envios: 0, recebidos: 0, receita: 0 },
+            email: { channel: 'email', envios: 0, recebidos: 0, receita: 0 },
+            sms: { channel: 'sms', envios: 0, recebidos: 0, receita: 0 },
+            manual: { channel: 'manual', envios: 0, recebidos: 0, receita: 0 }
         };
 
         recentMonthlyCampaigns.forEach(c => {
             if (channelPerformanceMap[c.channel]) {
                 channelPerformanceMap[c.channel].envios += c.sentCount || 0;
                 channelPerformanceMap[c.channel].recebidos += c.deliveredCount || 0;
+                channelPerformanceMap[c.channel].receita += Number(c.revenue) || 0;
             }
         });
 

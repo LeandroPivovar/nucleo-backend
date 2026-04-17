@@ -636,41 +636,49 @@ export class CampaignSchedulerService {
             }
         } else if (node.type === 'whatsapp' && contact.phone) {
             this.logger.log(`[NODE EXECUTING] WHATSAPP | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
-            if (currentWhatsappSent < (planSmsLimit + (user?.extraSmsBalance || 0))) { // Assuming WA uses SMS limit or its own
-                let content = node.data?.content || 'Olá!';
-            if (newActiveCoupon) {
-                const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
-                const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
-                const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+            
+            // ── Bloqueio de envio sem template ───────────────────────────────────────
+            const contentSid: string | undefined = node.data?.contentSid;
+            if (!contentSid) {
+                this.logger.warn(`[CAMPAIGN WHATSAPP BLOCKED] Template (ContentSid) obrigatório para envios proativos | Contact: ${contact.id}`);
+                return { activeCoupon: newActiveCoupon };
+            }
 
-                let validity = '';
-                if (newActiveCoupon.validityDate) {
-                    try {
-                        validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
-                    } catch (e) {
+            // ── Controle de Limite (Extra Balance) ──────────────────────────────────
+            if ((user?.extraWhatsappBalance || 0) > 0) {
+                let content = node.data?.content || 'Olá!';
+                if (newActiveCoupon) {
+                    const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
+                    const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                    const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+
+                    let validity = '';
+                    if (newActiveCoupon.validityDate) {
+                        try {
+                            validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
+                        } catch (e) {
+                            validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+                        }
+                    } else {
                         validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
                     }
-                } else {
-                    validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
+
+                    const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
+
+                    content = content.replace(/{{cupom_nome}}/g, code)
+                        .replace(/{{cupom_valor}}/g, valStr)
+                        .replace(/{{cupom_validade}}/g, validity);
+
+                    if (!hasVariables) {
+                        content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity} dias`;
+                    }
                 }
 
-                const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
+                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
 
-                content = content.replace(/{{cupom_nome}}/g, code)
-                    .replace(/{{cupom_valor}}/g, valStr)
-                    .replace(/{{cupom_validade}}/g, validity);
-
-                if (!hasVariables) {
-                    content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity} dias`;
-                }
-
-            }
-            content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
-
-                // ── Sempre usar Twilio para Campanhas ────────────────────────────────────
+                // Sempre usar Twilio para Campanhas
                 const verifiedConnection = await this.twilioConnectionsService.getVerifiedConnection(campaign.userId);
 
-                // Montar credenciais da subconta do usuário (se existirem)
                 let twilioCredentials: TwilioCredentials | undefined;
                 if (verifiedConnection) {
                     twilioCredentials = {
@@ -680,85 +688,76 @@ export class CampaignSchedulerService {
                     };
                 }
 
-                const contentSid: string | undefined = node.data?.contentSid;
                 let success = false;
                 const twilioStatusCallback = `${backendUrl}/api/campaigns/webhook/twilio-status?campaignId=${campaign.id}&contactId=${contact.id}`;
 
-                if (contentSid) {
-                    // Modo template aprovado: substitui variáveis do template
-                    const templateVars: Record<string, string> = {
-                        ...(node.data?.templateVariables || {}),
-                    };
+                // Modo template aprovado: substitui variáveis do template
+                const templateVars: Record<string, string> = {
+                    ...(node.data?.templateVariables || {}),
+                };
 
-                    // Preparar valores para substituição
-                    let code = 'CUPOM';
-                    let valStr = '0';
-                    let validity = '30 dias';
-                    const trackUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`;
+                let code = 'CUPOM';
+                let valStr = '0';
+                let validity = '30 dias';
+                const trackUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`;
 
-                    if (newActiveCoupon) {
-                        const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
-                        valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
-                        code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+                if (newActiveCoupon) {
+                    const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
+                    valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                    code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
 
-                        if (newActiveCoupon.validityDate) {
-                            try {
-                                validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
-                            } catch (e) {
-                                validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
-                            }
-                        } else {
+                    if (newActiveCoupon.validityDate) {
+                        try {
+                            validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
+                        } catch (e) {
                             validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
                         }
+                    } else {
+                        validity = newActiveCoupon.expirationDays ? `${newActiveCoupon.expirationDays} dias` : '30 dias';
                     }
-
-                    // Iterar sobre as variáveis do template e substituir placeholders do sistema
-                    Object.keys(templateVars).forEach(key => {
-                        if (typeof templateVars[key] === 'string') {
-                            templateVars[key] = templateVars[key]
-                                .replace(/{{cupom_nome}}/g, code)
-                                .replace(/{{cupom_valor}}/g, valStr)
-                                .replace(/{{cupom_validade}}/g, validity)
-                                .replace(/{{link_rastreio}}/g, trackUrl);
-                        }
-                    });
-
-                    // Fallback legibilidade (opcional, se o template usar nomes literais)
-                    if (newActiveCoupon) {
-                        templateVars['cupom_nome'] = code;
-                        templateVars['cupom_valor'] = valStr;
-                        templateVars['cupom_validade'] = validity;
-                    }
-                    templateVars['link_rastreio'] = trackUrl;
-
-                    this.logger.log(`[TWILIO TEMPLATE] contentSid: ${contentSid} | vars: ${JSON.stringify(templateVars)}`);
-                    success = await this.twilioService.sendWhatsAppTemplate(
-                        contact.phone,
-                        contentSid,
-                        templateVars,
-                        twilioCredentials,
-                        { statusCallback: twilioStatusCallback },
-                    );
-                } else {
-                    // Modo texto livre (Sandbox / Approved Sender)
-                    this.logger.log(`[TWILIO FREEFORM] Enviando texto livre para ${contact.phone}`);
-                    success = await this.twilioService.sendWhatsAppText(
-                        contact.phone,
-                        content,
-                        twilioCredentials,
-                        { statusCallback: twilioStatusCallback },
-                    );
                 }
+
+                Object.keys(templateVars).forEach(key => {
+                    if (typeof templateVars[key] === 'string') {
+                        templateVars[key] = templateVars[key]
+                            .replace(/{{cupom_nome}}/g, code)
+                            .replace(/{{cupom_valor}}/g, valStr)
+                            .replace(/{{cupom_validade}}/g, validity)
+                            .replace(/{{link_rastreio}}/g, trackUrl);
+                    }
+                });
+
+                if (newActiveCoupon) {
+                    templateVars['cupom_nome'] = code;
+                    templateVars['cupom_valor'] = valStr;
+                    templateVars['cupom_validade'] = validity;
+                }
+                templateVars['link_rastreio'] = trackUrl;
+
+                this.logger.log(`[TWILIO TEMPLATE] contentSid: ${contentSid} | vars: ${JSON.stringify(templateVars)}`);
+                success = await this.twilioService.sendWhatsAppTemplate(
+                    contact.phone,
+                    contentSid,
+                    templateVars,
+                    twilioCredentials,
+                    { statusCallback: twilioStatusCallback },
+                );
 
                 if (success) {
                     stats.sentWhatsappCount++;
                     usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
                     await this.userUsageRepository.save(usage);
-                    this.logger.log(`[CAMPAIGN WHATSAPP TWILIO] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                    
+                    // Deduct from extra balance if available
+                    if (user && user.extraWhatsappBalance > 0) {
+                        user.extraWhatsappBalance--;
+                        await this.userRepository.save(user);
+                    }
+                    
+                    this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Sucesso | Contact: ${contact.id}`);
                 } else {
-                    this.logger.error(`[CAMPAIGN WHATSAPP TWILIO] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
+                    this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Rejeitado pelo provedor | Contact: ${contact.id}`);
                 }
-                // ───────────────────────────────────────────────────────────────────────
             } else {
                 this.logger.warn(`[CAMPAIGN WHATSAPP EXECUTED] Limite atingido | User ID: ${campaign.userId} | Contact ID: ${contact.id}`);
             }

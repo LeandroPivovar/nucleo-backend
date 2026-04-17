@@ -72,6 +72,9 @@ export class User {
   @Column({ default: 0 })
   extraSmsBalance: number;
 
+  @Column({ default: 0 })
+  extraWhatsappBalance: number;
+
   // ── Twilio WhatsApp (subconta por usuário) ──────────────────────────────
   @Column({ type: 'varchar', length: 50, nullable: true })
   twilioAccountSid?: string; // AC...

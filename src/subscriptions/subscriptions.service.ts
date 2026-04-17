@@ -92,9 +92,10 @@ export class SubscriptionsService {
             campaignsCreated: Number(totalCampaigns),
             smsLimit: (subscription?.plan?.limits?.sms ?? 0) + (user?.extraSmsBalance || 0),
             emailsLimit: (subscription?.plan?.limits?.emails ?? 0) + (user?.extraEmailsBalance || 0),
-            whatsappLimit: subscription?.plan?.limits?.whatsapp ? -1 : 0, // -1 means unlimited if true
+            whatsappLimit: (user?.extraWhatsappBalance || 0),
             extraEmailsBalance: user?.extraEmailsBalance || 0,
             extraSmsBalance: user?.extraSmsBalance || 0,
+            extraWhatsappBalance: user?.extraWhatsappBalance || 0,
             campaignsLimit: subscription?.plan?.limits?.advancedCampaigns ?? null,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,
@@ -198,9 +199,25 @@ export class SubscriptionsService {
     async buyCredits(userId: number, data: any, remoteIp?: string): Promise<any> {
         const { type, amount, billingType, creditCard, creditCardHolderInfo } = data;
         let pricePerUnit = 0;
-
         if (type === 'email') pricePerUnit = 0.30;
         else if (type === 'sms') pricePerUnit = 0.40;
+        else if (type === 'whatsapp') {
+            // WHATSAPP logic: Fetch prices from SystemSettings or use defaults
+            const pkgAmount1 = await this.userRepository.manager.getRepository(SystemSetting).findOne({ where: { key: 'WHATSAPP_PKG1_AMOUNT' } });
+            const pkgPrice1 = await this.userRepository.manager.getRepository(SystemSetting).findOne({ where: { key: 'WHATSAPP_PKG1_PRICE' } });
+            const pkgAmount2 = await this.userRepository.manager.getRepository(SystemSetting).findOne({ where: { key: 'WHATSAPP_PKG2_AMOUNT' } });
+            const pkgPrice2 = await this.userRepository.manager.getRepository(SystemSetting).findOne({ where: { key: 'WHATSAPP_PKG2_PRICE' } });
+            const pkgAmount3 = await this.userRepository.manager.getRepository(SystemSetting).findOne({ where: { key: 'WHATSAPP_PKG3_AMOUNT' } });
+            const pkgPrice3 = await this.userRepository.manager.getRepository(SystemSetting).findOne({ where: { key: 'WHATSAPP_PKG3_PRICE' } });
+
+            if (pkgAmount1 && amount === Number(pkgAmount1.value)) pricePerUnit = Number(pkgPrice1?.value || 0) / amount;
+            else if (pkgAmount2 && amount === Number(pkgAmount2.value)) pricePerUnit = Number(pkgPrice2?.value || 0) / amount;
+            else if (pkgAmount3 && amount === Number(pkgAmount3.value)) pricePerUnit = Number(pkgPrice3?.value || 0) / amount;
+            else {
+                // Default fallback if not matching exactly one of the 3 tiers
+                pricePerUnit = 0.50; 
+            }
+        }
         else throw new Error('Invalid credit type');
 
         const totalValue = pricePerUnit * amount;
@@ -290,6 +307,7 @@ export class SubscriptionsService {
                     if (user) {
                         if (type === 'email') user.extraEmailsBalance = (user.extraEmailsBalance || 0) + amount;
                         else if (type === 'sms') user.extraSmsBalance = (user.extraSmsBalance || 0) + amount;
+                        else if (type === 'whatsapp') user.extraWhatsappBalance = (user.extraWhatsappBalance || 0) + amount;
                         await this.userRepository.save(user);
 
                         // Criar fatura de pacote avulso

@@ -189,6 +189,17 @@ export class SalesService {
     return { startDate, endDate, prevStartDate, prevEndDate };
   }
 
+  private standardizePaymentMethod(method: string): string {
+    if (!method) return 'Outros';
+    const m = method.toLowerCase().trim();
+    if (m === 'pix') return 'PIX';
+    if (m === 'boleto') return 'Boleto';
+    if (m.includes('credito') || m.includes('credit')) return 'Cartão de Crédito';
+    if (m.includes('debito') || m.includes('debit')) return 'Cartão de Débito';
+    if (m.includes('dinheiro') || m.includes('cash')) return 'Dinheiro';
+    return method;
+  }
+
   /**
    * Gatilho para sincronizar integrações em segundo plano
    */
@@ -735,7 +746,7 @@ export class SalesService {
       .getRawMany();
 
     return result.map(item => ({
-      metodo: item.metodo || 'Outros',
+      metodo: this.standardizePaymentMethod(item.metodo),
       transacoes: parseInt(item.transacoes),
       percentual: total > 0 ? (parseInt(item.transacoes) / total) * 100 : 0,
       tempoMedio: 'N/A' // Not tracking payment time yet

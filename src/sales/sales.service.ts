@@ -674,7 +674,8 @@ export class SalesService {
     const { startDate, endDate } = this.getDateRange(period);
 
     const qb = this.saleRepository.createQueryBuilder('sale')
-      .select('sale.channel', 'canal')
+      .leftJoin('sale.campaign', 'campaign')
+      .select('CASE WHEN campaign.channel IS NOT NULL THEN campaign.channel ELSE "Venda Manual" END', 'canal')
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
@@ -683,11 +684,11 @@ export class SalesService {
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) qb.andWhere('sale.productId = :productId', { productId: filters.productId });
 
-    const result = await qb.groupBy('sale.channel')
+    const result = await qb.groupBy('canal')
       .getRawMany();
 
     return result.map(item => ({
-      canal: item.canal || 'Direto',
+      canal: item.canal,
       faturamento: parseFloat(item.faturamento),
       vendas: parseInt(item.vendas)
     }));

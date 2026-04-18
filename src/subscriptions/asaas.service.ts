@@ -84,16 +84,17 @@ export class AsaasService {
         }
     }
 
-    async getSubscription(id: string) {
+    async getSubscriptionPayments(id: string) {
         const client = await this.getClient();
         try {
-            const response = await client.get(`/subscriptions/${id}`);
-            return response.data;
+            const response = await client.get(`/subscriptions/${id}/payments`);
+            return response.data; // { object: "list", hasMore: false, totalCount: 1, data: [...] }
         } catch (error: any) {
-            this.logger.error(`Error fetching Asaas subscription ${id}: ${error.message}`);
+            this.logger.error(`Error fetching Asaas subscription ${id} payments: ${error.message}`);
             throw error;
         }
     }
+
 
     async createSinglePayment(data: {
         customer: string;

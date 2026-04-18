@@ -180,10 +180,25 @@ export class SubscriptionsService {
             });
             const savedSubscription = await this.subscriptionRepository.save(newSubscription);
 
+            // Se for PIX, buscar o QR Code do primeiro pagamento
+            let qrCode = null;
+            if (billingType === 'PIX') {
+                try {
+                    const payments = await this.asaasService.getSubscriptionPayments(asaasSub.id);
+                    if (payments.data && payments.data.length > 0) {
+                        const firstPayment = payments.data[0];
+                        qrCode = await this.asaasService.getPixQrCode(firstPayment.id);
+                    }
+                } catch (err) {
+                    this.logger.error(`Error fetching PIX QR Code for subscription ${asaasSub.id}: ${err.message}`);
+                }
+            }
+
             return {
                 success: true,
                 message: 'Assinatura criada no Asaas com sucesso',
                 subscription: savedSubscription,
+                qrCode,
                 asaas: {
                     id: asaasSub.id,
                     invoiceUrl: asaasSub.invoiceUrl,

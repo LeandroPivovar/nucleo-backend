@@ -67,11 +67,13 @@ export class CreateTemplateRequestsTable1780000000000 implements MigrationInterf
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     const table = await queryRunner.getTable('template_requests');
-    const foreignKey = table.foreignKeys.find(
-      (fk) => fk.columnNames.indexOf('userId') !== -1,
-    );
-    if (foreignKey) {
-      await queryRunner.dropForeignKey('template_requests', foreignKey);
+    if (table) {
+      const foreignKey = table.foreignKeys.find(
+        (fk) => fk.columnNames.indexOf('userId') !== -1,
+      );
+      if (foreignKey) {
+        await queryRunner.dropForeignKey('template_requests', foreignKey);
+      }
     }
     await queryRunner.dropTable('template_requests');
   }

@@ -9,6 +9,7 @@ import { Contact } from '../entities/contact.entity';
 import { UserUsage } from '../entities/user-usage.entity';
 import { Campaign } from '../entities/campaign.entity';
 import { ReferralCommission } from '../entities/referral-commission.entity';
+import { TemplateRequest, TemplateRequestStatus } from '../entities/template-request.entity';
 
 import { AsaasService } from './asaas.service';
 import { SystemSetting } from '../entities/system-setting.entity';
@@ -36,6 +37,8 @@ export class SubscriptionsService {
         private campaignRepository: Repository<Campaign>,
         @InjectRepository(ReferralCommission)
         private referralCommissionRepository: Repository<ReferralCommission>,
+        @InjectRepository(TemplateRequest)
+        private templateRequestRepository: Repository<TemplateRequest>,
         private asaasService: AsaasService,
         private notificationsService: NotificationsService,
     ) { }
@@ -281,6 +284,83 @@ export class SubscriptionsService {
         }
     }
 
+    async buyTemplateRequest(userId: number, data: any, remoteIp?: string): Promise<any> {
+        const { content, billingType, creditCard, creditCardHolderInfo } = data;
+        
+        if (!content) throw new Error('Conteúdo do template é obrigatório.');
+
+        const user = await this.userRepository.findOne({ where: { id: userId } });
+        if (!user) throw new NotFoundException('Usuário não encontrado');
+
+        const totalValue = 49.90; // Fixed value for template request
+
+        try {
+            // Garantir que o cliente exista no Asaas (caso tente comprar avulso sem assinar antes)
+            let asaasCustomerId = (user as any).asaasCustomerId;
+            if (!asaasCustomerId) {
+                const asaasCustomer = await this.asaasService.createCustomer({
+                    name: `${user.firstName} ${user.lastName}`,
+                    email: user.email,
+                    phone: user.phone,
+                    cpfCnpj: user.document || '00000000000',
+                });
+                asaasCustomerId = asaasCustomer.id;
+                (user as any).asaasCustomerId = asaasCustomerId;
+                await this.userRepository.save(user);
+            }
+
+            // Create pending template request in local database
+            const templateRequest = this.templateRequestRepository.create({
+                userId,
+                content,
+                status: TemplateRequestStatus.PENDING_PAYMENT,
+            });
+            await this.templateRequestRepository.save(templateRequest);
+
+            const now = new Date();
+            const brDate = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+            const dateString = brDate.toISOString().split('T')[0];
+
+            // Define um externalReference pra conseguirmos identificar no webhook
+            const externalRef = `TEMPLATE_REQUEST|${templateRequest.id}|${userId}`;
+
+            const asaasRequestData = {
+                customer: asaasCustomerId,
+                billingType: (billingType || 'PIX') as any,
+                value: totalValue,
+                dueDate: dateString,
+                description: `Solicitação de Criação de Template de WhatsApp`,
+                externalReference: externalRef,
+                creditCard,
+                creditCardHolderInfo,
+                remoteIp
+            };
+
+            const asaasPayment = await this.asaasService.createSinglePayment(asaasRequestData);
+
+            // Update template request with payment ID
+            templateRequest.paymentId = asaasPayment.id;
+            await this.templateRequestRepository.save(templateRequest);
+
+            let qrCode = null;
+            if (billingType === 'PIX') {
+                qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+            }
+
+            return {
+                success: true,
+                message: 'Cobrança para o Template gerada com sucesso',
+                paymentId: asaasPayment.id,
+                qrCode,
+                invoiceUrl: asaasPayment.invoiceUrl,
+            };
+
+        } catch (error: any) {
+            this.logger.error(`Buy template request error: ${error.message}`);
+            throw new Error(`Falha na geração de cobrança Asaas: ${error.message}`);
+        }
+    }
+
     async handleAsaasWebhook(payload: any, token: string) {
         const secretSetting = await this.userRepository.manager.getRepository(SystemSetting).findOne({
             where: { key: 'ASAAS_WEBHOOK_TOKEN' }
@@ -322,6 +402,31 @@ export class SubscriptionsService {
                         await this.invoiceRepository.save(newInvoice);
 
                         this.logger.log(`Pacote de ${amount} ${type} adicionado com sucesso ao usuário ${userId}.`);
+                        return { success: true };
+                    }
+                }
+            }
+
+            if (externalRef && externalRef.startsWith('TEMPLATE_REQUEST|')) {
+                const [tag, reqIdStr, userIdStr] = externalRef.split('|');
+                const reqId = parseInt(reqIdStr, 10);
+                const userId = parseInt(userIdStr, 10);
+
+                if (reqId && userId) {
+                    const templateReq = await this.templateRequestRepository.findOne({ where: { id: reqId, userId } });
+                    if (templateReq && templateReq.status === TemplateRequestStatus.PENDING_PAYMENT) {
+                        templateReq.status = TemplateRequestStatus.REQUESTED;
+                        await this.templateRequestRepository.save(templateReq);
+
+                        const newInvoice = this.invoiceRepository.create({
+                            userId,
+                            amount: payment?.value || 0,
+                            status: 'paid',
+                            hostedInvoiceUrl: payment?.invoiceUrl,
+                        });
+                        await this.invoiceRepository.save(newInvoice);
+
+                        this.logger.log(`Template Request ${reqId} do user ${userId} pago e marcado como solicitado.`);
                         return { success: true };
                     }
                 }

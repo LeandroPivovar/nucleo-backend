@@ -16,9 +16,11 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AsaasService } from './asaas.service';
 
+import { TemplateRequest } from '../entities/template-request.entity';
+
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Subscription, Plan, Invoice, User, Contact, UserUsage, Campaign, ReferralCommission]),
+        TypeOrmModule.forFeature([Subscription, Plan, Invoice, User, Contact, UserUsage, Campaign, ReferralCommission, TemplateRequest]),
         SystemSettingsModule,
         WebhooksModule,
         NotificationsModule

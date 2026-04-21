@@ -22,6 +22,7 @@ import { VtexConnection } from '../entities/vtex-connection.entity';
 import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.entity';
 import { CampaignClick } from '../entities/campaign-click.entity';
 import { Product } from '../entities/product.entity';
+import { TemplateRequest, TemplateRequestStatus } from '../entities/template-request.entity';
 import * as bcrypt from 'bcrypt';
 
 export interface MonthlyFinanceData {
@@ -83,6 +84,8 @@ export class AdminService {
         private campaignClickRepository: Repository<CampaignClick>,
         @InjectRepository(Product)
         private productRepository: Repository<Product>,
+        @InjectRepository(TemplateRequest)
+        private templateRequestRepository: Repository<TemplateRequest>,
         private jwtService: JwtService,
     ) { }
 
@@ -767,6 +770,61 @@ export class AdminService {
             date: s.date,
             count: Number(s.count),
         }));
+    }
+
+    // --- Template Requests Management ---
+    async getTemplateRequests() {
+        return this.templateRequestRepository.find({
+            where: { status: Not(TemplateRequestStatus.PENDING_PAYMENT) },
+            relations: ['user'],
+            order: { createdAt: 'DESC' }
+        });
+    }
+
+    async approveTemplateRequest(id: number, adminNote?: string) {
+        const req = await this.templateRequestRepository.findOne({
+            where: { id },
+            relations: ['user']
+        });
+        if (!req) throw new Error('Solicitação de template não encontrada');
+
+        req.status = TemplateRequestStatus.CREATED;
+        if (adminNote) req.adminNote = adminNote;
+        await this.templateRequestRepository.save(req);
+
+        // Criar notificação
+        const notification = this.notificationRepository.create({
+            userId: req.userId,
+            title: 'Template de WhatsApp Criado',
+            message: `Sua solicitação de template foi processada e já deve estar disponível na seleção de templates. Motivo/Nota: ${adminNote || 'Aprovado'}`,
+            type: NotificationType.SUCCESS,
+        });
+        await this.notificationRepository.save(notification);
+
+        return req;
+    }
+
+    async rejectTemplateRequest(id: number, adminNote: string) {
+        const req = await this.templateRequestRepository.findOne({
+            where: { id },
+            relations: ['user']
+        });
+        if (!req) throw new Error('Solicitação de template não encontrada');
+
+        req.status = TemplateRequestStatus.REJECTED;
+        req.adminNote = adminNote;
+        await this.templateRequestRepository.save(req);
+
+        // Criar notificação
+        const notification = this.notificationRepository.create({
+            userId: req.userId,
+            title: 'Template de WhatsApp Rejeitado',
+            message: `Sua solicitação de template não pôde ser criada. Motivo: ${adminNote}`,
+            type: NotificationType.ERROR,
+        });
+        await this.notificationRepository.save(notification);
+
+        return req;
     }
 
     // ─── Generate Test Account ────────────────────────────────────────────────

@@ -24,6 +24,7 @@ import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.e
 import { CampaignClick } from '../entities/campaign-click.entity';
 import { LeadRequest } from '../entities/lead-request.entity';
 import { Product } from '../entities/product.entity';
+import { TemplateRequest } from '../entities/template-request.entity';
 import { LeadRequestsController } from './lead-requests.controller';
 import { LeadRequestsService } from './lead-requests.service';
 
@@ -50,6 +51,7 @@ import { LeadRequestsService } from './lead-requests.service';
             CampaignClick,
             LeadRequest,
             Product,
+            TemplateRequest,
         ]),
         JwtModule.registerAsync({
             imports: [ConfigModule],

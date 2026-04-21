@@ -64,4 +64,10 @@ export class SubscriptionsController {
     buyCredits(@Request() req, @Body() body: any) {
         return this.subscriptionsService.buyCredits(req.user.userId, body, req.ip);
     }
+
+    @Post('buy-template-request')
+    @UseGuards(JwtAuthGuard)
+    buyTemplateRequest(@Request() req, @Body() body: any) {
+        return this.subscriptionsService.buyTemplateRequest(req.user.userId, body, req.ip);
+    }
 }

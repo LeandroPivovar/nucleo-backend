@@ -122,4 +122,26 @@ export class AdminController {
     async generateTestAccount(@Body('level') level: 'low' | 'medium' | 'high') {
         return this.adminService.generateTestAccount(level || 'low');
     }
+
+    // --- Template Requests Management ---
+    @Get('template-requests')
+    async getTemplateRequests() {
+        return this.adminService.getTemplateRequests();
+    }
+
+    @Post('template-requests/:id/approve')
+    async approveTemplateRequest(
+        @Param('id', ParseIntPipe) id: number,
+        @Body('adminNote') adminNote?: string
+    ) {
+        return this.adminService.approveTemplateRequest(id, adminNote);
+    }
+
+    @Post('template-requests/:id/reject')
+    async rejectTemplateRequest(
+        @Param('id', ParseIntPipe) id: number,
+        @Body('adminNote') adminNote: string
+    ) {
+        return this.adminService.rejectTemplateRequest(id, adminNote);
+    }
 }

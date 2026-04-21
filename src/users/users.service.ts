@@ -53,6 +53,7 @@ export class UsersService {
       email: user.email,
       phone: user.phone,
       twoFactorEnabled: user.twoFactorEnabled,
+      templateId: user.templateId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       planName: subscription?.plan?.name || 'Plano gratuito'
@@ -141,6 +142,7 @@ export class UsersService {
       const { password, ...safeUser } = u;
       return {
         ...safeUser,
+        templateId: u.templateId,
         currentPlan: subMap.get(u.id) || null
       };
     });

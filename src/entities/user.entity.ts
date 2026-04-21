@@ -98,6 +98,9 @@ export class User {
   @Column({ type: 'datetime', nullable: true })
   twoFactorExpires?: Date;
 
+  @Column({ type: 'varchar', length: 4, nullable: true, unique: true })
+  templateId: string;
+
   @Column({ type: 'datetime', nullable: true })
   lastLoginAt?: Date;
 

@@ -65,6 +65,7 @@ export class AuthService {
       address: user.address,
       postalCode: user.postalCode,
       role: user.role,
+      templateId: user.templateId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -101,6 +102,15 @@ export class AuthService {
       if (!existingCode) isUnique = true;
     }
 
+    // Gerar templateId único para o novo usuário
+    let newUserTemplateId = '';
+    let isTemplateIdUnique = false;
+    while (!isTemplateIdUnique) {
+      newUserTemplateId = this.generateTemplateId();
+      const existingUserWithTemplateId = await this.userRepository.findOne({ where: { templateId: newUserTemplateId } });
+      if (!existingUserWithTemplateId) isTemplateIdUnique = true;
+    }
+
     // Verificar se foi indicado por alguém
     let referredById: number | null = null;
     let referrer: User | null = null;
@@ -120,6 +130,7 @@ export class AuthService {
       document,
       address,
       referralCode: newUserReferralCode,
+      templateId: newUserTemplateId,
       referredById: referredById ?? undefined,
       active: false, // Conta inativa até verificação
     });
@@ -591,6 +602,18 @@ export class AuthService {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let code = '';
     for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  /**
+   * Gera um ID de template único de 4 caracteres (alfanumérico)
+   */
+  private generateTemplateId(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 4; i++) {
       code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return code;

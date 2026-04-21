@@ -56,6 +56,9 @@ export class CampaignsService {
     }
 
     async getTwilioTemplates(userId: number): Promise<any[]> {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        const userTemplateId = user?.templateId;
+
         let credentials;
         const verifiedConn = await this.twilioConnectionsService.getVerifiedConnection(userId);
         if (verifiedConn) {
@@ -65,7 +68,19 @@ export class CampaignsService {
                 whatsappFrom: verifiedConn.whatsappFrom,
             };
         }
-        return this.twilioService.getTemplates(credentials);
+        const templates = await this.twilioService.getTemplates(credentials);
+
+        // Filter templates based on pattern: name_idXXXX
+        // Templates without the pattern are public. 
+        // Templates with the pattern are exclusive to the user with that templateId.
+        return templates.filter(t => {
+            const name = t.friendlyName || '';
+            const match = name.match(/id([A-Z0-9]{4})$/i);
+            if (!match) return true; // No pattern found, it's a public template
+            
+            // If pattern found, only show if it matches this user's templateId
+            return userTemplateId && match[1].toLowerCase() === userTemplateId.toLowerCase();
+        });
     }
 
 

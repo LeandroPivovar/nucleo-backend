@@ -1,10 +1,11 @@
 import { Controller, Get, Patch, Body, Post, UseGuards } from '@nestjs/common';
 import { SystemSettingsService } from './system-settings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../auth/admin.guard';
 import { EmailService } from '../email/email.service';
 
 @Controller('admin/settings')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, AdminGuard)
 export class SystemSettingsController {
     constructor(
         private readonly systemSettingsService: SystemSettingsService,

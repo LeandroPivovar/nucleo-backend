@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { LeadRequestsService } from './lead-requests.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../auth/admin.guard';
 import { LeadStatus } from '../entities/lead-request.entity';
 
 @Controller('lead-requests')
@@ -28,13 +29,13 @@ export class LeadRequestsController {
    * Endpoints administrativos protegidos
    */
   @Get('admin/all')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async getAllLeads() {
     return this.leadRequestsService.findAll();
   }
 
   @Patch('admin/:id/status')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async updateStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body('status') status: LeadStatus,

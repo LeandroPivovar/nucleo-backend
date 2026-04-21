@@ -38,6 +38,9 @@ export class User {
   @Column({ length: 255 })
   password: string;
 
+  @Column({ length: 20, default: 'user' })
+  role: string; // 'admin' | 'user'
+
   @Column({ default: false })
   active: boolean; // Conta ativa (verificada por e-mail)
 

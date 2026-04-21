@@ -64,6 +64,7 @@ export class AuthService {
       document: user.document,
       address: user.address,
       postalCode: user.postalCode,
+      role: user.role,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -253,7 +254,7 @@ export class AuthService {
       );
 
       // Gerar token JWT
-      const token = this.jwtService.sign({ sub: user.id, email: user.email });
+      const token = this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
 
       return {
         user: await this.formatUserResponse(user),
@@ -319,7 +320,7 @@ export class AuthService {
     );
 
     // Gerar token JWT
-    const token = this.jwtService.sign({ sub: user.id, email: user.email });
+    const token = this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
 
     return {
       user: await this.formatUserResponse(user),

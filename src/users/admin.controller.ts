@@ -6,12 +6,16 @@ import {
     Body,
     Param,
     ParseIntPipe,
-    Query
+    Query,
+    UseGuards
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { User } from '../entities/user.entity';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../auth/admin.guard';
 
 @Controller('admin/users')
+@UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
     constructor(private readonly usersService: UsersService) { }
 

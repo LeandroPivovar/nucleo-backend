@@ -53,7 +53,7 @@ export class AdminController {
     @Post('stats/users/:id/credits')
     async addCredits(
         @Param('id', ParseIntPipe) id: number,
-        @Body('type') type: 'email' | 'sms',
+        @Body('type') type: 'email' | 'sms' | 'whatsapp',
         @Body('amount') amount: number
     ) {
         return this.adminService.addCredits(id, type, amount);
@@ -143,5 +143,29 @@ export class AdminController {
         @Body('adminNote') adminNote: string
     ) {
         return this.adminService.rejectTemplateRequest(id, adminNote);
+    }
+
+    // --- Admin Campaign Templates ---
+    @Get('campaign-templates')
+    async getCampaignTemplates() {
+        return this.adminService.getCampaignTemplates();
+    }
+
+    @Post('campaign-templates')
+    async createCampaignTemplate(@Body() data: any) {
+        return this.adminService.createCampaignTemplate(data);
+    }
+
+    @Patch('campaign-templates/:id')
+    async updateCampaignTemplate(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() data: any
+    ) {
+        return this.adminService.updateCampaignTemplate(id, data);
+    }
+
+    @Delete('campaign-templates/:id')
+    async deleteCampaignTemplate(@Param('id', ParseIntPipe) id: number) {
+        return this.adminService.deleteCampaignTemplate(id);
     }
 }

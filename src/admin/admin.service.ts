@@ -23,6 +23,7 @@ import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.e
 import { CampaignClick } from '../entities/campaign-click.entity';
 import { Product } from '../entities/product.entity';
 import { TemplateRequest, TemplateRequestStatus } from '../entities/template-request.entity';
+import { AdminCampaignTemplate } from '../entities/admin-campaign-template.entity';
 import * as bcrypt from 'bcrypt';
 
 export interface MonthlyFinanceData {
@@ -86,6 +87,8 @@ export class AdminService {
         private productRepository: Repository<Product>,
         @InjectRepository(TemplateRequest)
         private templateRequestRepository: Repository<TemplateRequest>,
+        @InjectRepository(AdminCampaignTemplate)
+        private adminCampaignTemplateRepository: Repository<AdminCampaignTemplate>,
         private jwtService: JwtService,
     ) { }
 
@@ -198,7 +201,7 @@ export class AdminService {
         return { tempPassword };
     }
 
-    async addCredits(userId: number, type: 'email' | 'sms', amount: number) {
+    async addCredits(userId: number, type: 'email' | 'sms' | 'whatsapp', amount: number) {
         const user = await this.usersRepository.findOne({ where: { id: userId } });
         if (!user) throw new Error('Usuário não encontrado');
 
@@ -206,12 +209,15 @@ export class AdminService {
             user.extraEmailsBalance = (user.extraEmailsBalance || 0) + amount;
         } else if (type === 'sms') {
             user.extraSmsBalance = (user.extraSmsBalance || 0) + amount;
+        } else if (type === 'whatsapp') {
+            user.extraWhatsappBalance = (user.extraWhatsappBalance || 0) + amount;
         }
 
         await this.usersRepository.save(user);
         return {
             extraEmailsBalance: user.extraEmailsBalance,
             extraSmsBalance: user.extraSmsBalance,
+            extraWhatsappBalance: user.extraWhatsappBalance,
         };
     }
 
@@ -1068,5 +1074,43 @@ export class AdminService {
                 estimatedRevenue: totalRevenue,
             },
         };
+    }
+
+    // ─── Admin Campaign Templates ─────────────────────────────────────────────
+    async getCampaignTemplates() {
+        return this.adminCampaignTemplateRepository.find({
+            order: { createdAt: 'DESC' },
+        });
+    }
+
+    async createCampaignTemplate(data: { name: string; description?: string; workflow?: any; status?: string }) {
+        const template = this.adminCampaignTemplateRepository.create({
+            name: data.name,
+            description: data.description,
+            workflow: data.workflow || { nodes: [], edges: [] },
+            status: data.status || 'rascunho',
+        });
+        return this.adminCampaignTemplateRepository.save(template);
+    }
+
+    async updateCampaignTemplate(id: number, data: Partial<{ name: string; description: string; workflow: any; status: string }>) {
+        const template = await this.adminCampaignTemplateRepository.findOne({ where: { id } });
+        if (!template) throw new Error('Template de campanha não encontrado');
+        Object.assign(template, data);
+        return this.adminCampaignTemplateRepository.save(template);
+    }
+
+    async deleteCampaignTemplate(id: number) {
+        const template = await this.adminCampaignTemplateRepository.findOne({ where: { id } });
+        if (!template) throw new Error('Template de campanha não encontrado');
+        await this.adminCampaignTemplateRepository.remove(template);
+        return { success: true };
+    }
+
+    async getPublicCampaignTemplates() {
+        return this.adminCampaignTemplateRepository.find({
+            where: { status: 'publicada' },
+            order: { createdAt: 'DESC' },
+        });
     }
 }

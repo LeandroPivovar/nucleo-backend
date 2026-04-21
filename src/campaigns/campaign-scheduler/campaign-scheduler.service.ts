@@ -230,7 +230,7 @@ export class CampaignSchedulerService {
         campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
         await this.campaignsRepository.save(campaign);
 
-        if (campaign.complexity === 'advanced') {
+        if (campaign.complexity === 'advanced' || campaign.complexity === 'predefined') {
             const nodes = campaign.config?.workflow?.nodes || [];
             const edges = campaign.config?.workflow?.edges || [];
 

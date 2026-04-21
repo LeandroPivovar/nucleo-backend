@@ -25,6 +25,7 @@ import { CampaignClick } from '../entities/campaign-click.entity';
 import { LeadRequest } from '../entities/lead-request.entity';
 import { Product } from '../entities/product.entity';
 import { TemplateRequest } from '../entities/template-request.entity';
+import { AdminCampaignTemplate } from '../entities/admin-campaign-template.entity';
 import { LeadRequestsController } from './lead-requests.controller';
 import { LeadRequestsService } from './lead-requests.service';
 
@@ -52,6 +53,7 @@ import { LeadRequestsService } from './lead-requests.service';
             LeadRequest,
             Product,
             TemplateRequest,
+            AdminCampaignTemplate,
         ]),
         JwtModule.registerAsync({
             imports: [ConfigModule],

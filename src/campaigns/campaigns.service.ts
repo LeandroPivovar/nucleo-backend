@@ -16,6 +16,7 @@ import { CampaignMessageEvent } from '../entities/campaign-message-event.entity'
 import * as Twilio from 'twilio';
 import { TwilioService } from '../twilio/twilio.service';
 import { TwilioConnectionsService } from '../twilio-connections/twilio-connections.service';
+import { AdminCampaignTemplate } from '../entities/admin-campaign-template.entity';
 
 @Injectable()
 export class CampaignsService {
@@ -40,6 +41,8 @@ export class CampaignsService {
         private usersRepository: Repository<User>,
         @InjectRepository(CampaignMessageEvent)
         private campaignMessageEventsRepository: Repository<CampaignMessageEvent>,
+        @InjectRepository(AdminCampaignTemplate)
+        private adminCampaignTemplateRepository: Repository<AdminCampaignTemplate>,
         private campaignSchedulerService: CampaignSchedulerService,
         private notificationsService: NotificationsService,
         private twilioService: TwilioService,
@@ -828,8 +831,16 @@ export class CampaignsService {
                 }
             }
 
+
         } catch (error: any) {
             this.logger.error(`Error handling integration webhook: ${error.message}`);
         }
+    }
+
+    async getPublicAdminTemplates(): Promise<AdminCampaignTemplate[]> {
+        return this.adminCampaignTemplateRepository.find({
+            where: { status: 'publicada' },
+            order: { createdAt: 'DESC' },
+        });
     }
 }

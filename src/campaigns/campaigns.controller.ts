@@ -28,6 +28,11 @@ export class CampaignsController {
         return this.campaignsService.getActiveCoupons(req.user.userId);
     }
 
+    @Get('admin-templates')
+    getAdminTemplates() {
+        return this.campaignsService.getPublicAdminTemplates();
+    }
+
     @Get('twilio/templates')
     getTwilioTemplates(@Request() req) {
         return this.campaignsService.getTwilioTemplates(req.user.userId);

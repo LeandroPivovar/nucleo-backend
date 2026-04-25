@@ -647,7 +647,7 @@ export class SalesService {
     const qb = this.saleRepository.createQueryBuilder('sale')
       .leftJoin('sale.campaign', 'campaign')
       .select('campaign.name', 'nome')
-      .addSelect('sale.channel', 'canal')
+      .addSelect('COALESCE(NULLIF(campaign.channel, ""), NULLIF(sale.channel, ""), "Outros")', 'canal')
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
@@ -659,12 +659,11 @@ export class SalesService {
     }
 
     const result = await qb.groupBy('campaign.name')
-      .addGroupBy('sale.channel')
       .getRawMany();
 
     return result.map(item => ({
       nome: item.nome || 'Campanha Desconhecida',
-      canal: item.canal || 'Outros',
+      canal: item.canal,
       faturamento: parseFloat(item.faturamento),
       vendas: parseInt(item.vendas)
     }));
@@ -675,7 +674,13 @@ export class SalesService {
 
     const qb = this.saleRepository.createQueryBuilder('sale')
       .leftJoin('sale.campaign', 'campaign')
-      .select('CASE WHEN campaign.channel IS NOT NULL THEN campaign.channel ELSE "Venda Manual" END', 'canal')
+      .select(`
+        CASE 
+          WHEN campaign.channel IS NOT NULL AND campaign.channel != "" THEN campaign.channel 
+          WHEN sale.channel IS NOT NULL AND sale.channel != "" AND sale.channel != "direct" THEN sale.channel
+          ELSE "Venda Manual" 
+        END
+      `, 'canal')
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })

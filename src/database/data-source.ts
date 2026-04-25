@@ -34,6 +34,8 @@ import { SystemSetting } from '../entities/system-setting.entity';
 import { WebhookLog } from '../entities/webhook-log.entity';
 import { InternalAnalytics } from '../entities/internal-analytics.entity';
 import { CampaignMessageEvent } from '../entities/campaign-message-event.entity';
+import { Ticket } from '../entities/ticket.entity';
+import { TicketMessage } from '../entities/ticket-message.entity';
 
 config();
 
@@ -78,7 +80,9 @@ export const AppDataSource = new DataSource({
     SystemSetting,
     WebhookLog,
     InternalAnalytics,
-    CampaignMessageEvent
+    CampaignMessageEvent,
+    Ticket,
+    TicketMessage
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

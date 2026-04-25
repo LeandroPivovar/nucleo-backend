@@ -325,12 +325,13 @@ export class CampaignsService {
         const startDate = new Date();
 
         if (period === 'diario') {
-            startDate.setDate(endDate.getDate() - 7); // Últimos 7 dias
+            startDate.setHours(0, 0, 0, 0);
+            endDate.setHours(23, 59, 59, 999);
         } else if (period === 'mensal') {
-            startDate.setMonth(endDate.getMonth() - 6); // Últimos 6 meses
+            startDate.setDate(endDate.getDate() - 30);
         } else {
             // semanal (padrão)
-            startDate.setDate(endDate.getDate() - 7); // Também últimos 7 dias na visão diária
+            startDate.setDate(endDate.getDate() - 7);
         }
 
         return { startDate, endDate };
@@ -366,28 +367,28 @@ export class CampaignsService {
         const currentCampaigns = campaignsEntities;
 
         if (period === 'mensal') {
-            // Group by month ('Jan', 'Fev'...)
-            const monthsMap = new Map();
-            const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-
-            // Initialize last 6 months
-            for (let i = 5; i >= 0; i--) {
-                const date = new Date();
-                date.setMonth(date.getMonth() - i);
-                const monthName = monthNames[date.getMonth()];
-                monthsMap.set(monthName, { periodo: monthName, envios: 0, recebidos: 0, cliques: 0 });
+            // Group by Date for last 30 days
+            const dateMap = new Map();
+            for (let i = 29; i >= 0; i--) {
+                const date = new Date(endDate);
+                date.setDate(date.getDate() - i);
+                const formattedDate = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+                dateMap.set(formattedDate, { periodo: formattedDate, envios: 0, recebidos: 0, cliques: 0, _date: date });
             }
 
             currentCampaigns.forEach(camp => {
-                const monthName = monthNames[camp.createdAt.getMonth()];
-                if (monthsMap.has(monthName)) {
-                    const data = monthsMap.get(monthName);
+                const formattedDate = `${String(camp.createdAt.getDate()).padStart(2, '0')}/${String(camp.createdAt.getMonth() + 1).padStart(2, '0')}`;
+                if (dateMap.has(formattedDate)) {
+                    const data = dateMap.get(formattedDate);
                     data.envios += camp.sentCount || 0;
                     data.recebidos += camp.deliveredCount || 0;
                     data.cliques += camp.clicksCount || 0;
                 }
             });
-            chartData.push(...Array.from(monthsMap.values()));
+            chartData.push(...Array.from(dateMap.values()).sort((a, b) => a._date.getTime() - b._date.getTime()).map(d => {
+                delete d._date;
+                return d;
+            }));
 
         } else if (period === 'semanal') {
             // Group by Day of Week ('Seg', 'Ter'...)
@@ -419,27 +420,22 @@ export class CampaignsService {
             }));
 
         } else {
-            // Diario = Group by Date ('01/12', '02/12'...)
+            // Diario (Hoje) = Just 1 point for today
             const dateMap = new Map();
-
-            // Initialize last 7 dates
-            for (let i = 6; i >= 0; i--) {
-                const date = new Date(endDate);
-                date.setDate(date.getDate() - i);
-                const formattedDate = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
-                dateMap.set(formattedDate, { periodo: formattedDate, envios: 0, recebidos: 0, cliques: 0, _date: date });
-            }
+            const date = new Date(endDate);
+            const formattedDate = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`;
+            dateMap.set(formattedDate, { periodo: formattedDate, envios: 0, recebidos: 0, cliques: 0, _date: date });
 
             currentCampaigns.forEach(camp => {
-                const formattedDate = `${String(camp.createdAt.getDate()).padStart(2, '0')}/${String(camp.createdAt.getMonth() + 1).padStart(2, '0')}`;
-                if (dateMap.has(formattedDate)) {
-                    const data = dateMap.get(formattedDate);
+                const formattedDateCamp = `${String(camp.createdAt.getDate()).padStart(2, '0')}/${String(camp.createdAt.getMonth() + 1).padStart(2, '0')}`;
+                if (dateMap.has(formattedDateCamp)) {
+                    const data = dateMap.get(formattedDateCamp);
                     data.envios += camp.sentCount || 0;
                     data.recebidos += camp.deliveredCount || 0;
                     data.cliques += camp.clicksCount || 0;
                 }
             });
-            chartData.push(...Array.from(dateMap.values()).sort((a, b) => a._date.getTime() - b._date.getTime()).map(d => {
+            chartData.push(...Array.from(dateMap.values()).map(d => {
                 delete d._date;
                 return d;
             }));

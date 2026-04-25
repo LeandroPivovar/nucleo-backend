@@ -25,9 +25,10 @@ export class Plan {
         contacts: number;
         emails: number;
         whatsapp: boolean;
+        whatsappLimit: number; // Added: Monthly WhatsApp limit if enabled
         sms: number;
-        internalUsers?: number; // Added: Limit for registered clients/internal users
-        advancedCampaigns?: number; // -1 for unlimited
+        internalUsers?: number;
+        advancedCampaigns?: number;
     };
 
     @Column({ default: true })

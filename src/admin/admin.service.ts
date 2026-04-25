@@ -390,9 +390,11 @@ export class AdminService {
         return { success: true };
     }
 
-    async getFinanceStats() {
+    async getFinanceStats(days = 365) {
         const now = new Date();
-        const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+        const startOfPeriod = new Date();
+        startOfPeriod.setDate(now.getDate() - days);
+        startOfPeriod.setHours(0, 0, 0, 0);
 
         // 1. Get Settings for Costs
         const costSmsSetting = await this.systemSettingRepository.findOne({ where: { key: 'COST_SMS' } });
@@ -400,24 +402,25 @@ export class AdminService {
         const costSms = parseFloat(costSmsSetting?.value || '0.05');
         const costEmail = parseFloat(costEmailSetting?.value || '0.01');
 
-        // 2. Get all relevant data (last year)
+        // 2. Get all relevant data (period)
         const invoices = await this.invoiceRepository.find({
             where: {
-                createdAt: MoreThan(twelveMonthsAgo),
+                createdAt: MoreThan(startOfPeriod),
                 status: 'paid'
             }
         });
 
         const usages = await this.usageRepository.find({
             where: {
-                createdAt: MoreThan(twelveMonthsAgo)
+                createdAt: MoreThan(startOfPeriod)
             }
         });
 
         // 3. Aggregate by month
+        const monthsCount = Math.ceil(days / 28); // Approximation to handle different month lengths
         const monthlyData: MonthlyFinanceData[] = [];
-        for (let i = 0; i < 12; i++) {
-            const date = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+        for (let i = 0; i < monthsCount; i++) {
+            const date = new Date(now.getFullYear(), now.getMonth() - (monthsCount - 1 - i), 1);
             const monthName = date.toLocaleString('pt-BR', { month: 'short' });
             const year = date.getFullYear();
             const monthKey = `${year}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -580,23 +583,26 @@ export class AdminService {
         // 1. Get Provider Limits
         const emailLimitSetting = await this.systemSettingRepository.findOne({ where: { key: 'PROVIDER_EMAIL_LIMIT' } });
         const smsLimitSetting = await this.systemSettingRepository.findOne({ where: { key: 'PROVIDER_SMS_LIMIT' } });
+        const whatsappLimitSetting = await this.systemSettingRepository.findOne({ where: { key: 'PROVIDER_WHATSAPP_LIMIT' } });
 
         const providerEmailLimit = parseInt(emailLimitSetting?.value || '1000000');
         const providerSmsLimit = parseInt(smsLimitSetting?.value || '100000');
+        const providerWhatsappLimit = parseInt(whatsappLimitSetting?.value || '50000');
 
         // 2. Calculate Current Consumption (Total Platform)
         const usageResult = await this.usageRepository
             .createQueryBuilder('usage')
             .select('SUM(usage.emailsSent)', 'emails')
             .addSelect('SUM(usage.smsSent)', 'sms')
+            .addSelect('SUM(usage.whatsappSent)', 'whatsapp')
             .where('usage.monthYear = :monthYear', { monthYear })
             .getRawOne();
 
         const consumedEmail = parseInt(usageResult?.emails || '0');
         const consumedSms = parseInt(usageResult?.sms || '0');
+        const consumedWhatsapp = parseInt(usageResult?.whatsapp || '0');
 
         // 3. Calculate Total Contracted by Clients
-        // (Active Plans Limits + Extra Balances)
         const activeSubs = await this.subscriptionRepository.find({
             where: { status: 'active' },
             relations: ['plan']
@@ -604,10 +610,12 @@ export class AdminService {
 
         let clientsEmailsContracted = 0;
         let clientsSmsContracted = 0;
+        let clientsWhatsappContracted = 0;
 
         activeSubs.forEach(sub => {
             clientsEmailsContracted += sub.plan?.limits?.emails || 0;
             clientsSmsContracted += sub.plan?.limits?.sms || 0;
+            clientsWhatsappContracted += sub.plan?.limits?.whatsapp ? (sub.plan?.limits?.whatsappLimit || 0) : 0;
         });
 
         const extraBalances = await this.usersRepository
@@ -641,7 +649,8 @@ export class AdminService {
 
         return {
             email: calculateStats(consumedEmail, providerEmailLimit, clientsEmailsContracted),
-            sms: calculateStats(consumedSms, providerSmsLimit, clientsSmsContracted)
+            sms: calculateStats(consumedSms, providerSmsLimit, clientsSmsContracted),
+            whatsapp: calculateStats(consumedWhatsapp, providerWhatsappLimit, clientsWhatsappContracted)
         };
     }
 

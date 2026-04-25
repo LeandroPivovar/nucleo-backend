@@ -20,8 +20,8 @@ export class AdminController {
     }
 
     @Get('finance/stats')
-    async getFinanceStats() {
-        return this.adminService.getFinanceStats();
+    async getFinanceStats(@Query('days') days?: string) {
+        return this.adminService.getFinanceStats(days ? parseInt(days) : 365);
     }
 
     @Get('settings')

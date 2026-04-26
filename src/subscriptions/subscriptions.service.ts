@@ -95,7 +95,9 @@ export class SubscriptionsService {
             campaignsCreated: Number(totalCampaigns),
             smsLimit: (subscription?.plan?.limits?.sms ?? 0) + (user?.extraSmsBalance || 0),
             emailsLimit: (subscription?.plan?.limits?.emails ?? 0) + (user?.extraEmailsBalance || 0),
-            whatsappLimit: (user?.extraWhatsappBalance || 0),
+            whatsappLimit: subscription?.plan?.limits?.whatsapp 
+                ? (subscription?.plan?.limits?.whatsappLimit ?? -1) + (user?.extraWhatsappBalance || 0)
+                : (user?.extraWhatsappBalance || 0),
             extraEmailsBalance: user?.extraEmailsBalance || 0,
             extraSmsBalance: user?.extraSmsBalance || 0,
             extraWhatsappBalance: user?.extraWhatsappBalance || 0,

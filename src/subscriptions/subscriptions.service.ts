@@ -90,9 +90,12 @@ export class SubscriptionsService {
 
         const isSubscriptionValid = subscription && !(subscription as any).isExpired;
 
-        let whatsappLimitValue = (user?.extraWhatsappBalance || 0);
+        let whatsappLimitValue = Number(user?.extraWhatsappBalance || 0);
         if (isSubscriptionValid && subscription?.plan?.limits?.whatsapp) {
-            const planLimit = subscription?.plan?.limits?.whatsappLimit ?? -1;
+            // Se o plano diz que tem WhatsApp, mas não define limite, assume 0 (e conta só os extras)
+            // em vez de assumir ilimitado (-1)
+            const planLimit = subscription?.plan?.limits?.whatsappLimit || 0;
+            
             if (planLimit === -1) {
                 whatsappLimitValue = -1; // Unlimited
             } else {

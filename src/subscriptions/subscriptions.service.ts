@@ -88,20 +88,30 @@ export class SubscriptionsService {
         const whatsappSent = usage?.whatsappSent ?? 0;
         const totalCampaigns = usage?.campaignsCreated ?? 0;
 
+        const isSubscriptionValid = subscription && !(subscription as any).isExpired;
+
+        let whatsappLimitValue = (user?.extraWhatsappBalance || 0);
+        if (isSubscriptionValid && subscription?.plan?.limits?.whatsapp) {
+            const planLimit = subscription?.plan?.limits?.whatsappLimit ?? -1;
+            if (planLimit === -1) {
+                whatsappLimitValue = -1; // Unlimited
+            } else {
+                whatsappLimitValue += planLimit;
+            }
+        }
+
         return {
             smsSent: Number(smsSent),
             emailsSent: Number(emailsSent),
             whatsappSent: Number(whatsappSent),
             campaignsCreated: Number(totalCampaigns),
-            smsLimit: (subscription?.plan?.limits?.sms ?? 0) + (user?.extraSmsBalance || 0),
-            emailsLimit: (subscription?.plan?.limits?.emails ?? 0) + (user?.extraEmailsBalance || 0),
-            whatsappLimit: subscription?.plan?.limits?.whatsapp 
-                ? (subscription?.plan?.limits?.whatsappLimit ?? -1) + (user?.extraWhatsappBalance || 0)
-                : (user?.extraWhatsappBalance || 0),
+            smsLimit: (isSubscriptionValid ? (subscription?.plan?.limits?.sms ?? 0) : 0) + (user?.extraSmsBalance || 0),
+            emailsLimit: (isSubscriptionValid ? (subscription?.plan?.limits?.emails ?? 0) : 0) + (user?.extraEmailsBalance || 0),
+            whatsappLimit: whatsappLimitValue,
             extraEmailsBalance: user?.extraEmailsBalance || 0,
             extraSmsBalance: user?.extraSmsBalance || 0,
             extraWhatsappBalance: user?.extraWhatsappBalance || 0,
-            campaignsLimit: subscription?.plan?.limits?.advancedCampaigns ?? null,
+            campaignsLimit: isSubscriptionValid ? (subscription?.plan?.limits?.advancedCampaigns ?? null) : null,
             currentPlan: subscription?.plan?.name || 'Free',
             price: subscription?.plan?.price || 0,
         };

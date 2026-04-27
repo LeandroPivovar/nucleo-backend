@@ -93,15 +93,19 @@ export class SubscriptionsService {
         const isSubscriptionValid = subscription && !(subscription as any).isExpired;
 
         let whatsappLimitValue = Number(user?.extraWhatsappBalance || 0);
-        if (isSubscriptionValid && subscription?.plan?.limits?.whatsapp) {
+        
+        // Admins always have unlimited WhatsApp for testing/demo purposes
+        if (user?.role === 'admin') {
+            whatsappLimitValue = -1;
+        } else if (isSubscriptionValid && subscription?.plan?.limits?.whatsapp) {
             // Se o plano diz que tem WhatsApp, mas não define limite, assume 0 (e conta só os extras)
             // em vez de assumir ilimitado (-1)
-            const planLimit = subscription?.plan?.limits?.whatsappLimit || 0;
+            const planLimit = subscription?.plan?.limits?.whatsappLimit;
             
             if (planLimit === -1) {
                 whatsappLimitValue = -1; // Unlimited
-            } else {
-                whatsappLimitValue += planLimit;
+            } else if (planLimit !== undefined) {
+                whatsappLimitValue += Number(planLimit);
             }
         }
 

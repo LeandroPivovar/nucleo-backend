@@ -13,6 +13,12 @@ export class TwilioConnectionsController {
     return this.twilioConnectionsService.createRequest(req.user.id, dto);
   }
 
+  @Get('config')
+  async getConfig(@Request() req) {
+    const conn = await this.twilioConnectionsService.getVerifiedConnection(req.user.id);
+    return { configured: !!conn };
+  }
+
   @Get('me')
   findMyRequests(@Request() req) {
     return this.twilioConnectionsService.findMyRequests(req.user.id);

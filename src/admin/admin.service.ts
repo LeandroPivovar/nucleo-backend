@@ -24,6 +24,8 @@ import { CampaignClick } from '../entities/campaign-click.entity';
 import { Product } from '../entities/product.entity';
 import { TemplateRequest, TemplateRequestStatus } from '../entities/template-request.entity';
 import { AdminCampaignTemplate } from '../entities/admin-campaign-template.entity';
+import { Pixel } from '../entities/pixel.entity';
+import { PixelEvent } from '../entities/pixel-event.entity';
 import * as bcrypt from 'bcrypt';
 
 export interface MonthlyFinanceData {
@@ -89,6 +91,10 @@ export class AdminService {
         private templateRequestRepository: Repository<TemplateRequest>,
         @InjectRepository(AdminCampaignTemplate)
         private adminCampaignTemplateRepository: Repository<AdminCampaignTemplate>,
+        @InjectRepository(Pixel)
+        private pixelRepository: Repository<Pixel>,
+        @InjectRepository(PixelEvent)
+        private pixelEventRepository: Repository<PixelEvent>,
         private jwtService: JwtService,
     ) { }
 
@@ -874,6 +880,14 @@ export class AdminService {
         const savedUser = await this.usersRepository.save(user);
         const userId = savedUser.id;
 
+        // --- STEP 1.1: Create Pixel ---
+        const pixel = this.pixelRepository.create({
+            name: 'Pixel Demo',
+            pixelId: `DEMO-${uid.toUpperCase()}`,
+            userId,
+        });
+        await this.pixelRepository.save(pixel);
+
         // --- STEP 2: Create Products ---
         const productNames = [
             'Camiseta Premium', 'Tênis Esportivo', 'Mochila Urbana', 'Relógio Clássico',
@@ -922,7 +936,7 @@ export class AdminService {
             CE: ['Fortaleza', 'Caucaia'],
         };
 
-        const savedContacts: { id: number }[] = [];
+        const savedContacts: Contact[] = [];
         const batchSize = 50;
         for (let i = 0; i < config.contacts; i += batchSize) {
             const batch: Contact[] = [];
@@ -955,7 +969,7 @@ export class AdminService {
                 }));
             }
             const saved = await this.contactRepository.save(batch);
-            savedContacts.push(...saved.map(c => ({ id: c.id })));
+            savedContacts.push(...saved);
         }
 
         // --- STEP 4: Create Campaigns ---
@@ -994,7 +1008,7 @@ export class AdminService {
         const campaignStatuses = ['finalizada', 'ativa', 'pausada', 'finalizada', 'finalizada'];
         const channelTypes: Record<string, string> = { email: 'advanced', sms: 'simple', whatsapp: 'simple' };
 
-        const savedCampaigns: { id: number }[] = [];
+        const savedCampaigns: Campaign[] = [];
         for (let i = 0; i < config.campaigns; i++) {
             const template = campaignTemplates[i % campaignTemplates.length];
             const recipients = Math.floor(Math.random() * config.contacts * 0.8) + 10;
@@ -1020,7 +1034,7 @@ export class AdminService {
                 userId,
             });
             const saved = await this.campaignRepository.save(camp);
-            savedCampaigns.push({ id: saved.id });
+            savedCampaigns.push(saved);
         }
 
         // --- STEP 5: Create Sales ---
@@ -1030,20 +1044,27 @@ export class AdminService {
 
         let totalRevenue = 0;
         const batchSaleSize = 100;
+        const createdSales: Sale[] = [];
+
         for (let i = 0; i < config.sales; i += batchSaleSize) {
-            const batch: any[] = [];
+            const batch: Sale[] = [];
             const end = Math.min(i + batchSaleSize, config.sales);
             for (let j = i; j < end; j++) {
                 const product = savedProducts[j % savedProducts.length];
                 const contact = savedContacts[j % savedContacts.length];
-                const campaign = savedCampaigns.length > 0 ? savedCampaigns[j % savedCampaigns.length] : undefined;
+                
+                // 80% of sales linked to campaigns
+                const useCampaign = Math.random() < 0.8 && savedCampaigns.length > 0;
+                const campaign = useCampaign ? savedCampaigns[j % savedCampaigns.length] : undefined;
+
                 const quantity = Math.floor(Math.random() * 3) + 1;
                 const unitPrice = parseFloat(product.price.toString());
                 const totalValue = parseFloat((quantity * unitPrice).toFixed(2));
                 totalRevenue += totalValue;
 
-                // spread dates across last 12 months
-                const daysAgo = Math.floor(Math.random() * 365);
+                // spread dates: 50% in last 30 days to look "alive" on dashboard
+                const isRecent = Math.random() < 0.5;
+                const daysAgo = isRecent ? Math.floor(Math.random() * 30) : Math.floor(Math.random() * 365);
                 const saleDate = new Date();
                 saleDate.setDate(saleDate.getDate() - daysAgo);
 
@@ -1053,11 +1074,11 @@ export class AdminService {
                     quantity,
                     unitPrice,
                     totalValue,
-                    customerName: `Demo Cliente ${j + 1}`,
-                    customerEmail: `cliente${j}@demo.com`,
+                    customerName: contact.name ? `${contact.name} ${contact.lastName || ''}` : `Demo Cliente ${j + 1}`,
+                    customerEmail: contact.email || `cliente${j}@demo.com`,
                     paymentMethod: paymentMethods[j % paymentMethods.length],
                     campaignId: campaign?.id,
-                    channel: channels[j % channels.length],
+                    channel: campaign ? campaign.channel : channels[j % channels.length],
                     contactId: contact.id,
                     status: salesStatuses[j % salesStatuses.length],
                     externalId: `DEMO-${uid}-${j}`,
@@ -1065,7 +1086,44 @@ export class AdminService {
                 (sale as any).createdAt = saleDate;
                 batch.push(sale);
             }
-            await this.saleRepository.save(batch as any);
+            const savedBatch = await this.saleRepository.save(batch as any);
+            createdSales.push(...(savedBatch as Sale[]));
+        }
+
+        // --- STEP 6: Create Pixel Events for Funnel ---
+        const eventTypes = ['PageView', 'ViewContent', 'AddToCart', 'Lead'];
+        const batchEventSize = 100;
+        const totalEvents = config.contacts * 3; // Approx 3 events per contact
+        
+        for (let i = 0; i < totalEvents; i += batchEventSize) {
+            const batch: PixelEvent[] = [];
+            const end = Math.min(i + batchEventSize, totalEvents);
+            for (let j = i; j < end; j++) {
+                const contact = savedContacts[j % savedContacts.length];
+                const campaignObj = savedCampaigns.length > 0 ? savedCampaigns[j % savedCampaigns.length] : undefined;
+                const eventName = eventTypes[Math.floor(Math.pow(Math.random(), 0.5) * eventTypes.length)]; // Bias towards PageView/ViewContent
+                
+                const daysAgo = Math.floor(Math.random() * 30);
+                const eventDate = new Date();
+                eventDate.setDate(eventDate.getDate() - daysAgo);
+
+                const evt = this.pixelEventRepository.create({
+                    pixelId: pixel.pixelId,
+                    event: eventName,
+                    url: 'https://demo.nucleocrm.com.br/shop/product-abc',
+                    ip: `189.12.33.${Math.floor(Math.random() * 255)}`,
+                    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    timestamp: eventDate.getTime().toString(),
+                    data: {
+                        email: contact.email,
+                        campaignId: campaignObj?.id?.toString(),
+                        productId: savedProducts[j % savedProducts.length].id.toString()
+                    },
+                    createdAt: eventDate
+                });
+                batch.push(evt);
+            }
+            await this.pixelEventRepository.save(batch);
         }
 
         return {

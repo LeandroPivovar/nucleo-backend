@@ -26,6 +26,8 @@ import { LeadRequest } from '../entities/lead-request.entity';
 import { Product } from '../entities/product.entity';
 import { TemplateRequest } from '../entities/template-request.entity';
 import { AdminCampaignTemplate } from '../entities/admin-campaign-template.entity';
+import { Pixel } from '../entities/pixel.entity';
+import { PixelEvent } from '../entities/pixel-event.entity';
 import { LeadRequestsController } from './lead-requests.controller';
 import { LeadRequestsService } from './lead-requests.service';
 
@@ -54,6 +56,8 @@ import { LeadRequestsService } from './lead-requests.service';
             Product,
             TemplateRequest,
             AdminCampaignTemplate,
+            Pixel,
+            PixelEvent,
         ]),
         JwtModule.registerAsync({
             imports: [ConfigModule],

@@ -10,6 +10,7 @@ import { Contact } from '../entities/contact.entity';
 import { UserUsage } from '../entities/user-usage.entity';
 import { Campaign } from '../entities/campaign.entity';
 import { ReferralCommission } from '../entities/referral-commission.entity';
+import { SystemSetting } from '../entities/system-setting.entity';
 
 import { SystemSettingsModule } from '../system-settings/system-settings.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
@@ -20,7 +21,7 @@ import { TemplateRequest } from '../entities/template-request.entity';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Subscription, Plan, Invoice, User, Contact, UserUsage, Campaign, ReferralCommission, TemplateRequest]),
+        TypeOrmModule.forFeature([Subscription, Plan, Invoice, User, Contact, UserUsage, Campaign, ReferralCommission, TemplateRequest, SystemSetting]),
         SystemSettingsModule,
         WebhooksModule,
         NotificationsModule

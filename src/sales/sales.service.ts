@@ -659,6 +659,7 @@ export class SalesService {
     }
 
     const result = await qb.groupBy('campaign.name')
+      .addGroupBy('canal')
       .getRawMany();
 
     return result.map(item => ({

@@ -14,18 +14,18 @@ export class TicketsService {
     private messagesRepository: Repository<TicketMessage>,
   ) {}
 
-  async createTicket(user: User, data: { subject: string; category: string; message: string }) {
+  async createTicket(user: any, data: { subject: string; category: string; message: string }) {
     const ticket = this.ticketsRepository.create({
       subject: data.subject,
       category: data.category,
-      user,
+      userId: user.userId,
     });
     const savedTicket = await this.ticketsRepository.save(ticket);
 
     const firstMessage = this.messagesRepository.create({
       message: data.message,
       ticket: savedTicket,
-      sender: user,
+      sender: { id: user.userId } as User,
       isAdmin: false,
     });
     await this.messagesRepository.save(firstMessage);
@@ -59,14 +59,14 @@ export class TicketsService {
     return ticket;
   }
 
-  async addMessage(ticketId: number, sender: User, message: string, isAdmin: boolean = false) {
+  async addMessage(ticketId: number, sender: any, message: string, isAdmin: boolean = false) {
     const ticket = await this.ticketsRepository.findOne({ where: { id: ticketId } });
     if (!ticket) throw new NotFoundException('Ticket não encontrado');
 
     const newMessage = this.messagesRepository.create({
       message,
       ticket,
-      sender,
+      sender: { id: sender.userId } as User,
       isAdmin,
     });
 

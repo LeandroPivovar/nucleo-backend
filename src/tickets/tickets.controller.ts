@@ -17,12 +17,12 @@ export class TicketsController {
     if (req.user.role === 'admin') {
       return this.ticketsService.getAllTicketsForAdmin();
     }
-    return this.ticketsService.getUserTickets(req.user.id);
+    return this.ticketsService.getUserTickets(req.user.userId);
   }
 
   @Get(':id')
   findOne(@Request() req, @Param('id') id: string) {
-    return this.ticketsService.getTicketById(+id, req.user.id, req.user.role === 'admin');
+    return this.ticketsService.getTicketById(+id, req.user.userId, req.user.role === 'admin');
   }
 
   @Post(':id/messages')

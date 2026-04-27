@@ -39,6 +39,8 @@ export class SubscriptionsService {
         private referralCommissionRepository: Repository<ReferralCommission>,
         @InjectRepository(TemplateRequest)
         private templateRequestRepository: Repository<TemplateRequest>,
+        @InjectRepository(SystemSetting)
+        private systemSettingRepository: Repository<SystemSetting>,
         private asaasService: AsaasService,
         private notificationsService: NotificationsService,
     ) { }
@@ -231,15 +233,39 @@ export class SubscriptionsService {
 
     async buyCredits(userId: number, data: any, remoteIp?: string): Promise<any> {
         const { type, amount, billingType, creditCard, creditCardHolderInfo } = data;
-        let pricePerUnit = 0;
-        if (type === 'email') pricePerUnit = 0.30;
-        else if (type === 'sms') pricePerUnit = 0.40;
-        else if (type === 'whatsapp') {
-            pricePerUnit = 0.06;
-        }
-        else throw new Error('Invalid credit type');
+        
+        // Fetch current prices from settings
+        const settings = await this.systemSettingRepository.find();
+        const settingsMap = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {} as Record<string, string>);
 
-        const totalValue = pricePerUnit * amount;
+        let totalValue = 0;
+
+        if (type === 'email') {
+            const unitPrice = parseFloat(settingsMap['UNIT_PRICE_EMAIL'] || '0.30');
+            totalValue = unitPrice * amount;
+        } else if (type === 'sms') {
+            const unitPrice = parseFloat(settingsMap['UNIT_PRICE_SMS'] || '0.40');
+            totalValue = unitPrice * amount;
+        } else if (type === 'whatsapp') {
+            // Check for packages first
+            let packagePrice: number | null = null;
+            for (let i = 1; i <= 3; i++) {
+                const pkgAmount = parseInt(settingsMap[`WHATSAPP_PKG${i}_AMOUNT`] || '0');
+                if (pkgAmount === amount) {
+                    packagePrice = parseFloat(settingsMap[`WHATSAPP_PKG${i}_PRICE`] || '0');
+                    break;
+                }
+            }
+
+            if (packagePrice !== null && packagePrice > 0) {
+                totalValue = packagePrice;
+            } else {
+                const unitPrice = parseFloat(settingsMap['UNIT_PRICE_WHATSAPP'] || '0.06');
+                totalValue = unitPrice * amount;
+            }
+        } else {
+            throw new Error('Invalid credit type');
+        }
 
         const user = await this.userRepository.findOne({ where: { id: userId } });
         if (!user) throw new NotFoundException('Usuário não encontrado');

@@ -1082,7 +1082,7 @@ export class AdminService {
                     contactId: contact.id,
                     status: salesStatuses[j % salesStatuses.length],
                     externalId: `DEMO-${uid}-${j}`,
-                } as any);
+                }) as Sale;
                 (sale as any).createdAt = saleDate;
                 batch.push(sale);
             }
@@ -1120,7 +1120,7 @@ export class AdminService {
                         productId: savedProducts[j % savedProducts.length].id.toString()
                     },
                     createdAt: eventDate
-                });
+                }) as PixelEvent;
                 batch.push(evt);
             }
             await this.pixelEventRepository.save(batch);

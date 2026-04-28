@@ -634,7 +634,7 @@ export class SalesService {
     return {
       conversionRate: safeRound(conversionRate),
       loyaltyRate: safeRound(loyaltyRate),
-      abandonmentRate: safeRound(abandonmentRate),
+      cartAbandonmentRate: safeRound(abandonmentRate),
       abandonedCart: totalCartNoPurchase,
       recentBuyers: totalBuyers,
       inactive: inactiveCount

@@ -551,14 +551,14 @@ export class SalesService {
     const totalCartPixel = parseInt((await cartPixelQb.getRawOne()).count || '0');
 
     const cartSaleQb = this.saleRepository.createQueryBuilder('sale')
-      .select('COUNT(DISTINCT sale.contactId)', 'count')
+      .select('COUNT(DISTINCT COALESCE(CAST(sale.contactId AS CHAR), sale.externalId))', 'count')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] });
 
     if (filters.campaignId) cartSaleQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) cartSaleQb.andWhere('sale.productId = :productId', { productId: filters.productId });
 
-    const totalCartSale = parseInt((await cartSaleQb.getRawOne()).count || '0');
+    const totalCartSale = await cartSaleQb.getRawOne().then(res => parseInt(res.count || '0'));
 
     const totalCart = totalCartPixel + totalCartSale;
 

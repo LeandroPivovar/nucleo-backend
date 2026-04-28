@@ -887,21 +887,20 @@ export class NuvemshopService {
     let imported = 0;
     let updated = 0;
     const now = new Date();
-    const fifteenMinutesAgo = new Date(now.getTime() - (15 * 60 * 1000));
+    const fiveMinutesAgo = new Date(now.getTime() - (5 * 60 * 1000));
     
-    this.logger.log(`[Nuvemshop Sync] Buscando carrinhos criados antes de: ${fifteenMinutesAgo.toISOString()}`);
+    this.logger.log(`[Nuvemshop Sync] Total de checkouts encontrados na API: ${allCheckouts.length}. Threshold: ${fiveMinutesAgo.toISOString()}`);
 
     for (const checkout of allCheckouts) {
       const customerEmail = checkout.email || checkout.customer?.email || null;
 
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
-      // Critério: Apenas considerar abandonado se tiver mais de 15 minutos de inatividade para testes rápidos
-      if (createdAt > fifteenMinutesAgo) {
-        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id} ignorado por ser muito recente (${createdAt.toISOString()}). Threshold: ${fifteenMinutesAgo.toISOString()}.`);
+      // Critério: Apenas considerar abandonado se tiver mais de 5 minutos de inatividade para testes rápidos
+      if (createdAt > fiveMinutesAgo) {
+        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id} ignorado por ser muito recente (${createdAt.toISOString()})`);
         continue;
       }
-      this.logger.log(`[Nuvemshop Sync] Processando checkout ${checkout.id} de ${customerEmail}`);
 
       let contact: any = null;
       if (customerEmail) {

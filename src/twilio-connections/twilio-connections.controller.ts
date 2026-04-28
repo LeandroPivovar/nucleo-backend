@@ -10,23 +10,23 @@ export class TwilioConnectionsController {
 
   @Post()
   create(@Request() req, @Body() dto: { friendlyName?: string; whatsappFrom?: string }) {
-    return this.twilioConnectionsService.createRequest(req.user.id, dto);
+    return this.twilioConnectionsService.createRequest(req.user.userId, dto);
   }
 
   @Get('config')
   async getConfig(@Request() req) {
-    const conn = await this.twilioConnectionsService.getVerifiedConnection(req.user.id);
+    const conn = await this.twilioConnectionsService.getVerifiedConnection(req.user.userId);
     return { configured: !!conn };
   }
 
   @Get('me')
   findMyRequests(@Request() req) {
-    return this.twilioConnectionsService.findMyRequests(req.user.id);
+    return this.twilioConnectionsService.findMyRequests(req.user.userId);
   }
 
   @Delete(':id')
   remove(@Request() req, @Param('id') id: string) {
-    return this.twilioConnectionsService.remove(+id, req.user.id);
+    return this.twilioConnectionsService.remove(+id, req.user.userId);
   }
 
   // Admin endpoints

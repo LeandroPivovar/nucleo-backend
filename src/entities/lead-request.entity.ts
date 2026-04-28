@@ -44,6 +44,24 @@ export class LeadRequest {
   @Column({ type: 'text', nullable: true })
   adminNote: string;
 
+  @Column({ length: 150, nullable: true })
+  segmento: string;
+
+  @Column({ length: 150, nullable: true })
+  canalVendas: string;
+
+  @Column({ length: 150, nullable: true })
+  instagram: string;
+
+  @Column({ length: 255, nullable: true })
+  siteUrl: string;
+
+  @Column({ length: 150, nullable: true })
+  faturamentoMedio: string;
+
+  @Column({ type: 'text', nullable: true })
+  comoAjudar: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

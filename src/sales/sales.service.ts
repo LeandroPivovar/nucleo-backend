@@ -505,14 +505,15 @@ export class SalesService {
     ];
   }
 
-  async getSegmentationStats(userId: number, filters: { campaignId?: number; productId?: number } = {}) {
+  async getSegmentationStats(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
+    const { startDate, endDate } = this.getDateRange(period);
+
     // 1. Total Leads (Base) - Filtered if needed
     const baseLeadsQb = this.contactRepository.createQueryBuilder('contact')
-      .where('contact.userId = :userId', { userId });
+      .where('contact.userId = :userId', { userId })
+      .andWhere('contact.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
     if (filters.campaignId || filters.productId) {
-      // In this CRM, a lead is associated with a campaign/product via events or direct field
-      // Let's check for any event associated with the contact
       baseLeadsQb.innerJoin(PixelEvent, 'event', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)');
 
       if (filters.campaignId) {
@@ -525,25 +526,27 @@ export class SalesService {
 
     const totalLeads = await baseLeadsQb.select('COUNT(DISTINCT contact.id)', 'count').getRawOne().then(res => parseInt(res.count || '0'));
 
-    // 2. Total Buyers
+    // 2. Total Buyers (Filtered by period)
     const buyersQb = this.saleRepository.createQueryBuilder('sale')
       .select('COUNT(DISTINCT sale.contactId)', 'count')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status = "completed"')
-      .andWhere('sale.contactId IS NOT NULL');
+      .andWhere('sale.contactId IS NOT NULL')
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
     if (filters.campaignId) buyersQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) buyersQb.andWhere('sale.productId = :productId', { productId: filters.productId });
 
     const totalBuyers = parseInt((await buyersQb.getRawOne()).count || '0');
 
-    // 3. Cart Events (Pixel + Synced Checkouts)
+    // 3. Cart Events (Pixel + Synced Checkouts) - Filtered by period
     const cartPixelQb = this.pixelEventRepository.createQueryBuilder('event')
       .leftJoin('event.pixel', 'pixel')
       .innerJoin(Contact, 'contact', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
       .select('COUNT(DISTINCT contact.id)', 'count')
       .where('pixel.userId = :userId', { userId })
-      .andWhere('event.event = "AddToCart"');
+      .andWhere('event.event = "AddToCart"')
+      .andWhere('event.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
     if (filters.campaignId) cartPixelQb.andWhere('event.data->>"$.campaignId" = :campId', { campId: filters.campaignId.toString() });
     if (filters.productId) cartPixelQb.andWhere('event.data->>"$.productId" = :prodId', { prodId: filters.productId.toString() });
@@ -553,7 +556,8 @@ export class SalesService {
     const cartSaleQb = this.saleRepository.createQueryBuilder('sale')
       .select('COUNT(DISTINCT COALESCE(CAST(sale.contactId AS CHAR), sale.externalId))', 'count')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] });
+      .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
     if (filters.campaignId) cartSaleQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) cartSaleQb.andWhere('sale.productId = :productId', { productId: filters.productId });
@@ -562,14 +566,14 @@ export class SalesService {
 
     const totalCart = totalCartPixel + totalCartSale;
 
-    // 4. Cart Abandonment (Cart without matching Purchase)
-    // We count unique contacts who had a cart event but never completed a sale in this account
+    // 4. Cart Abandonment (Cart without matching Purchase) - Within same period
     const abandonedPixelIds = await this.pixelEventRepository.createQueryBuilder('event')
       .leftJoin('event.pixel', 'pixel')
       .innerJoin(Contact, 'contact', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
       .select('DISTINCT contact.id', 'id')
       .where('pixel.userId = :userId', { userId })
       .andWhere('event.event = "AddToCart"')
+      .andWhere('event.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
       .andWhere((qb) => {
         const subQuery = qb.subQuery()
           .select('sale.contactId')
@@ -585,6 +589,7 @@ export class SalesService {
       .select('DISTINCT COALESCE(CAST(sale.contactId AS CHAR), sale.externalId)', 'id')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
       .getRawMany();
 
     const allAbandonedContactIds = new Set([
@@ -593,13 +598,12 @@ export class SalesService {
     ]);
     const totalCartNoPurchase = allAbandonedContactIds.size;
 
-    // 5. Inactive Clients (No sales in last 90 days)
+    // 5. Inactive Clients (No sales in last 90 days) - This definition is typically fixed
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
     const inactiveQb = this.contactRepository.createQueryBuilder('contact')
       .where('contact.userId = :userId', { userId })
-      // No sale in the last 90 days
       .andWhere((qb) => {
         const subQuery = qb.subQuery()
           .select('sale.contactId')
@@ -613,10 +617,11 @@ export class SalesService {
 
     const inactiveCount = await inactiveQb.getCount();
 
-    // 6. Loyalty (2+ Sales)
+    // 6. Loyalty (2+ Sales) - Filtered by period
     const loyalQb = this.contactRepository.createQueryBuilder('contact')
       .select('contact.id')
       .innerJoin(Sale, 'sale', 'sale.contactId = contact.id AND sale.status = "completed" AND sale.userId = :userId', { userId })
+      .where('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
       .groupBy('contact.id')
       .having('COUNT(sale.id) > 1');
 
@@ -832,7 +837,8 @@ export class SalesService {
     ];
   }
 
-  async getDashboardHeatmap(userId: number, filters: { campaignId?: number; productId?: number }) {
+  async getDashboardHeatmap(userId: number, period: number, filters: { campaignId?: number; productId?: number }) {
+    const { startDate, endDate } = this.getDateRange(period);
     // Disparar sincronização em background
     this.triggerIntegrationsSync(userId);
 
@@ -842,14 +848,15 @@ export class SalesService {
         'contact.createdAt AS createdAt',
         'contact.updatedAt AS updatedAt',
         'MAX(COALESCE(sale.createdAt, contact.updatedAt, event.createdAt)) AS lastActivityAt',
-        'COUNT(DISTINCT CASE WHEN sale.status = "completed" THEN sale.id END) AS saleCount',
-        'COUNT(DISTINCT CASE WHEN event.event IN ("PageView", "ViewContent") THEN event.id END) AS engagementCount',
-        'COUNT(DISTINCT CASE WHEN event.event = "AddToCart" OR sale.status = "active_cart" THEN COALESCE(event.id, sale.id) END) AS cartCount',
-        'COUNT(DISTINCT CASE WHEN sale.status = "abandoned_cart" THEN sale.id END) AS abandonedCount'
+        'COUNT(DISTINCT CASE WHEN sale.status = "completed" AND sale.createdAt BETWEEN :startDate AND :endDate THEN sale.id END) AS saleCount',
+        'COUNT(DISTINCT CASE WHEN event.event IN ("PageView", "ViewContent") AND event.createdAt BETWEEN :startDate AND :endDate THEN event.id END) AS engagementCount',
+        'COUNT(DISTINCT CASE WHEN (event.event = "AddToCart" AND event.createdAt BETWEEN :startDate AND :endDate) OR (sale.status = "active_cart" AND sale.createdAt BETWEEN :startDate AND :endDate) THEN COALESCE(event.id, sale.id) END) AS cartCount',
+        'COUNT(DISTINCT CASE WHEN sale.status = "abandoned_cart" AND sale.createdAt BETWEEN :startDate AND :endDate THEN sale.id END) AS abandonedCount'
       ])
       .leftJoin(Sale, 'sale', 'sale.contactId = contact.id')
       .leftJoin(PixelEvent, 'event', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
       .where('contact.userId = :userId', { userId })
+      .setParameters({ startDate, endDate })
       .groupBy('contact.id');
 
     if (filters.campaignId) {
@@ -888,7 +895,8 @@ export class SalesService {
       ])
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.contactId IS NULL')
-      .andWhere('sale.status IN ("active_cart", "abandoned_cart")');
+      .andWhere('sale.status IN ("active_cart", "abandoned_cart")')
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
     if (filters.campaignId) anonymousQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) anonymousQb.andWhere('sale.productId = :productId', { productId: filters.productId });
@@ -897,10 +905,11 @@ export class SalesService {
 
     const allEntities = [...contacts, ...anonymousSales];
 
-    const now = new Date();
-    const ago7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const ago30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const ago60d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    // Reference dates for segments relative to end of period (or now)
+    const referenceDate = endDate || new Date();
+    const ago7d = new Date(referenceDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const ago30d = new Date(referenceDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const ago60d = new Date(referenceDate.getTime() - 60 * 24 * 60 * 60 * 1000);
 
     const segments = [
       { name: 'Novos Leads', filter: (c) => new Date(c.createdAt) >= ago7d && parseInt(c.saleCount || '0') == 0 },

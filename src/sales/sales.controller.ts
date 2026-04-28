@@ -108,19 +108,21 @@ export class SalesController {
   @Get('dashboard/segmentation')
   async getSegmentationStats(
     @Request() req,
-    @Query('campaignId') campaignId?: number,
-    @Query('productId') productId?: number,
+    @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+    @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
+    @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
   ) {
-    return this.salesService.getSegmentationStats(req.user.userId, { campaignId, productId });
+    return this.salesService.getSegmentationStats(req.user.userId, period, { campaignId, productId });
   }
 
   @Get('dashboard/heatmap')
   async getDashboardHeatmap(
     @Request() req,
-    @Query('campaignId') campaignId?: number,
-    @Query('productId') productId?: number,
+    @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
+    @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
+    @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
   ) {
-    return this.salesService.getDashboardHeatmap(req.user.userId, { campaignId, productId });
+    return this.salesService.getDashboardHeatmap(req.user.userId, period, { campaignId, productId });
   }
 
   @Post('import')

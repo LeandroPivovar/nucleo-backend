@@ -787,6 +787,7 @@ export class SalesService {
     // Use query builder for total count within period
     const totalCountQb = this.saleRepository.createQueryBuilder('sale')
       .select('COUNT(sale.id)', 'total')
+      .addSelect('SUM(sale.totalValue)', 'totalFaturamento')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
@@ -795,10 +796,12 @@ export class SalesService {
 
     const totalResult = await totalCountQb.getRawOne();
     const total = parseInt(totalResult.total || '0');
+    const totalFaturamento = parseFloat(totalResult.totalFaturamento || '0');
 
     const qb = this.saleRepository.createQueryBuilder('sale')
       .select('sale.paymentMethod', 'metodo')
       .addSelect('COUNT(sale.id)', 'transacoes')
+      .addSelect('SUM(sale.totalValue)', 'faturamento')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
@@ -808,12 +811,16 @@ export class SalesService {
     const result = await qb.groupBy('sale.paymentMethod')
       .getRawMany();
 
-    return result.map(item => ({
-      metodo: this.standardizePaymentMethod(item.metodo),
-      transacoes: parseInt(item.transacoes),
-      percentual: total > 0 ? (parseInt(item.transacoes) / total) * 100 : 0,
-      tempoMedio: 'N/A' // Not tracking payment time yet
-    }));
+    return result.map(item => {
+      const faturamento = parseFloat(item.faturamento || '0');
+      return {
+        metodo: this.standardizePaymentMethod(item.metodo),
+        transacoes: parseInt(item.transacoes),
+        faturamento,
+        percentual: totalFaturamento > 0 ? (faturamento / totalFaturamento) * 100 : 0,
+        tempoMedio: 'N/A' // Not tracking payment time yet
+      };
+    });
   }
 
   // Mock for Funnel (since we don't have full tracking of Leads -> Access -> Cart -> Sale yet)

@@ -176,15 +176,41 @@ export class SalesService {
 
   // Analytics Methods
 
-  private getDateRange(period: number) {
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(endDate.getDate() - period);
+  private getDateRange(period: number, startIso?: string, endIso?: string) {
+    let endDate = new Date();
+    let startDate = new Date();
+    let prevEndDate = new Date();
+    let prevStartDate = new Date();
 
-    // Previous period for trends
-    const prevEndDate = new Date(startDate);
-    const prevStartDate = new Date(startDate);
-    prevStartDate.setDate(prevEndDate.getDate() - period);
+    if (startIso && endIso) {
+      startDate = new Date(startIso);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(endIso);
+      endDate.setHours(23, 59, 59, 999);
+      
+      const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      prevEndDate = new Date(startDate);
+      prevEndDate.setDate(prevEndDate.getDate() - 1);
+      prevEndDate.setHours(23, 59, 59, 999);
+      
+      prevStartDate = new Date(prevEndDate);
+      prevStartDate.setDate(prevStartDate.getDate() - diffDays + 1);
+      prevStartDate.setHours(0, 0, 0, 0);
+    } else {
+      startDate.setDate(endDate.getDate() - period);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+
+      prevEndDate = new Date(startDate);
+      prevEndDate.setDate(prevEndDate.getDate() - 1);
+      prevEndDate.setHours(23, 59, 59, 999);
+
+      prevStartDate = new Date(prevEndDate);
+      prevStartDate.setDate(prevStartDate.getDate() - period + 1);
+      prevStartDate.setHours(0, 0, 0, 0);
+    }
 
     return { startDate, endDate, prevStartDate, prevEndDate };
   }
@@ -235,11 +261,11 @@ export class SalesService {
     }
   }
 
-  async getDashboardStats(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
+  async getDashboardStats(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string } = {}) {
     // Disparar sincronização em background
     this.triggerIntegrationsSync(userId);
 
-    const { startDate, endDate, prevStartDate, prevEndDate } = this.getDateRange(period);
+    const { startDate, endDate, prevStartDate, prevEndDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     const getCurrentStats = async (start: Date, end: Date) => {
       // Sales Stats
@@ -325,6 +351,7 @@ export class SalesService {
 
     return {
       faturamento: current.faturamento,
+      previousFaturamento: previous.faturamento,
       vendas: current.vendas,
       envios: current.envios,
       recebidos: current.recebidos,
@@ -348,8 +375,8 @@ export class SalesService {
     };
   }
 
-  async getFunnelStats(userId: number, period: number = 30, filters: { campaignId?: number; productId?: number } = {}) {
-    const { startDate, endDate } = this.getDateRange(period);
+  async getFunnelStats(userId: number, period: number = 30, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string } = {}) {
+    const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     const leadsCountQb = this.contactRepository.createQueryBuilder('contact')
       .where('contact.userId = :userId', { userId });
@@ -505,8 +532,8 @@ export class SalesService {
     ];
   }
 
-  async getSegmentationStats(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
-    const { startDate, endDate } = this.getDateRange(period);
+  async getSegmentationStats(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string } = {}) {
+    const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     // 1. Total Leads (Base) - Filtered if needed
     const baseLeadsQb = this.contactRepository.createQueryBuilder('contact')
@@ -646,8 +673,8 @@ export class SalesService {
     };
   }
 
-  async getSalesByCampaign(userId: number, period: number, filters: { productId?: number } = {}) {
-    const { startDate, endDate } = this.getDateRange(period);
+  async getSalesByCampaign(userId: number, period: number, filters: { productId?: number; startDate?: string; endDate?: string } = {}) {
+    const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     const qb = this.saleRepository.createQueryBuilder('sale')
       .leftJoin('sale.campaign', 'campaign')
@@ -675,8 +702,8 @@ export class SalesService {
     }));
   }
 
-  async getSalesByChannel(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
-    const { startDate, endDate } = this.getDateRange(period);
+  async getSalesByChannel(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string } = {}) {
+    const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     const qb = this.saleRepository.createQueryBuilder('sale')
       .leftJoin('sale.campaign', 'campaign')
@@ -705,8 +732,8 @@ export class SalesService {
     }));
   }
 
-  async getTopProducts(userId: number, period: number, filters: { campaignId?: number } = {}) {
-    const { startDate, endDate } = this.getDateRange(period);
+  async getTopProducts(userId: number, period: number, filters: { campaignId?: number; startDate?: string; endDate?: string } = {}) {
+    const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     const qb = this.saleRepository.createQueryBuilder('sale')
       .leftJoin('sale.product', 'product')
@@ -730,8 +757,8 @@ export class SalesService {
     }));
   }
 
-  async getPaymentMethods(userId: number, period: number, filters: { campaignId?: number; productId?: number } = {}) {
-    const { startDate, endDate } = this.getDateRange(period);
+  async getPaymentMethods(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string } = {}) {
+    const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     // Use query builder for total count within period
     const totalCountQb = this.saleRepository.createQueryBuilder('sale')
@@ -837,8 +864,8 @@ export class SalesService {
     ];
   }
 
-  async getDashboardHeatmap(userId: number, period: number, filters: { campaignId?: number; productId?: number }) {
-    const { startDate, endDate } = this.getDateRange(period);
+  async getDashboardHeatmap(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string }) {
+    const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
     // Disparar sincronização em background
     this.triggerIntegrationsSync(userId);
 

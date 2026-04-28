@@ -53,8 +53,10 @@ export class SalesController {
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.salesService.getDashboardStats(req.user.userId, period, { campaignId, productId });
+    return this.salesService.getDashboardStats(req.user.userId, period, { campaignId, productId, startDate, endDate });
   }
 
   @Get('dashboard/campaigns')
@@ -62,8 +64,10 @@ export class SalesController {
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.salesService.getSalesByCampaign(req.user.userId, period, { productId });
+    return this.salesService.getSalesByCampaign(req.user.userId, period, { productId, startDate, endDate });
   }
 
   @Get('dashboard/channels')
@@ -72,8 +76,10 @@ export class SalesController {
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.salesService.getSalesByChannel(req.user.userId, period, { campaignId, productId });
+    return this.salesService.getSalesByChannel(req.user.userId, period, { campaignId, productId, startDate, endDate });
   }
 
   @Get('dashboard/products')
@@ -81,8 +87,10 @@ export class SalesController {
     @Request() req,
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.salesService.getTopProducts(req.user.userId, period, { campaignId });
+    return this.salesService.getTopProducts(req.user.userId, period, { campaignId, startDate, endDate });
   }
 
   @Get('dashboard/payment-methods')
@@ -91,8 +99,10 @@ export class SalesController {
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.salesService.getPaymentMethods(req.user.userId, period, { campaignId, productId });
+    return this.salesService.getPaymentMethods(req.user.userId, period, { campaignId, productId, startDate, endDate });
   }
 
   @Get('dashboard/funnel')
@@ -101,8 +111,10 @@ export class SalesController {
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.salesService.getFunnelStats(req.user.userId, period, { campaignId, productId });
+    return this.salesService.getFunnelStats(req.user.userId, period, { campaignId, productId, startDate, endDate });
   }
 
   @Get('dashboard/segmentation')
@@ -111,8 +123,10 @@ export class SalesController {
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.salesService.getSegmentationStats(req.user.userId, period, { campaignId, productId });
+    return this.salesService.getSegmentationStats(req.user.userId, period, { campaignId, productId, startDate, endDate });
   }
 
   @Get('dashboard/heatmap')
@@ -121,8 +135,10 @@ export class SalesController {
     @Query('period', new DefaultValuePipe(30), ParseIntPipe) period: number,
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.salesService.getDashboardHeatmap(req.user.userId, period, { campaignId, productId });
+    return this.salesService.getDashboardHeatmap(req.user.userId, period, { campaignId, productId, startDate, endDate });
   }
 
   @Post('import')

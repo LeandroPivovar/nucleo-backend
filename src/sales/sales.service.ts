@@ -318,6 +318,28 @@ export class SalesService {
 
       const responseCount = await responseQb.getCount();
 
+      const dailySalesQb = this.saleRepository.createQueryBuilder('sale')
+        .select('DATE(sale.createdAt)', 'date')
+        .addSelect('SUM(sale.totalValue)', 'faturamento')
+        .where('sale.userId = :userId', { userId })
+        .andWhere('sale.createdAt BETWEEN :start AND :end', { start, end })
+        .andWhere('sale.status = :status', { status: 'completed' })
+        .groupBy('DATE(sale.createdAt)')
+        .orderBy('DATE(sale.createdAt)', 'ASC');
+
+      if (filters.campaignId) {
+        dailySalesQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+      }
+      if (filters.productId) {
+        dailySalesQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+      }
+
+      const dailySalesResult = await dailySalesQb.getRawMany();
+      const dailyRevenue = dailySalesResult.map(item => ({
+        date: item.date,
+        faturamento: parseFloat(item.faturamento || '0')
+      }));
+
       return {
         faturamento: parseFloat(salesResult.faturamento || '0'),
         vendas: parseInt(salesResult.vendas || '0'),
@@ -325,6 +347,7 @@ export class SalesService {
         recebidos: parseInt(campaignResult.recebidos || '0'),
         cliques: parseInt(campaignResult.cliques || '0'),
         respostas: responseCount,
+        dailyRevenue
       };
     };
 
@@ -371,7 +394,8 @@ export class SalesService {
         ticketMedio: calculateTrend(ticketMedio, prevTicketMedio),
         respostas: calculateTrend(current.respostas, previous.respostas),
         responseRate: calculateTrend(responseRate, prevResponseRate)
-      }
+      },
+      dailyRevenue: current.dailyRevenue
     };
   }
 

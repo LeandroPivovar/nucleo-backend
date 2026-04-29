@@ -691,7 +691,7 @@ export class VtexService {
         // Não sobrescrever carrinhos que já viraram pedidos pagos
         if (sale && !['abandoned_cart', 'active_cart'].includes(sale.status)) continue;
 
-        const saleData: any = {
+        const saleData = {
           externalId,
           userId,
           contactId: contact.id,
@@ -704,15 +704,17 @@ export class VtexService {
           customerName: contact ? `${contact.name} ${contact.lastName}`.trim() : record.firstName || 'Cliente',
         };
 
+        let saleToSave: Sale;
         if (sale) {
           Object.assign(sale, saleData);
+          saleToSave = sale;
           updated++;
         } else {
-          sale = this.saleRepository.create(saleData);
+          saleToSave = this.saleRepository.create(saleData);
           imported++;
         }
 
-        await this.saleRepository.save(sale);
+        await this.saleRepository.save(saleToSave);
       } catch (err) {
         console.error(`[VTEX] Erro ao processar carrinho abandonado para ${record.email}:`, err.message);
       }

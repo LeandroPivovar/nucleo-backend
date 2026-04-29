@@ -929,19 +929,29 @@ export class NuvemshopService {
     let imported = 0;
     let updated = 0;
     const now = new Date();
-    const fiveMinutesAgo = new Date(now.getTime() - (5 * 60 * 1000));
+    const fiveMinutesAgo = new Date(now.getTime() - (1 * 60 * 1000));
     
     this.logger.log(`[Nuvemshop Sync] Total de checkouts encontrados na API: ${allCheckouts.length}. Threshold: ${fiveMinutesAgo.toISOString()}`);
 
     for (const checkout of allCheckouts) {
-      const customerEmail = (checkout.email || checkout.customer?.email || '').toLowerCase().trim();
-      if (!customerEmail) continue;
+      this.logger.log(`[Nuvemshop Sync] Analisando checkout ${checkout.id || checkout.token}. Status: ${checkout.abandoned ? 'Abandonado' : 'Ativo'}. Itens: ${checkout.products?.length || checkout.line_items?.length || 0}`);
+
+      if (checkout.order_id || checkout.order) {
+        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por já ter sido convertido em pedido (Order ID: ${checkout.order_id || checkout.order.id}).`);
+        continue;
+      }
 
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
       // Critério: Apenas considerar abandonado se tiver mais de 5 minutos de inatividade para testes rápidos
       if (createdAt > fiveMinutesAgo) {
-        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id} ignorado por ser muito recente (${createdAt.toISOString()})`);
+        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por ser muito recente (${createdAt.toISOString()}). Threshold: ${fiveMinutesAgo.toISOString()}`);
+        continue;
+      }
+
+      const customerEmail = (checkout.email || checkout.customer?.email || '').toLowerCase().trim();
+      if (!customerEmail) {
+        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por não ter e-mail.`);
         continue;
       }
 

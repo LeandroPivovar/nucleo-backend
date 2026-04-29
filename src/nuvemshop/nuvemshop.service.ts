@@ -661,22 +661,41 @@ export class NuvemshopService {
     for (const sCustomer of allCustomers) {
       if (!sCustomer.email) continue;
 
+      const normalizedEmail = sCustomer.email.toLowerCase().trim();
       let contact = await this.contactRepository.findOne({
-        where: { userId, email: sCustomer.email },
+        where: { userId, email: normalizedEmail },
       });
 
       if (contact) {
-        contact.name = contact.name || sCustomer.name?.split(' ')[0] || 'Sem Nome';
-        contact.lastName = contact.lastName || sCustomer.name?.split(' ').slice(1).join(' ') || '';
-        contact.phone = contact.phone || sCustomer.phone || '';
-        contact.city = contact.city || sCustomer.default_address?.city || '';
-        contact.state = contact.state || sCustomer.default_address?.province || '';
-        await this.contactRepository.save(contact);
+        let updatedContact = false;
+        if (!contact.name || contact.name === 'Sem Nome') {
+          contact.name = sCustomer.name?.split(' ')[0] || 'Sem Nome';
+          updatedContact = true;
+        }
+        if (!contact.lastName && sCustomer.name?.split(' ').slice(1).join(' ')) {
+          contact.lastName = sCustomer.name?.split(' ').slice(1).join(' ');
+          updatedContact = true;
+        }
+        if (!contact.phone && sCustomer.phone) {
+          contact.phone = sCustomer.phone;
+          updatedContact = true;
+        }
+        if (!contact.city && sCustomer.default_address?.city) {
+          contact.city = sCustomer.default_address.city;
+          updatedContact = true;
+        }
+        if (!contact.state && sCustomer.default_address?.province) {
+          contact.state = sCustomer.default_address.province;
+          updatedContact = true;
+        }
+        if (updatedContact) {
+          await this.contactRepository.save(contact);
+        }
         updated++;
       } else {
         contact = this.contactRepository.create({
           userId,
-          email: sCustomer.email,
+          email: normalizedEmail,
           name: sCustomer.name?.split(' ')[0] || 'Sem Nome',
           lastName: sCustomer.name?.split(' ').slice(1).join(' ') || '',
           phone: sCustomer.phone || '',
@@ -728,20 +747,43 @@ export class NuvemshopService {
     let updated = 0;
 
     for (const sOrder of allOrders) {
-      const customerEmail = sOrder.customer?.email;
+      const customerEmail = (sOrder.customer?.email || '').toLowerCase().trim();
       if (!customerEmail) continue;
 
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+      const name = sOrder.customer?.name?.split(' ')[0] || 'Sem Nome';
+      const lastName = sOrder.customer?.name?.split(' ').slice(1).join(' ') || '';
+      const phone = sOrder.customer?.phone || '';
+
       if (!contact) {
         contact = this.contactRepository.create({
           userId,
           email: customerEmail,
-          name: sOrder.customer?.name?.split(' ')[0] || 'Sem Nome',
-          lastName: sOrder.customer?.name?.split(' ').slice(1).join(' ') || '',
+          name,
+          lastName,
+          phone,
           source: 'nuvemshop',
           status: 'customer',
         });
         await this.contactRepository.save(contact);
+      } else {
+        // Atualizar dados do contato se estiverem vazios
+        let updatedContact = false;
+        if (!contact.name || contact.name === 'Sem Nome') {
+          contact.name = name;
+          updatedContact = true;
+        }
+        if (!contact.lastName && lastName) {
+          contact.lastName = lastName;
+          updatedContact = true;
+        }
+        if (!contact.phone && phone) {
+          contact.phone = phone;
+          updatedContact = true;
+        }
+        if (updatedContact) {
+          await this.contactRepository.save(contact);
+        }
       }
 
       for (let index = 0; index < (sOrder.products || []).length; index++) {
@@ -892,7 +934,8 @@ export class NuvemshopService {
     this.logger.log(`[Nuvemshop Sync] Total de checkouts encontrados na API: ${allCheckouts.length}. Threshold: ${fiveMinutesAgo.toISOString()}`);
 
     for (const checkout of allCheckouts) {
-      const customerEmail = checkout.email || checkout.customer?.email || null;
+      const customerEmail = (checkout.email || checkout.customer?.email || '').toLowerCase().trim();
+      if (!customerEmail) continue;
 
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
@@ -905,16 +948,39 @@ export class NuvemshopService {
       let contact: any = null;
       if (customerEmail) {
         contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+        const name = checkout.customer?.name?.split(' ')[0] || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome';
+        const lastName = checkout.customer?.name?.split(' ').slice(1).join(' ') || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '';
+        const phone = checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone || '';
+
         if (!contact) {
           contact = this.contactRepository.create({
             userId,
             email: customerEmail,
-            name: checkout.customer?.name?.split(' ')[0] || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome',
-            lastName: checkout.customer?.name?.split(' ').slice(1).join(' ') || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '',
+            name,
+            lastName,
+            phone,
             source: 'nuvemshop',
-            status: 'customer',
+            status: 'lead',
           });
           await this.contactRepository.save(contact);
+        } else {
+          // Atualizar dados do contato se estiverem vazios
+          let updatedContact = false;
+          if (!contact.name || contact.name === 'Sem Nome') {
+            contact.name = name;
+            updatedContact = true;
+          }
+          if (!contact.lastName && lastName) {
+            contact.lastName = lastName;
+            updatedContact = true;
+          }
+          if (!contact.phone && phone) {
+            contact.phone = phone;
+            updatedContact = true;
+          }
+          if (updatedContact) {
+            await this.contactRepository.save(contact);
+          }
         }
       }
 

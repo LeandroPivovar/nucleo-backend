@@ -408,14 +408,15 @@ export class VtexService {
     for (const cust of customers) {
       if (!cust.email) continue;
 
+      const normalizedEmail = cust.email.toLowerCase().trim();
       let contact = await this.contactRepository.findOne({
-        where: { email: cust.email, userId },
+        where: { email: normalizedEmail, userId },
       });
 
       const contactData = {
         name: cust.firstName || 'Cliente',
         lastName: cust.lastName || '',
-        email: cust.email,
+        email: normalizedEmail,
         phone: cust.phone || cust.homePhone || '',
         userId,
         source: 'VTEX',
@@ -425,7 +426,10 @@ export class VtexService {
         Object.assign(contact, contactData);
         updated++;
       } else {
-        contact = this.contactRepository.create(contactData);
+        contact = this.contactRepository.create({
+          ...contactData,
+          status: 'customer',
+        });
         imported++;
       }
 
@@ -467,21 +471,46 @@ export class VtexService {
           where: { externalId: order.orderId, userId },
         });
 
+        const normalizedEmail = order.clientProfileData.email.toLowerCase().trim();
         // Encontrar ou criar contato
         let contact = await this.contactRepository.findOne({
-          where: { email: order.clientProfileData.email, userId },
+          where: { email: normalizedEmail, userId },
         });
+
+        const clientData = order.clientProfileData;
+        const name = clientData.firstName || 'Cliente';
+        const lastName = clientData.lastName || '';
+        const phone = clientData.phone || '';
 
         if (!contact) {
           contact = this.contactRepository.create({
-            name: order.clientProfileData.firstName,
-            lastName: order.clientProfileData.lastName,
-            email: order.clientProfileData.email,
-            phone: order.clientProfileData.phone,
+            name,
+            lastName,
+            email: normalizedEmail,
+            phone,
             userId,
             source: 'VTEX',
+            status: 'customer',
           });
           await this.contactRepository.save(contact);
+        } else {
+          // Atualizar dados do contato se estiverem vazios
+          let updatedContact = false;
+          if (!contact.name || contact.name === 'Cliente') {
+            contact.name = name;
+            updatedContact = true;
+          }
+          if (!contact.lastName && lastName) {
+            contact.lastName = lastName;
+            updatedContact = true;
+          }
+          if (!contact.phone && phone) {
+            contact.phone = phone;
+            updatedContact = true;
+          }
+          if (updatedContact) {
+            await this.contactRepository.save(contact);
+          }
         }
 
         const saleData = {
@@ -493,17 +522,21 @@ export class VtexService {
           createdAt: new Date(order.creationDate),
           quantity: order.items.length,
           channel: 'VTEX',
+          customerEmail: normalizedEmail,
+          customerName: `${contact.name} ${contact.lastName}`.trim(),
         };
 
+        let saleToSave: Sale;
         if (sale) {
           Object.assign(sale, saleData);
+          saleToSave = sale;
           updated++;
         } else {
-          sale = this.saleRepository.create(saleData);
+          saleToSave = this.saleRepository.create(saleData);
           imported++;
         }
 
-        await this.saleRepository.save(sale);
+        await this.saleRepository.save(saleToSave);
       } catch (err) {
         console.error(`Erro ao sincronizar pedido ${orderSummary.orderId}:`, err);
       }
@@ -641,21 +674,45 @@ export class VtexService {
       if (lastCartDate > threshold) continue; // Carrinho muito recente, ignorar
 
       try {
+        const normalizedEmail = record.email.toLowerCase().trim();
         // Encontrar ou criar contato no CRM
         let contact = await this.contactRepository.findOne({
-          where: { email: record.email, userId },
+          where: { email: normalizedEmail, userId },
         });
+
+        const name = record.firstName || 'Cliente';
+        const lastName = record.lastName || '';
+        const phone = record.phone || record.homePhone || '';
 
         if (!contact) {
           contact = this.contactRepository.create({
-            name: record.firstName || 'Cliente',
-            lastName: record.lastName || '',
-            email: record.email,
-            phone: record.phone || record.homePhone || '',
+            name,
+            lastName,
+            email: normalizedEmail,
+            phone,
             userId,
             source: 'VTEX',
+            status: 'lead',
           });
           await this.contactRepository.save(contact);
+        } else {
+          // Atualizar dados do contato se estiverem vazios
+          let updated = false;
+          if (!contact.name || contact.name === 'Cliente') {
+            contact.name = name;
+            updated = true;
+          }
+          if (!contact.lastName && lastName) {
+            contact.lastName = lastName;
+            updated = true;
+          }
+          if (!contact.phone && phone) {
+            contact.phone = phone;
+            updated = true;
+          }
+          if (updated) {
+            await this.contactRepository.save(contact);
+          }
         }
 
         // Extrair o orderFormId do link do carrinho
@@ -696,12 +753,13 @@ export class VtexService {
           userId,
           contactId: contact.id,
           totalValue: cartValue,
+          unitPrice: cartValue / quantity,
           status: 'abandoned_cart',
           createdAt: lastCartDate,
           quantity,
           channel: 'VTEX',
-          customerEmail: record.email,
-          customerName: contact ? `${contact.name} ${contact.lastName}`.trim() : record.firstName || 'Cliente',
+          customerEmail: normalizedEmail,
+          customerName: `${contact.name} ${contact.lastName}`.trim(),
         };
 
         let saleToSave: Sale;

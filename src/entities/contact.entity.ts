@@ -7,6 +7,7 @@ import {
   ManyToOne,
   JoinColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { ContactTag } from './contact-tag.entity';
@@ -15,6 +16,7 @@ import { Group } from './group.entity';
 import { Sale } from './sale.entity';
 
 @Entity('contacts')
+@Index(['userId', 'email'], { unique: true })
 export class Contact {
   @PrimaryGeneratedColumn()
   id: number;

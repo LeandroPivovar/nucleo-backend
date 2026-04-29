@@ -500,22 +500,41 @@ export class ShopifyService {
     for (const sCustomer of shopifyCustomers) {
       if (!sCustomer.email) continue;
 
+      const normalizedEmail = sCustomer.email.toLowerCase().trim();
       let contact = await this.contactRepository.findOne({
-        where: { userId, email: sCustomer.email },
+        where: { userId, email: normalizedEmail },
       });
 
       if (contact) {
-        contact.name = contact.name || sCustomer.first_name || 'Sem Nome';
-        contact.lastName = contact.lastName || sCustomer.last_name || '';
-        contact.phone = contact.phone || sCustomer.phone || '';
-        contact.city = contact.city || sCustomer.default_address?.city || '';
-        contact.state = contact.state || sCustomer.default_address?.province_code || '';
-        await this.contactRepository.save(contact);
+        let updatedContact = false;
+        if (!contact.name || contact.name === 'Sem Nome') {
+          contact.name = sCustomer.first_name || 'Sem Nome';
+          updatedContact = true;
+        }
+        if (!contact.lastName && sCustomer.last_name) {
+          contact.lastName = sCustomer.last_name;
+          updatedContact = true;
+        }
+        if (!contact.phone && sCustomer.phone) {
+          contact.phone = sCustomer.phone;
+          updatedContact = true;
+        }
+        if (!contact.city && sCustomer.default_address?.city) {
+          contact.city = sCustomer.default_address.city;
+          updatedContact = true;
+        }
+        if (!contact.state && sCustomer.default_address?.province_code) {
+          contact.state = sCustomer.default_address.province_code;
+          updatedContact = true;
+        }
+        if (updatedContact) {
+          await this.contactRepository.save(contact);
+        }
         updated++;
       } else {
         contact = this.contactRepository.create({
           userId,
-          email: sCustomer.email,
+          email: normalizedEmail,
           name: sCustomer.first_name || 'Sem Nome',
           lastName: sCustomer.last_name || '',
           phone: sCustomer.phone || '',
@@ -550,21 +569,44 @@ export class ShopifyService {
       // Vou assumir que por enquanto buscamos por email e data aproximada ou simplesmente inserimos se não houver duplicata óbvia.
       // Idealmente a Sale deveria ter um externalId.
 
-      const customerEmail = sOrder.email || sOrder.customer?.email;
+      const customerEmail = (sOrder.email || sOrder.customer?.email || '').toLowerCase().trim();
       if (!customerEmail) continue;
 
       // Buscar ou criar contato
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+      const name = sOrder.customer?.first_name || sOrder.customer?.name || 'Sem Nome';
+      const lastName = sOrder.customer?.last_name || '';
+      const phone = sOrder.customer?.phone || '';
+
       if (!contact) {
         contact = this.contactRepository.create({
           userId,
           email: customerEmail,
-          name: sOrder.customer?.first_name || sOrder.customer?.name || 'Sem Nome',
-          lastName: sOrder.customer?.last_name || '',
+          name,
+          lastName,
+          phone,
           source: 'shopify',
           status: 'customer',
         });
         await this.contactRepository.save(contact);
+      } else {
+        // Atualizar dados do contato se estiverem vazios
+        let updatedContact = false;
+        if (!contact.name || contact.name === 'Sem Nome') {
+          contact.name = name;
+          updatedContact = true;
+        }
+        if (!contact.lastName && lastName) {
+          contact.lastName = lastName;
+          updatedContact = true;
+        }
+        if (!contact.phone && phone) {
+          contact.phone = phone;
+          updatedContact = true;
+        }
+        if (updatedContact) {
+          await this.contactRepository.save(contact);
+        }
       }
 
       // Processar itens do pedido
@@ -729,20 +771,43 @@ export class ShopifyService {
       }
       this.logger.log(`[Shopify Sync] Processando checkout ${checkout.id} de email ${checkout.email || checkout.customer?.email}`);
 
-      const customerEmail = checkout.email || checkout.customer?.email;
+      const customerEmail = (checkout.email || checkout.customer?.email || '').toLowerCase().trim();
       if (!customerEmail) continue;
 
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+      const name = checkout.customer?.first_name || checkout.customer?.name || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome';
+      const lastName = checkout.customer?.last_name || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '';
+      const phone = checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone || '';
+
       if (!contact) {
         contact = this.contactRepository.create({
           userId,
           email: customerEmail,
-          name: checkout.customer?.first_name || checkout.customer?.name || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome',
-          lastName: checkout.customer?.last_name || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '',
+          name,
+          lastName,
+          phone,
           source: 'shopify',
-          status: 'customer',
+          status: 'lead',
         });
         await this.contactRepository.save(contact);
+      } else {
+        // Atualizar dados do contato se estiverem vazios
+        let updatedContact = false;
+        if (!contact.name || contact.name === 'Sem Nome') {
+          contact.name = name;
+          updatedContact = true;
+        }
+        if (!contact.lastName && lastName) {
+          contact.lastName = lastName;
+          updatedContact = true;
+        }
+        if (!contact.phone && phone) {
+          contact.phone = phone;
+          updatedContact = true;
+        }
+        if (updatedContact) {
+          await this.contactRepository.save(contact);
+        }
       }
 
       const externalId = checkout.id ? checkout.id.toString() : checkout.token;

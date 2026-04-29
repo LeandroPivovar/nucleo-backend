@@ -166,19 +166,31 @@ export class LojaIntegradaService {
             // LI list endpoint only returns basic info. We need full info for customer/items.
             const order = await this.makeRequest(connection, `/pedido/${liOrder.numero}/`);
 
-            const customerEmail = order.cliente.email;
+            const customerEmail = (order.cliente.email || '').toLowerCase().trim();
             if (!customerEmail) continue;
 
             let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+            const name = order.cliente.nome || 'Sem Nome';
+            
             if (!contact) {
                 contact = this.contactRepository.create({
                     userId,
                     email: customerEmail,
-                    name: order.cliente.nome || 'Sem Nome',
+                    name,
                     source: 'loja_integrada',
                     status: 'customer',
                 });
                 await this.contactRepository.save(contact);
+            } else {
+                // Atualizar dados do contato se estiverem vazios
+                let updatedContact = false;
+                if (!contact.name || contact.name === 'Sem Nome') {
+                    contact.name = name;
+                    updatedContact = true;
+                }
+                if (updatedContact) {
+                    await this.contactRepository.save(contact);
+                }
             }
 
             for (const item of order.itens) {
@@ -245,19 +257,31 @@ export class LojaIntegradaService {
 
         for (const liOrder of liOrders) {
             const order = await this.makeRequest(connection, `/pedido/${liOrder.numero}/`);
-            const customerEmail = order.cliente.email;
+            const customerEmail = (order.cliente.email || '').toLowerCase().trim();
             if (!customerEmail) continue;
 
             let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+            const name = order.cliente.nome || 'Sem Nome';
+
             if (!contact) {
                 contact = this.contactRepository.create({
                     userId,
                     email: customerEmail,
-                    name: order.cliente.nome || 'Sem Nome',
+                    name,
                     source: 'loja_integrada',
-                    status: 'customer',
+                    status: 'lead',
                 });
                 await this.contactRepository.save(contact);
+            } else {
+                // Atualizar dados do contato se estiverem vazios
+                let updatedContact = false;
+                if (!contact.name || contact.name === 'Sem Nome') {
+                    contact.name = name;
+                    updatedContact = true;
+                }
+                if (updatedContact) {
+                    await this.contactRepository.save(contact);
+                }
             }
 
             for (const item of order.itens) {

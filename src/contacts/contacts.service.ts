@@ -431,20 +431,21 @@ export class ContactsService {
       .getRawMany();
     stats['clicked_campaign'] = engajados.length;
 
-    // 12. Carrinho Abandonado (Vendas com status active_cart ou abandoned_cart)
+    // 12. Carrinho Abandonado (Vendas com status pending, active_cart ou abandoned_cart)
     const abandonedCarts = await this.saleRepository.createQueryBuilder('sale')
       .select('DISTINCT sale.contactId')
       .innerJoin('sale.contact', 'contact')
       .where('contact.userId = :userId', { userId })
-      .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] })
+      .andWhere('sale.status IN (:...statuses)', { statuses: ['pending', 'active_cart', 'abandoned_cart'] })
       .getRawMany();
 
     stats['abandoned_cart'] = abandonedCarts.length;
+    stats['abandoned_cart_products'] = abandonedCarts.length; // Baseline count
 
     // 13. Cliente Recuperado (Teve carrinho abandonado E compra concluída)
     const recovered = await this.contactsRepository.createQueryBuilder('contact')
       .innerJoin('contact.sales', 's1', "s1.status = 'completed'")
-      .innerJoin('contact.sales', 's2', "s2.status IN ('active_cart', 'abandoned_cart') AND s1.createdAt > s2.createdAt")
+      .innerJoin('contact.sales', 's2', "s2.status IN ('pending', 'active_cart', 'abandoned_cart') AND s1.createdAt > s2.createdAt")
       .where('contact.userId = :userId', { userId })
       .select('COUNT(DISTINCT contact.id)', 'count')
       .getRawOne();
@@ -483,7 +484,7 @@ export class ContactsService {
     const commonKeys = [
       'birthday', 'gender_male', 'gender_female',
       'active_coupon', 'cart_recovered_customer', 'no_purchase_x_days',
-      'clicked_campaign', 'abandoned_cart'
+      'clicked_campaign', 'abandoned_cart', 'abandoned_cart_products'
     ];
     commonKeys.forEach(key => {
       if (stats[key] === undefined) stats[key] = 0;
@@ -611,7 +612,7 @@ export class ContactsService {
         const subQuery = this.saleRepository.createQueryBuilder('sale')
           .select('DISTINCT sale.contactId')
           .where('sale.userId = :userId', { userId })
-          .andWhere('sale.status IN (:...statuses)', { statuses: ['active_cart', 'abandoned_cart'] });
+          .andWhere('sale.status IN (:...statuses)', { statuses: ['pending', 'active_cart', 'abandoned_cart'] });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
@@ -619,7 +620,7 @@ export class ContactsService {
         const subQuery = this.contactsRepository.createQueryBuilder('c')
           .select('c.id')
           .innerJoin('c.sales', 's1', "s1.status = 'completed'")
-          .innerJoin('c.sales', 's2', "s2.status IN ('active_cart', 'abandoned_cart') AND s1.createdAt > s2.createdAt")
+          .innerJoin('c.sales', 's2', "s2.status IN ('pending', 'active_cart', 'abandoned_cart') AND s1.createdAt > s2.createdAt")
           .where('c.userId = :userId', { userId });
 
         orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
@@ -631,6 +632,17 @@ export class ContactsService {
             .select('DISTINCT sale.contactId')
             .where('sale.productId IN (:...productIds)', { productIds })
             .andWhere('sale.status = :completedStatus', { completedStatus: 'completed' });
+
+          orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
+          Object.assign(parameters, subQuery.getParameters());
+        }
+      } else if (segId === 'abandoned_cart_products') {
+        const productIds = segParams.productIds || [];
+        if (productIds.length > 0) {
+          const subQuery = this.saleRepository.createQueryBuilder('sale')
+            .select('DISTINCT sale.contactId')
+            .where('sale.productId IN (:...productIds)', { productIds })
+            .andWhere('sale.status IN (:...statuses)', { statuses: ['pending', 'active_cart', 'abandoned_cart'] });
 
           orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
           Object.assign(parameters, subQuery.getParameters());

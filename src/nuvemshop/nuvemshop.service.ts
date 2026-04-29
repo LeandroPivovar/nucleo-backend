@@ -935,7 +935,6 @@ export class NuvemshopService {
 
     for (const checkout of allCheckouts) {
       this.logger.log(`[Nuvemshop Sync] Analisando checkout ${checkout.id || checkout.token}. Status: ${checkout.abandoned ? 'Abandonado' : 'Ativo'}. Itens: ${checkout.products?.length || checkout.line_items?.length || 0}`);
-      this.logger.log(`[Nuvemshop Sync] Dados do checkout (RAW): ${JSON.stringify(checkout, null, 2)}`);
 
       if (checkout.order_id || checkout.order) {
         this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por já ter sido convertido em pedido (Order ID: ${checkout.order_id || checkout.order.id}).`);
@@ -944,13 +943,13 @@ export class NuvemshopService {
 
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
-      // Critério: Apenas considerar abandonado se tiver mais de 5 minutos de inatividade para testes rápidos
+      // Critério: Apenas considerar abandonado se tiver mais de 1 minuto de inatividade para testes rápidos
       if (createdAt > fiveMinutesAgo) {
         this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por ser muito recente (${createdAt.toISOString()}). Threshold: ${fiveMinutesAgo.toISOString()}`);
         continue;
       }
 
-      const customerEmail = (checkout.email || checkout.customer?.email || '').toLowerCase().trim();
+      const customerEmail = (checkout.email || checkout.customer?.email || checkout.contact_email || '').toLowerCase().trim();
       if (!customerEmail) {
         this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por não ter e-mail.`);
         continue;
@@ -959,9 +958,9 @@ export class NuvemshopService {
       let contact: any = null;
       if (customerEmail) {
         contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-        const name = checkout.customer?.name?.split(' ')[0] || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome';
-        const lastName = checkout.customer?.name?.split(' ').slice(1).join(' ') || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '';
-        const phone = checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone || '';
+        const name = checkout.contact_name?.split(' ')[0] || checkout.customer?.name?.split(' ')[0] || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome';
+        const lastName = checkout.contact_name?.split(' ').slice(1).join(' ') || checkout.customer?.name?.split(' ').slice(1).join(' ') || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '';
+        const phone = checkout.contact_phone || checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone || '';
 
         if (!contact) {
           contact = this.contactRepository.create({

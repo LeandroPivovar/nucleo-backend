@@ -35,12 +35,8 @@ export class ShopifyController {
   ) {
     const { shop } = createShopifyConnectionDto;
 
-    // Validar formato da loja
-    if (!shop.includes('.myshopify.com')) {
-      throw new Error('Formato de loja inválido. Use: sualoja.myshopify.com');
-    }
-
     // Gerar state token para segurança
+
     const state = crypto.randomBytes(32).toString('hex');
 
     // URL de callback (ajustar conforme necessário)

@@ -703,7 +703,15 @@ export class SalesService {
     const qb = this.saleRepository.createQueryBuilder('sale')
       .leftJoin('sale.campaign', 'campaign')
       .select('campaign.name', 'nome')
-      .addSelect('COALESCE(NULLIF(campaign.channel, ""), NULLIF(sale.channel, ""), "Outros")', 'canal')
+      .addSelect(`
+        CASE 
+          WHEN LOWER(campaign.channel) = 'whatsapp' THEN 'WhatsApp'
+          WHEN LOWER(campaign.channel) = 'sms' THEN 'SMS'
+          WHEN LOWER(campaign.channel) = 'email' THEN 'E-mail'
+          WHEN LOWER(campaign.channel) = 'manual' OR LOWER(sale.channel) = 'manual' THEN 'Venda Manual'
+          ELSE 'Outros' 
+        END
+      `, 'canal')
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
@@ -733,9 +741,11 @@ export class SalesService {
       .leftJoin('sale.campaign', 'campaign')
       .select(`
         CASE 
-          WHEN campaign.channel IS NOT NULL AND campaign.channel != "" THEN campaign.channel 
-          WHEN sale.channel IS NOT NULL AND sale.channel != "" AND sale.channel != "direct" THEN sale.channel
-          ELSE "Venda Manual" 
+          WHEN LOWER(campaign.channel) = 'whatsapp' THEN 'WhatsApp'
+          WHEN LOWER(campaign.channel) = 'sms' THEN 'SMS'
+          WHEN LOWER(campaign.channel) = 'email' THEN 'E-mail'
+          WHEN LOWER(campaign.channel) = 'manual' OR LOWER(sale.channel) = 'manual' THEN 'Venda Manual'
+          ELSE 'Outros' 
         END
       `, 'canal')
       .addSelect('SUM(sale.totalValue)', 'faturamento')

@@ -716,6 +716,7 @@ export class SalesService {
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .andWhere('sale.status = :status', { status: 'completed' })
       .andWhere('sale.campaignId IS NOT NULL');
 
     if (filters.productId) {
@@ -751,7 +752,8 @@ export class SalesService {
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .andWhere('sale.status = :status', { status: 'completed' });
 
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) qb.andWhere('sale.productId = :productId', { productId: filters.productId });
@@ -775,7 +777,8 @@ export class SalesService {
       .addSelect('SUM(sale.quantity)', 'vendas') // Sum quantity not just count rows
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .andWhere('sale.status = :status', { status: 'completed' });
 
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
 
@@ -799,7 +802,8 @@ export class SalesService {
       .select('COUNT(sale.id)', 'total')
       .addSelect('SUM(sale.totalValue)', 'totalFaturamento')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .andWhere('sale.status = :status', { status: 'completed' });
 
     if (filters.campaignId) totalCountQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) totalCountQb.andWhere('sale.productId = :productId', { productId: filters.productId });
@@ -813,7 +817,8 @@ export class SalesService {
       .addSelect('COUNT(sale.id)', 'transacoes')
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
+      .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .andWhere('sale.status = :status', { status: 'completed' });
 
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) qb.andWhere('sale.productId = :productId', { productId: filters.productId });

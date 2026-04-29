@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  Param,
 } from '@nestjs/common';
 import { VtexService } from './vtex.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -138,6 +139,77 @@ export class VtexController {
     return {
       success: true,
       message: 'Sincronização realizada com sucesso',
+      data: result,
+    };
+  }
+
+  /**
+   * Sincroniza carrinhos abandonados (Master Data V2 aprimorado)
+   * Usa os campos lastCart e lastCartDate da entidade CL com filtro de 30 minutos
+   */
+  @Post('sync/abandoned-carts')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncAbandonedCarts(
+    @Request() req,
+    @Body() body: { accountName?: string },
+  ) {
+    const result = await this.vtexService.syncAbandonedCartsV2(
+      req.user.userId,
+      body.accountName,
+    );
+
+    return {
+      success: true,
+      message: `Carrinhos abandonados sincronizados: ${result.imported} novos, ${result.updated} atualizados.`,
+      data: result,
+    };
+  }
+
+  /**
+   * Cria um cupom de desconto via API RNB da VTEX
+   * O cupom é vinculado à uma promoção existente por utmSource/utmCampaign
+   */
+  @Post('coupons')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async createCoupon(
+    @Request() req,
+    @Body() body: {
+      accountName: string;
+      couponCode: string;
+      utmSource?: string;
+      utmCampaign?: string;
+      isArchived?: boolean;
+      maxItemsPerClient?: number;
+      expirationIntervalPerUse?: string;
+    },
+  ) {
+    if (!body.accountName) {
+      throw new BadRequestException('accountName é obrigatório');
+    }
+    if (!body.couponCode) {
+      throw new BadRequestException('couponCode é obrigatório');
+    }
+
+    const result = await this.vtexService.createCoupon(
+      req.user.userId,
+      body.accountName,
+      {
+        couponCode: body.couponCode,
+        utmSource: body.utmSource,
+        utmCampaign: body.utmCampaign,
+        isArchived: body.isArchived,
+        maxItemsPerClient: body.maxItemsPerClient,
+        expirationIntervalPerUse: body.expirationIntervalPerUse,
+      },
+    );
+
+    return {
+      success: true,
+      message: result.alreadyExists
+        ? `Cupom '${body.couponCode}' já existia na VTEX.`
+        : `Cupom '${body.couponCode}' criado com sucesso.`,
       data: result,
     };
   }

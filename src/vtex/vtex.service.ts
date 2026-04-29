@@ -610,6 +610,184 @@ export class VtexService {
     return { imported, updated };
   }
 
+  /**
+   * Monitora carrinhos abandonados via Master Data V2
+   * Usa os campos nativos da entidade CL: lastCart, lastCartDate, isNewsletterOptIn
+   * e complementa com dados do OrderForm quando possível.
+   */
+  async syncAbandonedCartsV2(userId: number, accountName?: string): Promise<{ imported: number; updated: number }> {
+    const connection = await this.getActiveConnection(userId, accountName);
+    const resolvedAccountName = connection.accountName;
+
+    // Buscar clientes com lastCartDate preenchido (tiveram um carrinho)
+    const rawResults = await this.makeRequest(
+      userId,
+      resolvedAccountName,
+      '/api/dataentities/CL/search?_fields=email,firstName,lastName,phone,homePhone,lastCart,lastCartDate&_where=lastCartDate%20is%20not%20null&_sort=lastCartDate%20DESC',
+    );
+
+    if (!rawResults || !Array.isArray(rawResults)) return { imported: 0, updated: 0 };
+
+    let imported = 0;
+    let updated = 0;
+
+    // Filtrar apenas carrinhos com mais de 30 minutos de inatividade
+    const threshold = new Date(Date.now() - 30 * 60 * 1000);
+
+    for (const record of rawResults) {
+      if (!record.email || !record.lastCart) continue;
+
+      const lastCartDate = new Date(record.lastCartDate);
+      if (lastCartDate > threshold) continue; // Carrinho muito recente, ignorar
+
+      try {
+        // Encontrar ou criar contato no CRM
+        let contact = await this.contactRepository.findOne({
+          where: { email: record.email, userId },
+        });
+
+        if (!contact) {
+          contact = this.contactRepository.create({
+            name: record.firstName || 'Cliente',
+            lastName: record.lastName || '',
+            email: record.email,
+            phone: record.phone || record.homePhone || '',
+            userId,
+            source: 'VTEX',
+          });
+          await this.contactRepository.save(contact);
+        }
+
+        // Extrair o orderFormId do link do carrinho
+        let orderFormId = record.lastCart;
+        if (orderFormId.includes('orderFormId=')) {
+          orderFormId = new URLSearchParams(orderFormId.split('?')[1]).get('orderFormId') || orderFormId;
+        }
+
+        const externalId = `vtex_cart_${orderFormId}`;
+
+        // Tentar buscar valor e itens do OrderForm para enriquecer os dados
+        let cartValue = 0;
+        let quantity = 1;
+        try {
+          const orderForm = await this.makeRequest(
+            userId,
+            resolvedAccountName,
+            `/api/checkout/pub/orderForm/${orderFormId}`,
+          );
+          if (orderForm?.value) {
+            cartValue = orderForm.value / 100;
+            quantity = orderForm.items?.length || 1;
+          }
+        } catch {
+          // OrderForm pode ter expirado - usa os dados mínimos disponíveis
+        }
+
+        // Verificar se o carrinho já foi registrado
+        let sale = await this.saleRepository.findOne({
+          where: { externalId, userId },
+        });
+
+        // Não sobrescrever carrinhos que já viraram pedidos pagos
+        if (sale && !['abandoned_cart', 'active_cart'].includes(sale.status)) continue;
+
+        const saleData: any = {
+          externalId,
+          userId,
+          contactId: contact.id,
+          totalValue: cartValue,
+          status: 'abandoned_cart',
+          createdAt: lastCartDate,
+          quantity,
+          channel: 'VTEX',
+          customerEmail: record.email,
+          customerName: contact ? `${contact.name} ${contact.lastName}`.trim() : record.firstName || 'Cliente',
+        };
+
+        if (sale) {
+          Object.assign(sale, saleData);
+          updated++;
+        } else {
+          sale = this.saleRepository.create(saleData);
+          imported++;
+        }
+
+        await this.saleRepository.save(sale);
+      } catch (err) {
+        console.error(`[VTEX] Erro ao processar carrinho abandonado para ${record.email}:`, err.message);
+      }
+    }
+
+    return { imported, updated };
+  }
+
+  /**
+   * Cria um cupom de desconto na VTEX via API RNB (Rates and Benefits)
+   * O cupom deve ser vinculado a uma promoção existente no painel da VTEX
+   * configurada para aceitar a utmSource/utmCampaign especificada.
+   */
+  async createCoupon(
+    userId: number,
+    accountName: string,
+    params: {
+      couponCode: string;
+      utmSource?: string;
+      utmCampaign?: string;
+      isArchived?: boolean;
+      maxItemsPerClient?: number;
+      expirationIntervalPerUse?: string;
+    },
+  ): Promise<any> {
+    const connection = await this.getActiveConnection(userId, accountName);
+    const resolvedAccountName = connection.accountName;
+    const credentials = await this.getCredentials(userId, resolvedAccountName);
+    const baseUrl = this.getApiBaseUrl(resolvedAccountName);
+
+    const payload = {
+      couponCode: params.couponCode,
+      utmSource: params.utmSource ?? null,
+      utmCampaign: params.utmCampaign ?? null,
+      isArchived: params.isArchived ?? false,
+      maxItemsPerClient: params.maxItemsPerClient ?? 1,
+      expirationIntervalPerUse: params.expirationIntervalPerUse ?? '00:00:00',
+    };
+
+    const response = await fetch(`${baseUrl}/api/rnb/pvt/coupon`, {
+      method: 'POST',
+      headers: {
+        'X-VTEX-API-AppKey': credentials.appKey,
+        'X-VTEX-API-AppToken': credentials.appToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let error: any;
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText || 'Falha ao criar cupom na VTEX' };
+      }
+
+      // Tratar código de cupom já existente
+      if (response.status === 409 || error?.message?.toLowerCase().includes('already exists')) {
+        console.warn(`[VTEX] Cupom '${params.couponCode}' já existe.`);
+        return { couponCode: params.couponCode, alreadyExists: true };
+      }
+
+      throw new BadRequestException(
+        error.message || error.error || `Falha ao criar cupom na VTEX (${response.status})`,
+      );
+    }
+
+    const data = await response.json();
+    console.log(`[VTEX] Cupom '${params.couponCode}' criado com sucesso.`);
+    return data;
+  }
+
   private mapVtexStatus(vtexStatus: string): string {
     switch (vtexStatus) {
       case 'invoiced':
@@ -631,7 +809,16 @@ export class VtexService {
     const products = await this.syncProducts(userId, resolvedAccountName);
     const customers = await this.syncCustomers(userId, resolvedAccountName);
     const orders = await this.syncOrders(userId, resolvedAccountName);
-    const abandoned = await this.syncAbandonedCarts(userId, resolvedAccountName);
+
+    // Usar o método V2 aprimorado para carrinhos abandonados
+    let abandoned = { imported: 0, updated: 0 };
+    try {
+      abandoned = await this.syncAbandonedCartsV2(userId, resolvedAccountName);
+    } catch (e) {
+      console.error('[VTEX] Erro ao sincronizar carrinhos abandonados (V2):', e.message);
+      // Fallback para o método legado
+      abandoned = await this.syncAbandonedCarts(userId, resolvedAccountName);
+    }
 
     // Atualizar lastSyncAt
     connection.lastSyncAt = new Date();

@@ -935,6 +935,7 @@ export class NuvemshopService {
 
     for (const checkout of allCheckouts) {
       this.logger.log(`[Nuvemshop Sync] Analisando checkout ${checkout.id || checkout.token}. Status: ${checkout.abandoned ? 'Abandonado' : 'Ativo'}. Itens: ${checkout.products?.length || checkout.line_items?.length || 0}`);
+      this.logger.log(`[Nuvemshop Sync] Dados do checkout (RAW): ${JSON.stringify(checkout, null, 2)}`);
 
       if (checkout.order_id || checkout.order) {
         this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por já ter sido convertido em pedido (Order ID: ${checkout.order_id || checkout.order.id}).`);

@@ -18,7 +18,7 @@ import * as crypto from 'crypto';
 export class ShopifyService {
   private readonly clientId: string;
   private readonly clientSecret: string;
-  private readonly apiVersion: string = '2024-07';
+  private readonly apiVersion: string = '2025-01';
   private readonly scopes: string = 'write_products,read_orders,read_customers,read_checkouts,write_discounts,read_discounts,write_gift_cards,read_gift_cards';
   private readonly logger = new Logger(ShopifyService.name);
 
@@ -313,19 +313,27 @@ export class ShopifyService {
       created_at_min?: string;
       created_at_max?: string;
       status?: 'open' | 'closed';
+      page_info?: string;
     },
   ): Promise<any> {
     const accessToken = await this.getAccessToken(userId, shop);
 
     const queryParams = new URLSearchParams();
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.created_at_min)
-      queryParams.append('created_at_min', params.created_at_min);
-    if (params?.created_at_max)
-      queryParams.append('created_at_max', params.created_at_max);
-    if (params?.status) queryParams.append('status', params.status);
+    
+    // Shopify Rule: when page_info is present, no other parameters except limit should be sent.
+    if (params?.page_info) {
+      queryParams.append('page_info', params.page_info);
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+    } else {
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+      if (params?.created_at_min)
+        queryParams.append('created_at_min', params.created_at_min);
+      if (params?.created_at_max)
+        queryParams.append('created_at_max', params.created_at_max);
+      if (params?.status) queryParams.append('status', params.status);
+    }
 
-    const url = `https://${shop}/admin/api/${this.apiVersion}/checkouts.json?${queryParams.toString()}`;
+    const url = `https://${shop}/admin/api/${this.apiVersion}/abandoned_checkouts.json${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
 
     const response = await fetch(url, {
       headers: {
@@ -334,7 +342,9 @@ export class ShopifyService {
     });
 
     if (!response.ok) {
-      throw new BadRequestException('Falha ao buscar carrinhos abandonados');
+      const errorText = await response.text();
+      this.logger.error(`[Shopify API] Falha ao buscar checkouts: ${response.status} - ${errorText}`);
+      throw new BadRequestException(`Falha ao buscar checkouts abandonados da Shopify: ${response.status}`);
     }
 
     const data = await response.json();
@@ -452,15 +462,24 @@ export class ShopifyService {
   ): Promise<any[]> {
     const accessToken = await this.getAccessToken(userId, shop);
     const queryParams = new URLSearchParams();
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.page_info) queryParams.append('page_info', params.page_info);
+    
+    if (params?.page_info) {
+      queryParams.append('page_info', params.page_info);
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+    } else {
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+    }
 
     const url = `https://${shop}/admin/api/${this.apiVersion}/customers.json${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
     const response = await fetch(url, {
       headers: { 'X-Shopify-Access-Token': accessToken },
     });
 
-    if (!response.ok) throw new BadRequestException('Falha ao buscar clientes da Shopify');
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify API] Falha ao buscar clientes: ${response.status} - ${errorText}`);
+      throw new BadRequestException(`Falha ao buscar clientes da Shopify: ${response.status}`);
+    }
     const data = await response.json();
     return data.customers || [];
   }
@@ -475,16 +494,25 @@ export class ShopifyService {
   ): Promise<any[]> {
     const accessToken = await this.getAccessToken(userId, shop);
     const queryParams = new URLSearchParams();
-    queryParams.append('status', params?.status || 'any');
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.page_info) queryParams.append('page_info', params.page_info);
+    
+    if (params?.page_info) {
+      queryParams.append('page_info', params.page_info);
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+    } else {
+      queryParams.append('status', params?.status || 'any');
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+    }
 
-    const url = `https://${shop}/admin/api/${this.apiVersion}/orders.json?${queryParams.toString()}`;
+    const url = `https://${shop}/admin/api/${this.apiVersion}/orders.json${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
     const response = await fetch(url, {
       headers: { 'X-Shopify-Access-Token': accessToken },
     });
 
-    if (!response.ok) throw new BadRequestException('Falha ao buscar pedidos da Shopify');
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify API] Falha ao buscar pedidos: ${response.status} - ${errorText}`);
+      throw new BadRequestException(`Falha ao buscar pedidos da Shopify: ${response.status}`);
+    }
     const data = await response.json();
     return data.orders || [];
   }
@@ -906,7 +934,9 @@ export class ShopifyService {
         });
 
         if (!response.ok) {
-          throw new BadRequestException('Erro ao buscar produtos da Shopify');
+          const errorText = await response.text();
+          this.logger.error(`[Shopify API] Falha ao buscar produtos: ${response.status} - ${errorText}`);
+          throw new BadRequestException(`Erro ao buscar produtos da Shopify: ${response.status}`);
         }
 
         const data = await response.json();

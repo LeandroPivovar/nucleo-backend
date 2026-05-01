@@ -326,6 +326,7 @@ export class ShopifyService {
     if (params?.status) queryParams.append('status', params.status);
 
     const url = `https://${shop}/admin/api/${this.apiVersion}/checkouts.json?${queryParams.toString()}`;
+    this.logger.log(`[Shopify Request] GET ${url}`);
 
     const response = await fetch(url, {
       headers: {
@@ -334,8 +335,11 @@ export class ShopifyService {
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify Response] ${response.status} ${response.statusText} - ${errorText}`);
       throw new BadRequestException('Falha ao buscar carrinhos abandonados');
     }
+    this.logger.log(`[Shopify Response] ${response.status} OK - checkouts`);
 
     const data = await response.json();
     return data.checkouts || [];
@@ -480,11 +484,17 @@ export class ShopifyService {
     if (params?.page_info) queryParams.append('page_info', params.page_info);
 
     const url = `https://${shop}/admin/api/${this.apiVersion}/orders.json?${queryParams.toString()}`;
+    this.logger.log(`[Shopify Request] GET ${url}`);
     const response = await fetch(url, {
       headers: { 'X-Shopify-Access-Token': accessToken },
     });
 
-    if (!response.ok) throw new BadRequestException('Falha ao buscar pedidos da Shopify');
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify Response] ${response.status} ${response.statusText} - ${errorText}`);
+      throw new BadRequestException('Falha ao buscar pedidos da Shopify');
+    }
+    this.logger.log(`[Shopify Response] ${response.status} OK - orders`);
     const data = await response.json();
     return data.orders || [];
   }
@@ -898,6 +908,7 @@ export class ShopifyService {
         );
         const accessToken = await this.getAccessToken(userId, shop);
 
+        this.logger.log(`[Shopify Request] GET ${queryParams.toString()}`);
         const response = await fetch(queryParams.toString(), {
           headers: {
             'X-Shopify-Access-Token': accessToken,
@@ -906,8 +917,11 @@ export class ShopifyService {
         });
 
         if (!response.ok) {
+          const errorText = await response.text();
+          this.logger.error(`[Shopify Response] ${response.status} ${response.statusText} - ${errorText}`);
           throw new BadRequestException('Erro ao buscar produtos da Shopify');
         }
+        this.logger.log(`[Shopify Response] ${response.status} OK - products page`);
 
         const data = await response.json();
         if (data.products && data.products.length > 0) {

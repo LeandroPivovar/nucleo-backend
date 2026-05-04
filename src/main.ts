@@ -94,12 +94,20 @@ async function bootstrap() {
         \`type\` varchar(50) NOT NULL,
         \`value\` decimal(10,2) NOT NULL,
         \`durationMonths\` int NULL,
+        \`description\` varchar(255) NULL,
         \`isActive\` tinyint NOT NULL DEFAULT 1,
         \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
         PRIMARY KEY (\`id\`)
       ) ENGINE=InnoDB
     `);
+
+    try {
+      await dataSource.query(`
+        ALTER TABLE \`referral_reward_configs\` 
+        ADD COLUMN \`description\` varchar(255) NULL
+      `);
+    } catch (e) {}
 
     // Tabela tutorials
     await dataSource.query(`

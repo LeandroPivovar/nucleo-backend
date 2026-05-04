@@ -14,6 +14,8 @@ import { NuvemshopModule } from '../nuvemshop/nuvemshop.module';
 import { VtexModule } from '../vtex/vtex.module';
 import { LojaIntegradaModule } from '../loja-integrada/loja-integrada.module';
 
+import { PublicSettingsController } from './public-settings.controller';
+
 @Module({
     imports: [
       ScheduleModule.forRoot(),
@@ -29,7 +31,7 @@ import { LojaIntegradaModule } from '../loja-integrada/loja-integrada.module';
       VtexModule,
       LojaIntegradaModule,
     ],
-    controllers: [SystemSettingsController],
+    controllers: [SystemSettingsController, PublicSettingsController],
     providers: [SystemSettingsService, SyncSchedulerService],
     exports: [SystemSettingsService, SyncSchedulerService],
 })

@@ -227,6 +227,26 @@ export class AdminService {
         };
     }
 
+    async resetCredits(userId: number, type: 'email' | 'sms' | 'whatsapp') {
+        const user = await this.usersRepository.findOne({ where: { id: userId } });
+        if (!user) throw new Error('Usuário não encontrado');
+
+        if (type === 'email') {
+            user.extraEmailsBalance = 0;
+        } else if (type === 'sms') {
+            user.extraSmsBalance = 0;
+        } else if (type === 'whatsapp') {
+            user.extraWhatsappBalance = 0;
+        }
+
+        await this.usersRepository.save(user);
+        return {
+            extraEmailsBalance: user.extraEmailsBalance,
+            extraSmsBalance: user.extraSmsBalance,
+            extraWhatsappBalance: user.extraWhatsappBalance,
+        };
+    }
+
     async impersonateUser(userId: number) {
         const user = await this.usersRepository.findOne({ where: { id: userId }, relations: ['plan'] });
         if (!user) throw new Error('Usuário não encontrado');

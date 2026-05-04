@@ -17,6 +17,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { join, extname } from 'path';
 import * as fs from 'fs';
+import { CreateTutorialDto } from './dto/create-tutorial.dto';
+import { UpdateTutorialDto } from './dto/update-tutorial.dto';
 import { KnowledgeBaseService } from './knowledge-base.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
@@ -56,15 +58,17 @@ export class KnowledgeBaseController {
             fileSize: 20 * 1024 * 1024, // 20MB
         },
     }))
-    create(
-        @Body('title') title: string,
+    async create(
+        @Body() createTutorialDto: CreateTutorialDto,
         @UploadedFile() file: Express.Multer.File
     ) {
-        if (!title) throw new BadRequestException('Título é obrigatório');
         if (!file) throw new BadRequestException('Arquivo PDF é obrigatório');
 
         const pdfUrl = `/api/admin/knowledge-base/serve/${file.filename}`;
-        return this.knowledgeBaseService.create({ title, pdfUrl });
+        return this.knowledgeBaseService.create({ 
+            title: createTutorialDto.title, 
+            pdfUrl 
+        });
     }
 
     @Patch(':id')
@@ -88,11 +92,11 @@ export class KnowledgeBaseController {
     }))
     async update(
         @Param('id', ParseIntPipe) id: number,
-        @Body('title') title?: string,
+        @Body() updateTutorialDto: UpdateTutorialDto,
         @UploadedFile() file?: Express.Multer.File
     ) {
         const updateData: any = {};
-        if (title) updateData.title = title;
+        if (updateTutorialDto.title) updateData.title = updateTutorialDto.title;
         if (file) {
             updateData.pdfUrl = `/api/admin/knowledge-base/serve/${file.filename}`;
         }

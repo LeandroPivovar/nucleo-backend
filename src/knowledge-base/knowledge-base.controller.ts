@@ -17,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { join, extname } from 'path';
 import * as fs from 'fs';
+import { Logger } from '@nestjs/common';
 import { CreateTutorialDto } from './dto/create-tutorial.dto';
 import { UpdateTutorialDto } from './dto/update-tutorial.dto';
 import { KnowledgeBaseService } from './knowledge-base.service';
@@ -32,6 +33,8 @@ if (!fs.existsSync(uploadDir)) {
 @Controller('admin/knowledge-base')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class KnowledgeBaseController {
+    private readonly logger = new Logger(KnowledgeBaseController.name);
+
     constructor(private readonly knowledgeBaseService: KnowledgeBaseService) { }
 
     @Get()
@@ -62,6 +65,7 @@ export class KnowledgeBaseController {
         @Body() createTutorialDto: CreateTutorialDto,
         @UploadedFile() file: Express.Multer.File
     ) {
+        this.logger.debug(`Recebendo criação de tutorial: ${JSON.stringify(createTutorialDto)}`);
         if (!file) throw new BadRequestException('Arquivo PDF é obrigatório');
 
         const pdfUrl = `/api/admin/knowledge-base/serve/${file.filename}`;

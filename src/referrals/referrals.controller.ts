@@ -94,4 +94,19 @@ export class ReferralsController {
     ) {
         return this.referralsService.updateRewardConfig(id, data);
     }
+
+    @UseGuards(JwtAuthGuard, AdminGuard)
+    @Get('admin/users')
+    async getAdminUsers() {
+        return this.referralsService.getAdminUserList();
+    }
+
+    @UseGuards(JwtAuthGuard, AdminGuard)
+    @Patch('admin/users/:id/percentage')
+    async updateAdminUserPercentage(
+        @Param('id', ParseIntPipe) id: number,
+        @Body('percentage') percentage: number
+    ) {
+        return this.referralsService.updateAdminUserPercentage(id, percentage);
+    }
 }

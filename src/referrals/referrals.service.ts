@@ -287,4 +287,20 @@ export class ReferralsService {
         }
         return this.referralRewardConfigRepository.save(config);
     }
+
+    // New: User specific referral management
+    async getAdminUserList() {
+        return this.userRepository.find({
+            select: ['id', 'firstName', 'lastName', 'email', 'referralPercentage', 'referralCode'],
+            order: { firstName: 'ASC' }
+        });
+    }
+
+    async updateAdminUserPercentage(userId: number, percentage: number) {
+        const user = await this.userRepository.findOne({ where: { id: userId } });
+        if (!user) throw new NotFoundException('Usuário não encontrado');
+
+        user.referralPercentage = percentage;
+        return this.userRepository.save(user);
+    }
 }

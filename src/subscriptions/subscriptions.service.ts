@@ -245,11 +245,39 @@ export class SubscriptionsService {
         let totalValue = 0;
 
         if (type === 'email') {
-            const unitPrice = parseFloat(settingsMap['UNIT_PRICE_EMAIL'] || '0.30');
-            totalValue = unitPrice * amount;
+            // Check for packages first
+            let packagePrice: number | null = null;
+            for (let i = 1; i <= 3; i++) {
+                const pkgAmount = parseInt(settingsMap[`EMAIL_PKG${i}_AMOUNT`] || '0');
+                if (pkgAmount === amount) {
+                    packagePrice = parseFloat(settingsMap[`EMAIL_PKG${i}_PRICE`] || '0');
+                    break;
+                }
+            }
+
+            if (packagePrice !== null && packagePrice > 0) {
+                totalValue = packagePrice;
+            } else {
+                const unitPrice = parseFloat(settingsMap['UNIT_PRICE_EMAIL'] || '0.01');
+                totalValue = unitPrice * amount;
+            }
         } else if (type === 'sms') {
-            const unitPrice = parseFloat(settingsMap['UNIT_PRICE_SMS'] || '0.40');
-            totalValue = unitPrice * amount;
+            // Check for packages first
+            let packagePrice: number | null = null;
+            for (let i = 1; i <= 3; i++) {
+                const pkgAmount = parseInt(settingsMap[`SMS_PKG${i}_AMOUNT`] || '0');
+                if (pkgAmount === amount) {
+                    packagePrice = parseFloat(settingsMap[`SMS_PKG${i}_PRICE`] || '0');
+                    break;
+                }
+            }
+
+            if (packagePrice !== null && packagePrice > 0) {
+                totalValue = packagePrice;
+            } else {
+                const unitPrice = parseFloat(settingsMap['UNIT_PRICE_SMS'] || '0.10');
+                totalValue = unitPrice * amount;
+            }
         } else if (type === 'whatsapp') {
             // Check for packages first
             let packagePrice: number | null = null;
@@ -264,7 +292,7 @@ export class SubscriptionsService {
             if (packagePrice !== null && packagePrice > 0) {
                 totalValue = packagePrice;
             } else {
-                const unitPrice = parseFloat(settingsMap['UNIT_PRICE_WHATSAPP'] || '0.06');
+                const unitPrice = parseFloat(settingsMap['UNIT_PRICE_WHATSAPP'] || '0.15');
                 totalValue = unitPrice * amount;
             }
         } else {

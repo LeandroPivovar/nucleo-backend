@@ -333,7 +333,8 @@ export class SubscriptionsService {
                 externalReference: externalRef,
                 creditCard,
                 creditCardHolderInfo,
-                remoteIp
+                remoteIp,
+                installmentCount: billingType === 'CREDIT_CARD' ? 1 : undefined
             };
 
             const asaasPayment = await this.asaasService.createSinglePayment(asaasRequestData);
@@ -406,7 +407,8 @@ export class SubscriptionsService {
                 externalReference: externalRef,
                 creditCard,
                 creditCardHolderInfo,
-                remoteIp
+                remoteIp,
+                installmentCount: billingType === 'CREDIT_CARD' ? 1 : undefined
             };
 
             const asaasPayment = await this.asaasService.createSinglePayment(asaasRequestData);

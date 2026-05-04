@@ -60,6 +60,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { AdminModule } from './admin/admin.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { TwilioConnectionsModule } from './twilio-connections/twilio-connections.module';
+import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 
 @Module({
   imports: [
@@ -115,6 +116,7 @@ import { TwilioConnectionsModule } from './twilio-connections/twilio-connections
     TwilioConnectionsModule,
     TicketsModule,
     TrayModule,
+    KnowledgeBaseModule,
   ],
   controllers: [AppController],
   providers: [AppService],

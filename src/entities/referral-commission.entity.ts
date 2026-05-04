@@ -36,10 +36,22 @@ export class ReferralCommission {
     subscription: Subscription;
 
     @Column({ type: 'decimal', precision: 10, scale: 2 })
-    amount: number; // Valor da comissão em reais
+    amount: number; // Valor da comissÃ£o em reais
 
-    @Column({ type: 'decimal', precision: 5, scale: 2 })
-    percentage: number; // Porcentagem aplicada no momento (histórico)
+    @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+    percentage: number; // Porcentagem aplicada no momento (histÃ³rico)
+
+    @Column({ length: 30, default: 'pending' })
+    status: 'pending' | 'approved' | 'paid' | 'cancelled';
+
+    @Column({ length: 30, default: 'percentage' })
+    commissionType: 'fixed' | 'percentage' | 'recurrent' | 'credit' | 'discount' | 'cashback';
+
+    @Column({ type: 'timestamp', nullable: true })
+    expectedPaymentDate: Date;
+
+    @Column({ type: 'timestamp', nullable: true })
+    paymentDate: Date;
 
     @CreateDateColumn()
     createdAt: Date;

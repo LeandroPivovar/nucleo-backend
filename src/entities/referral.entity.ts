@@ -8,7 +8,16 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-export type ReferralStatus = 'pending' | 'active' | 'cancelled';
+export type ReferralStatus =
+    | 'received'
+    | 'contacted'
+    | 'meeting_scheduled'
+    | 'negotiating'
+    | 'converted'
+    | 'not_converted'
+    | 'pending' // Legacy
+    | 'active'  // Legacy
+    | 'cancelled'; // Legacy
 
 @Entity('referrals')
 export class Referral {
@@ -22,14 +31,32 @@ export class Referral {
     @JoinColumn({ name: 'referrerId' })
     referrer: User;
 
-    @Column()
-    referredId: number; // Quem foi indicado
+    @Column({ nullable: true })
+    referredId: number; // Quem foi indicado (pode ser null se for apenas um lead ainda nÃ£o cadastrado)
 
     @ManyToOne(() => User)
     @JoinColumn({ name: 'referredId' })
     referred: User;
 
-    @Column({ length: 20, default: 'pending' })
+    @Column({ nullable: true })
+    referredName: string;
+
+    @Column({ nullable: true })
+    companyName: string;
+
+    @Column({ nullable: true })
+    phone: string;
+
+    @Column({ nullable: true })
+    email: string;
+
+    @Column({ nullable: true })
+    origin: string; // Ex: 'direct', 'social', 'campaign'
+
+    @Column({ nullable: true })
+    referralCode: string; // O cÃ³digo que foi usado
+
+    @Column({ length: 30, default: 'received' })
     status: ReferralStatus;
 
     @CreateDateColumn()

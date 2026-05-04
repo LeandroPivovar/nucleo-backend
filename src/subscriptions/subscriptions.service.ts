@@ -259,7 +259,7 @@ export class SubscriptionsService {
                 totalValue = packagePrice;
             } else {
                 const unitPrice = parseFloat(settingsMap['UNIT_PRICE_EMAIL'] || '0.01');
-                totalValue = unitPrice * amount;
+                totalValue = (unitPrice / 1000) * amount;
             }
         } else if (type === 'sms') {
             // Check for packages first

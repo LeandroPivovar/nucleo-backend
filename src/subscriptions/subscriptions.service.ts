@@ -255,7 +255,7 @@ export class SubscriptionsService {
                 }
             }
 
-            if (packagePrice !== null && packagePrice > 0) {
+            if (packagePrice !== null) {
                 totalValue = packagePrice;
             } else {
                 const unitPrice = parseFloat(settingsMap['UNIT_PRICE_EMAIL'] || '0.01');
@@ -272,7 +272,7 @@ export class SubscriptionsService {
                 }
             }
 
-            if (packagePrice !== null && packagePrice > 0) {
+            if (packagePrice !== null) {
                 totalValue = packagePrice;
             } else {
                 const unitPrice = parseFloat(settingsMap['UNIT_PRICE_SMS'] || '0.10');
@@ -289,7 +289,7 @@ export class SubscriptionsService {
                 }
             }
 
-            if (packagePrice !== null && packagePrice > 0) {
+            if (packagePrice !== null) {
                 totalValue = packagePrice;
             } else {
                 const unitPrice = parseFloat(settingsMap['UNIT_PRICE_WHATSAPP'] || '0.15');

@@ -1316,6 +1316,7 @@ export class NuvemshopService {
       min_price?: string | number;
       max_uses?: number;
       first_consumer_purchase?: boolean;
+      only_cheapest_shipping?: boolean;
     }
   ): Promise<any> {
     const accessToken = await this.getAccessToken(userId, storeId);

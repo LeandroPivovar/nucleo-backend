@@ -1134,6 +1134,112 @@ export class ShopifyService {
   }
 
   /**
+   * Cria um código de desconto de FRETE GRÁTIS na Shopify via GraphQL
+   */
+  async createFreeShippingDiscountCode(
+    userId: number,
+    shop: string,
+    params: {
+      title: string;
+      code: string;
+      startsAt?: string;
+      endsAt?: string;
+      usageLimit?: number;
+      appliesOncePerCustomer?: boolean;
+      minimumSubtotal?: string;
+      maximumShippingPrice?: string;
+    }
+  ): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, shop);
+
+    const mutation = `
+      mutation discountCodeFreeShippingCreate($freeShippingCodeDiscount: DiscountCodeFreeShippingInput!) {
+        discountCodeFreeShippingCreate(freeShippingCodeDiscount: $freeShippingCodeDiscount) {
+          codeDiscountNode {
+            codeDiscount {
+              ... on DiscountCodeFreeShipping {
+                title
+                codes(first: 1) {
+                  nodes {
+                    code
+                  }
+                }
+              }
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      freeShippingCodeDiscount: {
+        title: params.title,
+        code: params.code,
+        startsAt: params.startsAt || new Date().toISOString(),
+        ...(params.endsAt && { endsAt: params.endsAt }),
+        usageLimit: params.usageLimit || 1,
+        appliesOncePerCustomer: params.appliesOncePerCustomer ?? true,
+        destinationSelection: {
+          all: true
+        },
+        customerSelection: {
+          all: true
+        },
+        ...(params.minimumSubtotal && {
+          minimumRequirement: {
+            subtotal: {
+              greaterThanOrEqualToSubtotal: params.minimumSubtotal
+            }
+          }
+        }),
+        ...(params.maximumShippingPrice && {
+          maximumShippingPrice: params.maximumShippingPrice
+        })
+      }
+    };
+
+    const response = await fetch(
+      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({
+          query: mutation,
+          variables,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new BadRequestException('Falha ao criar código de frete grátis na Shopify');
+    }
+
+    const result = await response.json();
+
+    if (result.errors) {
+      throw new BadRequestException(result.errors[0].message);
+    }
+
+    if (result.data?.discountCodeFreeShippingCreate?.userErrors?.length > 0) {
+      const errorMessage = result.data.discountCodeFreeShippingCreate.userErrors[0].message;
+      this.logger.warn(`Shopify Erro ao criar cupom de frete: ${errorMessage}`);
+      throw new BadRequestException(`Erro criando cupom de frete Shopify: ${errorMessage}`);
+    }
+
+    const codeNode = result.data?.discountCodeFreeShippingCreate?.codeDiscountNode;
+    this.logger.log(`Cupom de Frete '${params.code}' gerado com sucesso na Shopify: ${shop}`);
+
+    return codeNode;
+  }
+
+  /**
    * Cria um Gift Card na Shopify via GraphQL
    */
   async createGiftCard(

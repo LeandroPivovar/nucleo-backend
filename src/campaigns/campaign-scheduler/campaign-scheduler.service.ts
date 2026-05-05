@@ -262,6 +262,9 @@ export class CampaignSchedulerService {
             if (campaign.config?.campaignConfig?.enableGiftback) {
                 simpleNodes.push({ type: 'giftback', data: campaign.config.campaignConfig.giftback });
             }
+            if (campaign.config?.campaignConfig?.enableShippingCoupon) {
+                simpleNodes.push({ type: 'shipping_coupon', data: campaign.config.campaignConfig.shippingCoupon });
+            }
             // Adiciona o nó principal da mensagem
             simpleNodes.push({
                 type: campaign.channel,
@@ -507,6 +510,62 @@ export class CampaignSchedulerService {
                         this.logger.error(`[COUPON] Erro ao gerar via Nuvemshop: ${e.message}`);
                     }
                 }
+            } else if (node.type === 'shipping_coupon') {
+                const code = node.data?.code || `FRETE_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                const days = parseInt(node.data?.expirationDays || '30');
+                const endsAt = new Date();
+                endsAt.setDate(endsAt.getDate() + days);
+
+                if (shopifyConnection) {
+                    try {
+                        this.logger.log(`[SHIPPING_COUPON] Gerando via Shopify para contato ${contact.id}`);
+                        await this.shopifyService.createFreeShippingDiscountCode(campaign.userId, shopifyConnection.shop, {
+                            title: 'FRETE GRÁTIS',
+                            code,
+                            endsAt: endsAt.toISOString(),
+                            minimumSubtotal: node.data?.minPurchaseValue || '0',
+                            usageLimit: 1
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[SHIPPING_COUPON] Erro ao gerar via Shopify: ${e.message}`);
+                    }
+                } else if (nuvemshopConnection) {
+                    try {
+                        this.logger.log(`[SHIPPING_COUPON] Gerando via Nuvemshop para contato ${contact.id}`);
+                        await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, {
+                            code,
+                            type: 'shipping',
+                            start_date: new Date().toISOString(),
+                            end_date: endsAt.toISOString(),
+                            min_price: node.data?.minPurchaseValue || 0,
+                            max_uses: 1,
+                            only_cheapest_shipping: true
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[SHIPPING_COUPON] Erro ao gerar via Nuvemshop: ${e.message}`);
+                    }
+                } else {
+                    // Loja Integrada (via Active Connection)
+                    try {
+                        const liConn = await this.lojaIntegradaService.getActiveConnection(campaign.userId);
+                        if (liConn) {
+                            this.logger.log(`[SHIPPING_COUPON] Gerando via Loja Integrada para contato ${contact.id}`);
+                            await this.lojaIntegradaService.createCoupon(campaign.userId, {
+                                codigo: code,
+                                tipo: 'frete_gratis',
+                                validade: endsAt.toISOString(),
+                                valor_minimo: node.data?.minPurchaseValue || '0',
+                                quantidade: 1,
+                                quantidade_por_cliente: 1
+                            });
+                            newActiveCoupon._generatedCode = code;
+                        }
+                    } catch (e) {
+                        this.logger.error(`[SHIPPING_COUPON] Erro ao gerar via Loja Integrada: ${e.message}`);
+                    }
+                }
             }
 
             // Persistir o cupom gerado ou definido no banco de dados para segmentação
@@ -522,11 +581,11 @@ export class CampaignSchedulerService {
                         userId: campaign.userId,
                         campaignId: campaign.id,
                         contactId: contact.id,
-                        name: newActiveCoupon.couponName || (node.type === 'giftback' ? 'Giftback' : 'Cupom'),
+                        name: newActiveCoupon.couponName || (node.type === 'giftback' ? 'Giftback' : (node.type === 'shipping_coupon' ? 'Frete Grátis' : 'Cupom')),
                         code: newActiveCoupon._generatedCode || newActiveCoupon.couponName,
-                        platform: shopifyConnection ? 'shopify' : (nuvemshopConnection ? 'nuvemshop' : 'internal'),
+                        platform: shopifyConnection ? 'shopify' : (nuvemshopConnection ? 'nuvemshop' : (context.lojaIntegradaConnection ? 'loja_integrada' : 'internal')),
                         value: parseFloat(newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0'),
-                        type: newActiveCoupon.discountType || (node.type === 'giftback' ? 'absolute' : 'percentage'),
+                        type: newActiveCoupon.discountType || (node.type === 'giftback' ? 'absolute' : (node.type === 'shipping_coupon' ? 'shipping' : 'percentage')),
                         startsAt: new Date(),
                         endsAt: endsAt
                     });

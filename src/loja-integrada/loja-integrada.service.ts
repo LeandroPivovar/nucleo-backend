@@ -92,7 +92,7 @@ export class LojaIntegradaService {
         return connection;
     }
 
-    private async makeRequest(connection: LojaIntegradaConnection, endpoint: string, params: any = {}): Promise<any> {
+    private async makeRequest(connection: LojaIntegradaConnection, endpoint: string, params: any = {}, method: string = 'GET', body?: any): Promise<any> {
         const apiKey = this.decrypt(connection.apiKey);
 
         // Prioritize global app key from .env, fallback to connection-specific one
@@ -107,22 +107,70 @@ export class LojaIntegradaService {
 
         const url = new URL(`${this.baseUrl}${endpoint}`);
         url.searchParams.append('format', 'json');
-        Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+        
+        if (method === 'GET') {
+            Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+        }
 
-        const response = await fetch(url.toString(), {
+        const options: RequestInit = {
+            method,
             headers: {
                 'Authorization': `chave_api ${apiKey} aplicacao ${appKey}`,
                 'Content-Type': 'application/json',
             },
-        });
+        };
+
+        if (body) {
+            options.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(url.toString(), options);
 
         if (!response.ok) {
             const error = await response.text();
-            this.logger.error(`[Loja Integrada] Erro na requisição: ${error}`);
-            throw new BadRequestException('Falha na comunicação com a Loja Integrada');
+            this.logger.error(`[Loja Integrada] Erro na requisição ${method} ${endpoint}: ${error}`);
+            throw new BadRequestException(`Falha na comunicação com a Loja Integrada: ${error}`);
         }
 
         return await response.json();
+    }
+
+    /**
+     * Cria um cupom de desconto na Loja Integrada
+     */
+    async createCoupon(
+        userId: number,
+        params: {
+            codigo: string;
+            tipo: 'fixo' | 'porcentagem' | 'frete_gratis';
+            ativo?: boolean;
+            validade?: string;
+            valor_minimo?: string;
+            quantidade?: number;
+            quantidade_por_cliente?: number;
+            cumulativo?: boolean;
+            descricao?: string;
+        }
+    ): Promise<any> {
+        const connection = await this.getActiveConnection(userId);
+        
+        // Formatar datas para DD/MM/YYYY se for string ISO
+        let validade = params.validade;
+        if (validade && validade.includes('-')) {
+            const date = new Date(validade);
+            validade = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
+        }
+
+        const body = {
+            ...params,
+            validade,
+            ativo: params.ativo ?? true,
+            aplicar_no_total: params.tipo === 'frete_gratis' ? false : true,
+            condicao_cliente: 'todos_clientes',
+            condicao_produto: 'todos_produtos',
+        };
+
+        return await this.makeRequest(connection, '/cupom/', {}, 'POST', body);
     }
 
     async syncProducts(userId: number): Promise<{ imported: number }> {

@@ -247,7 +247,7 @@ export class SubscriptionsService {
         if (type === 'email') {
             // Check for packages first
             let packagePrice: number | null = null;
-            for (let i = 1; i <= 3; i++) {
+            for (let i = 1; i <= 4; i++) {
                 const pkgAmount = parseInt(settingsMap[`EMAIL_PKG${i}_AMOUNT`] || '0');
                 if (pkgAmount === amount) {
                     packagePrice = parseFloat(settingsMap[`EMAIL_PKG${i}_PRICE`] || '0');
@@ -264,7 +264,7 @@ export class SubscriptionsService {
         } else if (type === 'sms') {
             // Check for packages first
             let packagePrice: number | null = null;
-            for (let i = 1; i <= 3; i++) {
+            for (let i = 1; i <= 4; i++) {
                 const pkgAmount = parseInt(settingsMap[`SMS_PKG${i}_AMOUNT`] || '0');
                 if (pkgAmount === amount) {
                     packagePrice = parseFloat(settingsMap[`SMS_PKG${i}_PRICE`] || '0');
@@ -281,7 +281,7 @@ export class SubscriptionsService {
         } else if (type === 'whatsapp') {
             // Check for packages first
             let packagePrice: number | null = null;
-            for (let i = 1; i <= 3; i++) {
+            for (let i = 1; i <= 4; i++) {
                 const pkgAmount = parseInt(settingsMap[`WHATSAPP_PKG${i}_AMOUNT`] || '0');
                 if (pkgAmount === amount) {
                     packagePrice = parseFloat(settingsMap[`WHATSAPP_PKG${i}_PRICE`] || '0');

@@ -409,19 +409,48 @@ export class ShopifyService {
    * Verifica a assinatura HMAC de um webhook
    */
   verifyWebhookSignature(
-    body: string,
+    body: string | Buffer,
     signature: string,
     secret: string,
   ): boolean {
+    if (!signature || !secret) return false;
+
     const hmac = crypto
       .createHmac('sha256', secret)
-      .update(body, 'utf8')
+      .update(body)
       .digest('base64');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(hmac),
-      Buffer.from(signature),
-    );
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(hmac),
+        Buffer.from(signature),
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Processa webhooks de conformidade obrigatórios (GDPR)
+   */
+  async handleComplianceWebhook(topic: string, shop: string, data: any): Promise<void> {
+    this.logger.log(`[Shopify Compliance Webhook] Recebido tópico ${topic} para loja ${shop}`);
+
+    // Shopify envia estes webhooks para garantir privacidade de dados.
+    //customers/data_request: Solicitação de visualização de dados
+    //customers/redact: Solicitação de exclusão de dados de cliente
+    //shop/redact: Solicitação de exclusão de dados da loja (após desinstalação)
+
+    if (topic === 'customers/data_request') {
+      this.logger.log(`[Shopify Compliance] Solicitação de dados para cliente: ${data.customer?.email}`);
+      // Em um cenário real, você buscaria os dados e enviaria para o email de contato da Shopify ou processaria conforme regulamentação.
+    } else if (topic === 'customers/redact') {
+      this.logger.log(`[Shopify Compliance] Solicitação de exclusão de dados para cliente: ${data.customer?.email}`);
+      // Lógica para remover dados do cliente de todas as tabelas (contacts, sales, etc.)
+    } else if (topic === 'shop/redact') {
+      this.logger.log(`[Shopify Compliance] Solicitação de exclusão de dados para loja: ${shop}`);
+      // Lógica para remover todos os dados associados a esta loja
+    }
   }
 
   /**

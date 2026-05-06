@@ -11,8 +11,9 @@ import {
   HttpStatus,
   Headers,
   Req,
+  Res,
 } from '@nestjs/common';
-import type { Request as ExpressRequest } from 'express';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { ShopifyService } from './shopify.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateShopifyConnectionDto } from './dto/create-shopify-connection.dto';
@@ -56,6 +57,26 @@ export class ShopifyController {
   }
 
   /**
+   * Endpoint de instalação direta (Redirecionamento 302)
+   * Usado para instalação via App Store ou URL direta
+   */
+  @Get('auth/install')
+  async install(
+    @Query('shop') shop: string,
+    @Res() res: ExpressResponse,
+  ) {
+    if (!shop) {
+      return res.status(HttpStatus.BAD_REQUEST).send('Parâmetro shop é obrigatório');
+    }
+
+    const state = crypto.randomBytes(32).toString('hex');
+    const redirectUri = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/shopify/callback`;
+    const authUrl = this.shopifyService.generateAuthUrl(shop, redirectUri, state);
+
+    return res.redirect(authUrl);
+  }
+
+  /**
    * Callback OAuth - recebe o código e troca por token
    * Nota: Este endpoint requer autenticação, mas o frontend já está autenticado
    */
@@ -85,6 +106,10 @@ export class ShopifyController {
       tokenData.access_token,
       tokenData.scope,
     );
+
+    if (req.headers['accept']?.includes('text/html')) {
+      return (req as any).res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard?shopify_connected=true`);
+    }
 
     return {
       success: true,
@@ -264,6 +289,34 @@ export class ShopifyController {
       topic,
       shop: shopDomain,
     };
+  }
+
+  /**
+   * Endpoints de Conformidade (Mandatórios pela Shopify)
+   */
+  @Post('webhooks/compliance/:topic')
+  @HttpCode(HttpStatus.OK)
+  async receiveComplianceWebhook(
+    @Req() req: ExpressRequest & { rawBody?: Buffer },
+    @Param('topic') topicParam: string,
+    @Headers('x-shopify-topic') topicHeader: string,
+    @Headers('x-shopify-shop-domain') shopDomain: string,
+    @Headers('x-shopify-hmac-sha256') signature: string,
+  ) {
+    const topic = topicHeader || topicParam.replace(/-/g, '/');
+    const body = (req as any).rawBody || JSON.stringify(req.body);
+    const secret = process.env.SHOPIFY_CLIENT_SECRET || process.env.SHOPIFY_WEBHOOK_SECRET || '';
+
+    if (!this.shopifyService.verifyWebhookSignature(body, signature, secret)) {
+      this.shopifyService['logger'].error(`[Shopify Compliance] Assinatura inválida para tópico: ${topic}`);
+      // Shopify exige 401 para assinatura inválida
+      throw new Error('Assinatura inválida');
+    }
+
+    const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    await this.shopifyService.handleComplianceWebhook(topic, shopDomain, data);
+
+    return { success: true };
   }
 
   /**

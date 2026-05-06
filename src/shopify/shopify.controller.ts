@@ -293,8 +293,10 @@ export class ShopifyController {
 
   /**
    * Endpoints de Conformidade (Mandatórios pela Shopify)
+   * Pode ser usado com tópico na URL (/compliance/customers-redact) 
+   * ou em uma única URL (/compliance/all) usando o header X-Shopify-Topic
    */
-  @Post('webhooks/compliance/:topic')
+  @Post('webhooks/compliance/:topic?')
   @HttpCode(HttpStatus.OK)
   async receiveComplianceWebhook(
     @Req() req: ExpressRequest & { rawBody?: Buffer },
@@ -303,7 +305,7 @@ export class ShopifyController {
     @Headers('x-shopify-shop-domain') shopDomain: string,
     @Headers('x-shopify-hmac-sha256') signature: string,
   ) {
-    const topic = topicHeader || topicParam.replace(/-/g, '/');
+    const topic = topicHeader || (topicParam ? topicParam.replace(/-/g, '/') : 'unknown');
     const body = (req as any).rawBody || JSON.stringify(req.body);
     const secret = process.env.SHOPIFY_CLIENT_SECRET || process.env.SHOPIFY_WEBHOOK_SECRET || '';
 

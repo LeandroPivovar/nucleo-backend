@@ -48,7 +48,7 @@ export class Contact {
   @Column({ length: 50, nullable: true })
   source: string; // e.g., 'website', 'referral', 'social_media'
 
-  @Column({ length: 2, nullable: true })
+  @Column({ length: 50, nullable: true })
   state: string; // Estado (UF) - e.g., 'SP', 'RJ'
 
   @Column({ length: 100, nullable: true })

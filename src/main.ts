@@ -130,6 +130,18 @@ async function bootstrap() {
     logger.error(`Fallback Migration falhou (referrals/tutorials): ${err.message}`);
   }
 
+  // AUTO-FIX: Aumentar tamanho da coluna state em contacts (para suportar nomes completos como "Pará")
+  try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      ALTER TABLE \`contacts\` 
+      MODIFY COLUMN \`state\` varchar(50) NULL
+    `);
+    logger.log('Fallback Migration: Tamanho da coluna state em contacts aumentado para 50.');
+  } catch (err: any) {
+    logger.error(`Fallback Migration falhou (contacts state): ${err.message}`);
+  }
+
   // Habilitar CORS para o frontend
   app.enableCors({
     origin: (origin, callback) => {

@@ -70,15 +70,21 @@ export class CampaignsService {
         }
         const templates = await this.twilioService.getTemplates(credentials);
 
-        // Filter templates based on pattern: name_idXXXX
-        // Templates without the pattern are public. 
-        // Templates with the pattern are exclusive to the user with that templateId.
+        // 1. Filtrar por status 'approved'
+        // 2. Filtrar por padrão de nome: nome_idXXXX
+        // Templates sem o padrão são públicos.
+        // Templates com o padrão são exclusivos do usuário com aquele templateId.
         return templates.filter(t => {
+            // Se o status estiver disponível, filtrar apenas aprovados
+            if (t.status && t.status.toLowerCase() !== 'approved') {
+                return false;
+            }
+
             const name = t.friendlyName || '';
             const match = name.match(/id([A-Z0-9]{4})$/i);
-            if (!match) return true; // No pattern found, it's a public template
-            
-            // If pattern found, only show if it matches this user's templateId
+            if (!match) return true; // Nenhum padrão encontrado, é um template público
+
+            // Se o padrão for encontrado, mostrar apenas se coincidir com o templateId deste usuário
             return userTemplateId && match[1].toLowerCase() === userTemplateId.toLowerCase();
         });
     }

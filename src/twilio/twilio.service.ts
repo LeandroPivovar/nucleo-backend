@@ -239,7 +239,8 @@ export class TwilioService {
                     friendlyName: c.friendlyName,
                     variables: c.variables,
                     language: c.language,
-                    types: c.types
+                    types: c.types,
+                    status: c.status
                 };
             });
         } catch (error: any) {

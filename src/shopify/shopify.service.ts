@@ -159,16 +159,15 @@ export class ShopifyService {
       connection.isActive = true;
       connection.lastSyncAt = new Date();
     } else {
-      connection = this.shopifyConnectionRepository.create({
-        userId,
-        shop,
-        accessToken: encryptedToken,
-        refreshToken: encryptedRefreshToken,
-        expiresAt,
-        scope,
-        isActive: true,
-        lastSyncAt: new Date(),
-      });
+      connection = new ShopifyConnection();
+      connection.userId = userId;
+      connection.shop = shop;
+      connection.accessToken = encryptedToken;
+      connection.refreshToken = encryptedRefreshToken;
+      connection.expiresAt = expiresAt;
+      connection.scope = scope;
+      connection.isActive = true;
+      connection.lastSyncAt = new Date();
     }
 
     return await this.shopifyConnectionRepository.save(connection);

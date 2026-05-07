@@ -62,7 +62,12 @@ export class ShopifyService {
   async exchangeCodeForToken(
     shop: string,
     code: string,
-  ): Promise<{ access_token: string; scope: string }> {
+  ): Promise<{ 
+    access_token: string; 
+    scope: string;
+    refresh_token?: string;
+    expires_in?: number;
+  }> {
     const response = await fetch(
       `https://${shop}/admin/oauth/access_token`,
       {
@@ -135,8 +140,12 @@ export class ShopifyService {
     shop: string,
     accessToken: string,
     scope: string,
+    refreshToken?: string,
+    expiresIn?: number,
   ): Promise<ShopifyConnection> {
     const encryptedToken = this.encryptToken(accessToken);
+    const encryptedRefreshToken = refreshToken ? this.encryptToken(refreshToken) : null;
+    const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000) : null;
 
     let connection = await this.shopifyConnectionRepository.findOne({
       where: { userId, shop },
@@ -144,6 +153,8 @@ export class ShopifyService {
 
     if (connection) {
       connection.accessToken = encryptedToken;
+      if (encryptedRefreshToken) connection.refreshToken = encryptedRefreshToken;
+      if (expiresAt) connection.expiresAt = expiresAt;
       connection.scope = scope;
       connection.isActive = true;
       connection.lastSyncAt = new Date();
@@ -152,6 +163,8 @@ export class ShopifyService {
         userId,
         shop,
         accessToken: encryptedToken,
+        refreshToken: encryptedRefreshToken,
+        expiresAt,
         scope,
         isActive: true,
         lastSyncAt: new Date(),
@@ -250,11 +263,73 @@ export class ShopifyService {
 
 
   /**
-   * Obtém o token de acesso descriptografado
+   * Obtém o token de acesso descriptografado, renovando-o se necessário
    */
   async getAccessToken(userId: number, shop?: string): Promise<string> {
     const connection = await this.getActiveConnection(userId, shop);
+    
+    // Verificar se o token está próximo da expiração (ex: falta menos de 5 minutos)
+    if (connection.expiresAt && connection.refreshToken) {
+      const now = new Date();
+      const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+      
+      if (connection.expiresAt <= fiveMinutesFromNow) {
+        this.logger.log(`[Shopify] Token expirando para ${connection.shop}. Renovando...`);
+        const newTokens = await this.refreshAccessToken(connection);
+        return newTokens.access_token;
+      }
+    }
+
     return this.decryptToken(connection.accessToken);
+  }
+
+  /**
+   * Renova o token de acesso usando o refresh token
+   */
+  private async refreshAccessToken(connection: ShopifyConnection): Promise<any> {
+    const refreshToken = this.decryptToken(connection.refreshToken);
+    
+    const response = await fetch(`https://${connection.shop}/admin/oauth/access_token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      this.logger.error(`[Shopify] Falha ao renovar token para ${connection.shop}: ${JSON.stringify(error)}`);
+      
+      // Se o erro for que o refresh token é inválido, desativar a conexão
+      if (response.status === 400 || response.status === 401) {
+        connection.isActive = false;
+        await this.shopifyConnectionRepository.save(connection);
+      }
+      
+      throw new UnauthorizedException('Falha ao renovar conexão com Shopify. Por favor, reconecte sua loja.');
+    }
+
+    const data = await response.json();
+    
+    // Atualizar a conexão com o novo token
+    connection.accessToken = this.encryptToken(data.access_token);
+    if (data.refresh_token) {
+      connection.refreshToken = this.encryptToken(data.refresh_token);
+    }
+    if (data.expires_in) {
+      connection.expiresAt = new Date(Date.now() + data.expires_in * 1000);
+    }
+    connection.lastSyncAt = new Date();
+    
+    await this.shopifyConnectionRepository.save(connection);
+    
+    return data;
   }
 
   /**

@@ -123,6 +123,8 @@ export class ShopifyController {
       shop,
       tokenData.access_token,
       tokenData.scope,
+      tokenData.refresh_token,
+      tokenData.expires_in,
     );
 
     // 5. Gerar token JWT para o CRM

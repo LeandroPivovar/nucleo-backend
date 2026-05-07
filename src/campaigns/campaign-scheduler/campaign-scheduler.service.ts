@@ -336,6 +336,7 @@ export class CampaignSchedulerService {
             nuvemshopConnection,
             planEmailsLimit: subscription?.plan?.limits?.emails || 0,
             planSmsLimit: subscription?.plan?.limits?.sms || 0,
+            planWhatsappLimit: subscription?.plan?.limits?.whatsappLimit || 0,
             backendUrl: this.configService.get('BACKEND_URL', 'http://localhost:3000')
         };
     }
@@ -703,8 +704,11 @@ export class CampaignSchedulerService {
                 return { activeCoupon: newActiveCoupon };
             }
 
-            // ── Controle de Limite (Extra Balance) ──────────────────────────────────
-            if ((user?.extraWhatsappBalance || 0) > 0) {
+            // ── Controle de Limite (Plano + Extra Balance) ──────────────────────────
+            const planWhatsappLimit = context.planWhatsappLimit || 0;
+            const isUnlimited = planWhatsappLimit === -1;
+            
+            if (isUnlimited || currentWhatsappSent < planWhatsappLimit || (user?.extraWhatsappBalance || 0) > 0) {
                 let content = node.data?.content || 'Olá!';
                 if (newActiveCoupon) {
                     const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
@@ -807,8 +811,8 @@ export class CampaignSchedulerService {
                     usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
                     await this.userUsageRepository.save(usage);
                     
-                    // Deduct from extra balance if available
-                    if (user && user.extraWhatsappBalance > 0) {
+                    // Deduct from extra balance if we already used up the plan limit
+                    if (!isUnlimited && currentWhatsappSent >= planWhatsappLimit && user && user.extraWhatsappBalance > 0) {
                         user.extraWhatsappBalance--;
                         await this.userRepository.save(user);
                     }

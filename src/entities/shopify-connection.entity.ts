@@ -24,8 +24,14 @@ export class ShopifyConnection {
   @Column({ length: 255 })
   shop: string; // Ex: sualoja.myshopify.com
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', nullable: true })
   accessToken: string; // Token criptografado
+
+  @Column({ type: 'text', nullable: true })
+  refreshToken: string; // Token de atualização criptografado
+
+  @Column({ type: 'datetime', nullable: true })
+  expiresAt: Date; // Data de expiração do token
 
   @Column({ type: 'text', nullable: true })
   scope: string; // Escopos autorizados

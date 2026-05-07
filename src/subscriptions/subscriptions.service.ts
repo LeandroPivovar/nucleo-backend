@@ -306,11 +306,14 @@ export class SubscriptionsService {
             // Garantir que o cliente exista no Asaas (caso tente comprar avulso sem assinar antes)
             let asaasCustomerId = (user as any).asaasCustomerId;
             if (!asaasCustomerId) {
+                if (!user.document) {
+                    throw new BadRequestException('Você precisa preencher seu CPF/CNPJ no perfil antes de comprar créditos.');
+                }
                 const asaasCustomer = await this.asaasService.createCustomer({
                     name: `${user.firstName} ${user.lastName}`,
                     email: user.email,
                     phone: user.phone,
-                    cpfCnpj: user.document || '00000000000', // Asaas required se não tiver, mas idealmente o usuário já preencheu
+                    cpfCnpj: user.document,
                 });
                 asaasCustomerId = asaasCustomer.id;
                 (user as any).asaasCustomerId = asaasCustomerId;
@@ -372,11 +375,14 @@ export class SubscriptionsService {
             // Garantir que o cliente exista no Asaas (caso tente comprar avulso sem assinar antes)
             let asaasCustomerId = (user as any).asaasCustomerId;
             if (!asaasCustomerId) {
+                if (!user.document) {
+                    throw new BadRequestException('Você precisa preencher seu CPF/CNPJ no perfil antes de solicitar templates pagos.');
+                }
                 const asaasCustomer = await this.asaasService.createCustomer({
                     name: `${user.firstName} ${user.lastName}`,
                     email: user.email,
                     phone: user.phone,
-                    cpfCnpj: user.document || '00000000000',
+                    cpfCnpj: user.document,
                 });
                 asaasCustomerId = asaasCustomer.id;
                 (user as any).asaasCustomerId = asaasCustomerId;

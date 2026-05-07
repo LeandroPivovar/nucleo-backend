@@ -28,19 +28,19 @@ export class ShopifyConnection {
   accessToken: string; // Token criptografado
 
   @Column({ type: 'text', nullable: true })
-  refreshToken: string; // Token de atualização criptografado
+  refreshToken: string | null; // Token de atualização criptografado
 
   @Column({ type: 'datetime', nullable: true })
-  expiresAt: Date; // Data de expiração do token
+  expiresAt: Date | null; // Data de expiração do token
 
   @Column({ type: 'text', nullable: true })
-  scope: string; // Escopos autorizados
+  scope: string | null; // Escopos autorizados
 
   @Column({ default: true })
   isActive: boolean;
 
   @Column({ type: 'datetime', nullable: true })
-  lastSyncAt: Date;
+  lastSyncAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

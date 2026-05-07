@@ -306,6 +306,8 @@ export class ContactsService {
           status: row.status?.trim() || undefined,
           state: row.state?.trim() || undefined,
           city: row.city?.trim() || undefined,
+          birthDate: row.birthDate?.trim() || undefined,
+          gender: row.gender?.trim() || undefined,
           groupId,
           tagIds: tagIds.length > 0 ? tagIds : undefined,
         };

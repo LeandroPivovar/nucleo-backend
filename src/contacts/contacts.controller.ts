@@ -132,6 +132,8 @@ export class ContactsController {
           tags: getValue('etiquetas'),
           state: getValue('estado'),
           city: getValue('cidade'),
+          birthDate: getValue('data de nascimento'),
+          gender: getValue('gênero'),
           segmentations: getValue('segmentações'),
         });
       }
@@ -175,6 +177,8 @@ export class ContactsController {
           tags: lowerRow['etiquetas'] || undefined,
           state: lowerRow['estado'] || undefined,
           city: lowerRow['cidade'] || undefined,
+          birthDate: lowerRow['data de nascimento'] || undefined,
+          gender: lowerRow['gênero'] || undefined,
           segmentations: lowerRow['segmentações'] || undefined,
         };
       });

@@ -5,6 +5,11 @@ export interface ImportContactRow {
   group?: string;
   status?: string;
   tags?: string; // Separado por ponto e vírgula
+  lastName?: string;
+  company?: string;
+  position?: string;
+  notes?: string;
+  source?: string;
   state?: string;
   city?: string;
   birthDate?: string;

@@ -300,9 +300,13 @@ export class ContactsService {
         // Criar contato
         const createDto: CreateContactDto = {
           name: firstName,
-          lastName,
+          lastName: row.lastName || lastName,
           email: row.email?.trim() || undefined,
           phone: row.phone?.trim() || undefined,
+          company: row.company?.trim() || undefined,
+          position: row.position?.trim() || undefined,
+          notes: row.notes?.trim() || undefined,
+          source: row.source?.trim() || undefined,
           status: row.status?.trim() || undefined,
           state: row.state?.trim() || undefined,
           city: row.city?.trim() || undefined,

@@ -135,6 +135,11 @@ export class ContactsController {
           birthDate: getValue('data de nascimento'),
           gender: getValue('gênero'),
           segmentations: getValue('segmentações'),
+          lastName: getValue('sobrenome'),
+          company: getValue('empresa'),
+          position: getValue('cargo'),
+          notes: getValue('notas'),
+          source: getValue('origem'),
         });
       }
     } else {
@@ -180,6 +185,11 @@ export class ContactsController {
           birthDate: lowerRow['data de nascimento'] || undefined,
           gender: lowerRow['gênero'] || undefined,
           segmentations: lowerRow['segmentações'] || undefined,
+          lastName: lowerRow['sobrenome'] || undefined,
+          company: lowerRow['empresa'] || undefined,
+          position: lowerRow['cargo'] || undefined,
+          notes: lowerRow['notas'] || undefined,
+          source: lowerRow['origem'] || undefined,
         };
       });
     }

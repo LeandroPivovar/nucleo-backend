@@ -12,7 +12,9 @@ import { ShopifyConnection } from '../entities/shopify-connection.entity';
 import { Contact } from '../entities/contact.entity';
 import { Sale } from '../entities/sale.entity';
 import { Product } from '../entities/product.entity';
+import { User } from '../entities/user.entity';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class ShopifyService {
@@ -31,6 +33,8 @@ export class ShopifyService {
     private saleRepository: Repository<Sale>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
     private configService: ConfigService,
   ) {
     this.clientId = this.configService.get<string>('SHOPIFY_CLIENT_ID') || '';
@@ -179,6 +183,71 @@ export class ShopifyService {
 
     return connection;
   }
+
+  /**
+   * Busca uma conexão ativa por domínio da loja (sem depender de userId)
+   */
+  async findActiveConnectionByShop(shop: string): Promise<ShopifyConnection | null> {
+    return await this.shopifyConnectionRepository.findOne({
+      where: { shop, isActive: true },
+    });
+  }
+
+  /**
+   * Busca informações da loja via API da Shopify
+   */
+  async getShopInfo(shop: string, accessToken: string): Promise<any> {
+    const url = `https://${shop}/admin/api/${this.apiVersion}/shop.json`;
+    const response = await fetch(url, {
+      headers: {
+        'X-Shopify-Access-Token': accessToken,
+      },
+    });
+
+    if (!response.ok) {
+      throw new BadRequestException('Falha ao buscar informações da loja');
+    }
+
+    const data = await response.json();
+    return data.shop;
+  }
+
+  /**
+   * Busca ou cria um usuário CRM baseado nos dados da Shopify
+   */
+  async findOrCreateUserFromShopify(shopInfo: any): Promise<User> {
+    const email = shopInfo.email.toLowerCase().trim();
+
+    let user = await this.userRepository.findOne({ where: { email } });
+
+    if (!user) {
+      this.logger.log(`[Shopify Auth] Criando novo usuário para e-mail: ${email}`);
+
+      // Gerar senha aleatória (usuário poderá resetar depois ou entrar via Shopify)
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+      // Gerar referral code e template ID (copiado da logic do AuthService)
+      const referralCode = crypto.randomBytes(4).toString('hex').toUpperCase();
+      const templateId = crypto.randomBytes(2).toString('hex').toUpperCase();
+
+      user = this.userRepository.create({
+        email,
+        password: hashedPassword,
+        firstName: shopInfo.name || shopInfo.shop_owner || 'Shopify',
+        lastName: 'Merchant',
+        active: true, // Auto-ativação via Shopify
+        referralCode,
+        templateId,
+        role: 'user',
+      });
+
+      user = await this.userRepository.save(user);
+    }
+
+    return user;
+  }
+
 
   /**
    * Obtém o token de acesso descriptografado

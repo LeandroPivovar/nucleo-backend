@@ -19,10 +19,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateShopifyConnectionDto } from './dto/create-shopify-connection.dto';
 import { SyncProductsDto } from './dto/sync-products.dto';
 import * as crypto from 'crypto';
+import { JwtService } from '@nestjs/jwt';
 
 @Controller('shopify')
 export class ShopifyController {
-  constructor(private readonly shopifyService: ShopifyService) { }
+  constructor(
+    private readonly shopifyService: ShopifyService,
+    private readonly jwtService: JwtService,
+  ) { }
 
   /**
    * Inicia o fluxo OAuth - retorna a URL de autorização
@@ -69,6 +73,15 @@ export class ShopifyController {
       return res.status(HttpStatus.BAD_REQUEST).send('Parâmetro shop é obrigatório');
     }
 
+    // Verificar se a loja já está conectada
+    const connection = await this.shopifyService.findActiveConnectionByShop(shop);
+    if (connection) {
+      // Já está conectada. Redirecionar para o dashboard no frontend.
+      // Adicionamos parâmetros para o frontend saber que é um acesso via Shopify
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      return res.redirect(`${frontendUrl}/dashboard?shop=${shop}&embedded=true`);
+    }
+
     const state = crypto.randomBytes(32).toString('hex');
     const redirectUri = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/shopify/callback`;
     const authUrl = this.shopifyService.generateAuthUrl(shop, redirectUri, state);
@@ -81,7 +94,6 @@ export class ShopifyController {
    * Nota: Este endpoint requer autenticação, mas o frontend já está autenticado
    */
   @Get('auth/callback')
-  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async callback(
     @Request() req,
@@ -93,26 +105,37 @@ export class ShopifyController {
       throw new Error('Código de autorização ou loja não fornecidos');
     }
 
-    // Trocar código por token
+    // 1. Trocar código por token
     const tokenData = await this.shopifyService.exchangeCodeForToken(
       shop,
       code,
     );
 
-    // Salvar conexão
+    // 2. Buscar informações da loja para identificar o usuário
+    const shopInfo = await this.shopifyService.getShopInfo(shop, tokenData.access_token);
+
+    // 3. Buscar ou criar o usuário CRM baseado no e-mail da loja
+    const user = await this.shopifyService.findOrCreateUserFromShopify(shopInfo);
+
+    // 4. Salvar conexão vinculada a este usuário
     const connection = await this.shopifyService.createOrUpdateConnection(
-      req.user.userId,
+      user.id,
       shop,
       tokenData.access_token,
       tokenData.scope,
     );
 
+    // 5. Gerar token JWT para o CRM
+    const jwtToken = this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
+
+    // Se for um redirecionamento direto (HTML), manda o token na URL
     if (req.headers['accept']?.includes('text/html')) {
-      return (req as any).res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard?shopify_connected=true`);
+      return (req as any).res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/shopify/callback?token=${jwtToken}&shop=${shop}&state=${state}`);
     }
 
     return {
       success: true,
+      token: jwtToken,
       connection: {
         id: connection.id,
         shop: connection.shop,

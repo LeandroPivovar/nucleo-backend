@@ -633,7 +633,8 @@ export class CampaignSchedulerService {
                     }
 
                 }
-                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`);
+                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`)
+                         .replace(/{{nome}}/g, contact.name || 'Cliente');
                 try {
                     await this.emailService.sendEmail({ to: contact.email, subject: node.data?.subject || 'Nova Campanha', html: content, text: content.replace(/<[^>]*>?/gm, '') });
                     stats.sentEmailCount++;
@@ -677,7 +678,8 @@ export class CampaignSchedulerService {
                     }
 
                 }
-                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
+                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`)
+                         .replace(/{{nome}}/g, contact.name || 'Cliente');
                 try {
                     const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
                     if (success) {
@@ -796,6 +798,7 @@ export class CampaignSchedulerService {
                     templateVars['cupom_validade'] = validity;
                 }
                 templateVars['link_rastreio'] = trackUrl;
+                templateVars['nome'] = contact.name || 'Cliente';
 
                 this.logger.log(`[TWILIO TEMPLATE] contentSid: ${contentSid} | vars: ${JSON.stringify(templateVars)}`);
                 success = await this.twilioService.sendWhatsAppTemplate(

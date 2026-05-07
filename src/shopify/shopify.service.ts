@@ -286,6 +286,9 @@ export class ShopifyService {
    * Renova o token de acesso usando o refresh token
    */
   private async refreshAccessToken(connection: ShopifyConnection): Promise<any> {
+    if (!connection.refreshToken) {
+      throw new Error('Refresh token missing');
+    }
     const refreshToken = this.decryptToken(connection.refreshToken);
     
     const response = await fetch(`https://${connection.shop}/admin/oauth/access_token`, {

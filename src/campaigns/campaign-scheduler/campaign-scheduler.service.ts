@@ -788,7 +788,8 @@ export class CampaignSchedulerService {
                             .replace(/{{cupom_nome}}/g, code)
                             .replace(/{{cupom_valor}}/g, valStr)
                             .replace(/{{cupom_validade}}/g, validity)
-                            .replace(/{{link_rastreio}}/g, trackUrl);
+                            .replace(/{{link_rastreio}}/g, trackUrl)
+                            .replace(/{{nome}}/g, contact.name || 'Cliente');
                     }
                 });
 

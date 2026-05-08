@@ -150,6 +150,23 @@ async function bootstrap() {
     logger.error(`Fallback Migration falhou (contacts state): ${err.message}`);
   }
 
+  // AUTO-FIX: Forçar adição de colunas faltantes na tabela shopify_connections
+  try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      ALTER TABLE \`shopify_connections\` 
+      ADD COLUMN \`refreshToken\` text NULL,
+      ADD COLUMN \`expiresAt\` datetime NULL
+    `);
+    logger.log('Fallback Migration: Colunas de token renovável adicionadas a shopify_connections com sucesso.');
+  } catch (err: any) {
+    if (err.code === 'ER_DUP_FIELDNAME') {
+      logger.log('Fallback Migration: Colunas de token já existem em shopify_connections.');
+    } else {
+      logger.error(`Fallback Migration falhou (shopify_connections): ${err.message}`);
+    }
+  }
+
   // Habilitar CORS para o frontend
   app.enableCors({
     origin: (origin, callback) => {

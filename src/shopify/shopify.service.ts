@@ -80,6 +80,7 @@ export class ShopifyService {
           client_id: this.clientId,
           client_secret: this.clientSecret,
           code: code,
+          expiring: true,
         }),
       },
     );

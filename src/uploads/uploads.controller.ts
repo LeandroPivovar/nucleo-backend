@@ -40,7 +40,7 @@ export class UploadsController {
             },
         }),
         limits: {
-            fileSize: 10 * 1024 * 1024, // 10MB
+            fileSize: 5 * 1024 * 1024, // 5MB (Limite rigoroso do WhatsApp para imagens)
         },
     }))
     uploadFile(@UploadedFile() file: Express.Multer.File) {
@@ -71,7 +71,18 @@ export class UploadsController {
         if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
         else if (ext === '.png') contentType = 'image/png';
         else if (ext === '.gif') contentType = 'image/gif';
+        else if (ext === '.webp') contentType = 'image/webp';
         else if (ext === '.mp4') contentType = 'video/mp4';
+        else if (ext === '.pdf') contentType = 'application/pdf';
+        else if (ext === '.doc') contentType = 'application/msword';
+        else if (ext === '.docx') contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        else if (ext === '.pptx') contentType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+        else if (ext === '.xlsx') contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        else if (ext === '.ogg') contentType = 'audio/ogg';
+        else if (ext === '.aac') contentType = 'audio/aac';
+        else if (ext === '.amr') contentType = 'audio/amr';
+        else if (ext === '.mp3') contentType = 'audio/mpeg';
+        else if (ext === '.vcf') contentType = 'text/vcard';
         
         res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Length', stats.size);

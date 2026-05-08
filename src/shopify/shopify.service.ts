@@ -20,7 +20,7 @@ import * as bcrypt from 'bcrypt';
 export class ShopifyService {
   private readonly clientId: string;
   private readonly clientSecret: string;
-  private readonly apiVersion: string = '2024-04';
+  private readonly apiVersion: string = '2024-07';
   private readonly scopes: string = 'write_products,read_orders,read_customers,read_checkouts,write_discounts,read_discounts,write_gift_cards,read_gift_cards';
   private readonly logger = new Logger(ShopifyService.name);
 
@@ -92,9 +92,14 @@ export class ShopifyService {
       );
     }
 
-    this.logger.log(`[Shopify OAuth] Token obtido com sucesso para ${shop}`);
+    const data = await response.json();
+    
+    this.logger.log(`[Shopify OAuth] Token obtido com sucesso para ${shop}. Expiring: ${!!data.expires_in}`);
+    if (!data.expires_in) {
+      this.logger.warn(`[Shopify OAuth] ALERTA: Recebido token permanente (non-expiring). Isso falhará na API 2024-07. Verifique o Partner Dashboard.`);
+    }
 
-    return await response.json();
+    return data;
   }
 
   /**

@@ -69,31 +69,41 @@ export class ShopifyService {
     expires_in?: number;
   }> {
     this.logger.log(`[Shopify OAuth] Trocando código por token para a loja: ${shop}`);
+    const params = new URLSearchParams();
+    params.append('client_id', this.clientId);
+    params.append('client_secret', this.clientSecret);
+    params.append('code', code);
+    params.append('expiring', '1');
+
+    const url = `https://${shop}/admin/oauth/access_token`;
+    this.logger.log(`[Shopify OAuth] POST ${url}`);
+    this.logger.log(`[Shopify OAuth] Payload: ${params.toString().replace(this.clientSecret, '******')}`);
+
     const response = await fetch(
-      `https://${shop}/admin/oauth/access_token`,
+      url,
       {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
         },
-        body: JSON.stringify({
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
-          code: code,
-          expiring: true,
-        }),
+        body: params.toString(),
       },
     );
 
+    const responseText = await response.text();
+    this.logger.log(`[Shopify OAuth] Status: ${response.status} ${response.statusText}`);
+    this.logger.log(`[Shopify OAuth] Raw Response: ${responseText}`);
+
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const error = JSON.parse(responseText || '{}');
       this.logger.error(`[Shopify OAuth] Erro na troca de token para ${shop}: ${response.status} - ${JSON.stringify(error)}`);
       throw new BadRequestException(
         error.error_description || 'Falha ao obter token de acesso',
       );
     }
 
-    const data = await response.json();
+    const data = JSON.parse(responseText);
     
     this.logger.log(`[Shopify OAuth] Token obtido com sucesso para ${shop}. Expiring: ${!!data.expires_in}`);
     if (!data.expires_in) {

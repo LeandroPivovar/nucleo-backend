@@ -20,7 +20,7 @@ import * as bcrypt from 'bcrypt';
 export class ShopifyService {
   private readonly clientId: string;
   private readonly clientSecret: string;
-  private readonly apiVersion: string = '2024-07';
+  private readonly apiVersion: string = '2024-04';
   private readonly scopes: string = 'write_products,read_orders,read_customers,read_checkouts,write_discounts,read_discounts,write_gift_cards,read_gift_cards';
   private readonly logger = new Logger(ShopifyService.name);
 
@@ -229,6 +229,8 @@ export class ShopifyService {
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify ShopInfo] Erro 400 ao buscar dados da loja ${shop}: ${errorText}`);
       throw new BadRequestException('Falha ao buscar informações da loja');
     }
 

@@ -18,7 +18,8 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 // Absolute path to the upload directory
-const uploadDir = join(__dirname, '..', '..', 'uploads', 'campaigns');
+// Absolute path to the upload directory
+const uploadDir = join(process.cwd(), 'uploads', 'campaigns');
 
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
@@ -48,8 +49,6 @@ export class UploadsController {
         }
         this.logger.log(`File uploaded: ${file.filename}`);
 
-        // Using a simple path that will be prefixed by BACKEND_URL in the EmailService
-        // or returned to the frontend as a relative path.
         return {
             url: `/api/uploads/campaign-media/${file.filename}`,
             name: file.originalname,
@@ -60,10 +59,23 @@ export class UploadsController {
     @Get('campaign-media/:filename')
     serveFile(@Param('filename') filename: string, @Res() res: Response) {
         const filePath = join(uploadDir, filename);
+        
         if (!fs.existsSync(filePath)) {
-            throw new BadRequestException('Arquivo não encontrado');
+            this.logger.error(`Arquivo não encontrado: ${filePath}`);
+            return res.status(404).send('Arquivo não encontrado');
         }
-        this.logger.log(`Serving file: ${filename} to ${res.req.ip}`);
+
+        const ext = extname(filename).toLowerCase();
+        let contentType = 'application/octet-stream';
+        if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+        else if (ext === '.png') contentType = 'image/png';
+        else if (ext === '.gif') contentType = 'image/gif';
+        else if (ext === '.mp4') contentType = 'video/mp4';
+        
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        
+        this.logger.log(`Serving file: ${filename} (Type: ${contentType})`);
         return res.sendFile(filename, { root: uploadDir });
     }
 }

@@ -12,6 +12,7 @@ import {
   Headers,
   Req,
   Res,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { ShopifyService } from './shopify.service';
@@ -338,7 +339,7 @@ export class ShopifyController {
     if (!this.shopifyService.verifyWebhookSignature(body, signature, secret)) {
       this.shopifyService['logger'].error(`[Shopify Compliance] Assinatura inválida para tópico: ${topic}`);
       // Shopify exige 401 para assinatura inválida
-      throw new Error('Assinatura inválida');
+      throw new UnauthorizedException('Assinatura inválida');
     }
 
     const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;

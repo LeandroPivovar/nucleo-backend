@@ -25,11 +25,11 @@ if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-@Controller('uploads')
+@Controller('campaign-assets')
 export class UploadsController {
     private readonly logger = new Logger(UploadsController.name);
 
-    @Post('campaign-media')
+    @Post('upload')
     @UseGuards(JwtAuthGuard)
     @UseInterceptors(FileInterceptor('file', {
         storage: diskStorage({
@@ -50,13 +50,13 @@ export class UploadsController {
         this.logger.log(`File uploaded: ${file.filename} to ${file.path}`);
 
         return {
-            url: `/api/uploads/campaign-media/${file.filename}`,
+            url: `/api/campaign-assets/${file.filename}`,
             name: file.originalname,
             type: file.mimetype.startsWith('video/') ? 'video' : 'image'
         };
     }
 
-    @Get('campaign-media/:filename')
+    @Get(':filename')
     serveFile(@Param('filename') filename: string, @Res() res: Response) {
         const filePath = join(uploadDir, filename);
         

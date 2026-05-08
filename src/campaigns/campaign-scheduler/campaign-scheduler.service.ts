@@ -277,6 +277,29 @@ export class CampaignSchedulerService {
         }
 
         this.logger.log(`Iniciando processamento em lote (Batch Size: ${BATCH_SIZE}) para campanha simples [ID: ${campaign.id}]`);
+        
+        // Log template info for debugging media/variables
+        const whatsappNode = simpleNodes.find(n => n.type === 'whatsapp');
+        if (whatsappNode?.data?.contentSid) {
+            try {
+                const verifiedConnection = await this.twilioConnectionsService.getVerifiedConnection(campaign.userId);
+                let twilioCredentials: TwilioCredentials | undefined;
+                if (verifiedConnection) {
+                    twilioCredentials = {
+                        accountSid: verifiedConnection.accountSid,
+                        authToken: this.twilioService.decryptAuthToken(verifiedConnection.authToken),
+                        whatsappFrom: verifiedConnection.whatsappFrom,
+                    };
+                }
+                const tpl = await this.twilioService.getTemplates(twilioCredentials).then(tpls => tpls.find(t => t.sid === whatsappNode.data.contentSid));
+                if (tpl) {
+                    this.logger.log(`[TWILIO TEMPLATE INFO] SID: ${tpl.sid} | Types: ${JSON.stringify(tpl.types)} | Variables: ${JSON.stringify(tpl.variables)}`);
+                }
+            } catch (e) {
+                this.logger.warn(`Erro ao buscar info do template para log: ${e.message}`);
+            }
+        }
+
         for (let i = 0; i < targetContacts.length; i += BATCH_SIZE) {
             const batch = targetContacts.slice(i, i + BATCH_SIZE);
             this.logger.log(`Processando lote ${Math.floor(i / BATCH_SIZE) + 1} (${batch.length} contatos)`);

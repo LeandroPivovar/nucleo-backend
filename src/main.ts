@@ -14,6 +14,14 @@ async function bootstrap() {
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ limit: '50mb', extended: true }));
 
+  // Middleware de log de requisições
+  app.use((req, res, next) => {
+    if (req.url.includes('/uploads/') || req.url.includes('/webhook/')) {
+        console.log(`[REQ] ${req.method} ${req.url} from ${req.ip} - User-Agent: ${req.headers['user-agent']}`);
+    }
+    next();
+  });
+
   // Servir arquivos estáticos da pasta uploads
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',

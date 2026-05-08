@@ -828,12 +828,23 @@ export class CampaignSchedulerService {
                 });
 
                 // Remove empty strings and non-numeric keys to avoid Twilio 400 errors or failures
+                // AND: Ensure media URLs are absolute using backendUrl
                 Object.keys(templateVars).forEach(key => {
                     const isNumeric = !isNaN(Number(key));
-                    const isEmpty = templateVars[key] === '' || templateVars[key] === null || templateVars[key] === undefined;
+                    const value = templateVars[key];
+                    const isEmpty = value === '' || value === null || value === undefined;
                     
                     if (isEmpty || !isNumeric) {
                         delete templateVars[key];
+                    } else if (typeof value === 'string') {
+                        // Se a URL for relativa (começa com /api), torna absoluta
+                        if (value.startsWith('/api/')) {
+                            templateVars[key] = `${backendUrl}${value}`;
+                        }
+                        // Se a URL apontar para localhost mas o backendUrl for diferente (produção), corrige
+                        else if (value.includes('localhost:3000') && !backendUrl.includes('localhost:3000')) {
+                            templateVars[key] = value.replace(/http:\/\/localhost:3000/g, backendUrl);
+                        }
                     }
                 });
 

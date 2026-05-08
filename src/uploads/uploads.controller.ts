@@ -50,13 +50,13 @@ export class UploadsController {
         this.logger.log(`File uploaded: ${file.filename} to ${file.path}`);
 
         return {
-            url: `/api/campaign-assets/${file.filename}`,
+            url: `/api/campaign-assets/${file.filename}/view`,
             name: file.originalname,
             type: file.mimetype.startsWith('video/') ? 'video' : 'image'
         };
     }
 
-    @Get(':filename')
+    @Get(':filename/view')
     serveFile(@Param('filename') filename: string, @Res() res: Response) {
         const filePath = join(uploadDir, filename);
         

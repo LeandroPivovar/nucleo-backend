@@ -801,6 +801,13 @@ export class CampaignSchedulerService {
                 templateVars['link_rastreio'] = trackUrl;
                 templateVars['nome'] = contact.name || 'Cliente';
 
+                // Remove empty strings to avoid Twilio 400 errors (like invalid media URL)
+                Object.keys(templateVars).forEach(key => {
+                    if (templateVars[key] === '' || templateVars[key] === null || templateVars[key] === undefined) {
+                        delete templateVars[key];
+                    }
+                });
+
                 this.logger.log(`[TWILIO TEMPLATE] contentSid: ${contentSid} | vars: ${JSON.stringify(templateVars)}`);
                 success = await this.twilioService.sendWhatsAppTemplate(
                     contact.phone,

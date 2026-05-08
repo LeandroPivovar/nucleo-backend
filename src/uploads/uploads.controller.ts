@@ -63,6 +63,7 @@ export class UploadsController {
         if (!fs.existsSync(filePath)) {
             throw new BadRequestException('Arquivo não encontrado');
         }
+        this.logger.log(`Serving file: ${filename} to ${res.req.ip}`);
         return res.sendFile(filename, { root: uploadDir });
     }
 }

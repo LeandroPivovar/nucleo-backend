@@ -47,7 +47,7 @@ export class UploadsController {
         if (!file) {
             throw new BadRequestException('Nenhum arquivo enviado');
         }
-        this.logger.log(`File uploaded: ${file.filename}`);
+        this.logger.log(`File uploaded: ${file.filename} to ${file.path}`);
 
         return {
             url: `/api/uploads/campaign-media/${file.filename}`,

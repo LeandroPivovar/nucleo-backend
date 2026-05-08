@@ -123,7 +123,8 @@ export class CampaignSchedulerService {
     }
 
     async processCampaign(campaign: Campaign) {
-        this.logger.log(`Iniciando processamento da campanha [ID: ${campaign.id}] - Canal: ${campaign.channel}`);
+        const backendUrl = process.env.BACKEND_URL || 'https://nucleocrm.com.br';
+        this.logger.log(`Iniciando processamento da campanha [ID: ${campaign.id}] - Canal: ${campaign.channel} | Backend URL: ${backendUrl}`);
 
         campaign.status = 'ativa';
         await this.campaignsRepository.save(campaign);

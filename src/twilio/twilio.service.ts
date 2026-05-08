@@ -142,9 +142,10 @@ export class TwilioService {
                 messagePayload.contentVariables = JSON.stringify(variables);
             }
 
+            this.logger.log(`[TWILIO PAYLOAD] ${JSON.stringify(messagePayload)}`);
             const message = await client.messages.create(messagePayload);
 
-            this.logger.log(`[TWILIO] Mensagem enviada com sucesso. SID: ${message.sid}`);
+            this.logger.log(`[TWILIO SUCCESS] SID: ${message.sid} | Status: ${message.status}`);
             return true;
         } catch (error: any) {
             this.logger.error(`[TWILIO] Erro ao enviar template para ${toFormatted}: ${error.message}`);

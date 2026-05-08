@@ -68,6 +68,7 @@ export class ShopifyService {
     refresh_token?: string;
     expires_in?: number;
   }> {
+    this.logger.log(`[Shopify OAuth] Trocando código por token para a loja: ${shop}`);
     const response = await fetch(
       `https://${shop}/admin/oauth/access_token`,
       {
@@ -85,10 +86,13 @@ export class ShopifyService {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
+      this.logger.error(`[Shopify OAuth] Erro na troca de token para ${shop}: ${response.status} - ${JSON.stringify(error)}`);
       throw new BadRequestException(
         error.error_description || 'Falha ao obter token de acesso',
       );
     }
+
+    this.logger.log(`[Shopify OAuth] Token obtido com sucesso para ${shop}`);
 
     return await response.json();
   }
@@ -170,7 +174,15 @@ export class ShopifyService {
       connection.lastSyncAt = new Date();
     }
 
-    return await this.shopifyConnectionRepository.save(connection);
+    this.logger.log(`[Shopify DB] Salvando conexão para userId: ${userId}, shop: ${shop}`);
+    try {
+      const result = await this.shopifyConnectionRepository.save(connection);
+      this.logger.log(`[Shopify DB] Conexão salva com sucesso. ID: ${result.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`[Shopify DB] Erro ao salvar conexão: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   /**
@@ -229,6 +241,7 @@ export class ShopifyService {
    */
   async findOrCreateUserFromShopify(shopInfo: any): Promise<User> {
     const email = shopInfo.email.toLowerCase().trim();
+    this.logger.log(`[Shopify Auth] Buscando ou criando usuário para e-mail: ${email}`);
 
     let user = await this.userRepository.findOne({ where: { email } });
 

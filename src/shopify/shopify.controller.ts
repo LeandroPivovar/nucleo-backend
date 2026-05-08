@@ -70,6 +70,7 @@ export class ShopifyController {
     @Query('shop') shop: string,
     @Res() res: ExpressResponse,
   ) {
+    this.shopifyService['logger'].log(`[Shopify Controller] Iniciando instalação para loja: ${shop}`);
     if (!shop) {
       return res.status(HttpStatus.BAD_REQUEST).send('Parâmetro shop é obrigatório');
     }
@@ -102,6 +103,7 @@ export class ShopifyController {
     @Query('shop') shop: string,
     @Query('state') state: string,
   ) {
+    this.shopifyService['logger'].log(`[Shopify Controller] Callback recebido para loja: ${shop}`);
     if (!code || !shop) {
       throw new Error('Código de autorização ou loja não fornecidos');
     }
@@ -111,6 +113,8 @@ export class ShopifyController {
       shop,
       code,
     );
+
+    this.shopifyService['logger'].log(`[Shopify Controller] Token data recebido para ${shop}: ${JSON.stringify(tokenData)}`);
 
     // 2. Buscar informações da loja para identificar o usuário
     const shopInfo = await this.shopifyService.getShopInfo(shop, tokenData.access_token);

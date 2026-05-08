@@ -231,21 +231,28 @@ export class TwilioService {
         if (!client) return [];
 
         try {
-            this.logger.log(`[TWILIO] Buscando templates do Content API...`);
-            const contents = await client.content.v1.contents.list({ limit: 100 });
+            this.logger.log(`[TWILIO] Buscando templates e status de aprovação do Content API...`);
+            // Usamos contentAndApprovals para obter o status do WhatsApp junto com o conteúdo
+            const contents = await client.content.v1.contentAndApprovals.list({ limit: 100 });
+            
             return contents.map((c: any) => {
-                this.logger.log(`[TWILIO TEMPLATE DEBUG] SID: ${c.sid} | Variables: ${JSON.stringify(c.variables)} | Types: ${JSON.stringify(c.types)}`);
+                const whatsappApproval = c.approvals?.whatsapp || {};
+                const status = whatsappApproval.status || 'unknown';
+                
+                this.logger.log(`[TWILIO TEMPLATE DEBUG] SID: ${c.sid} | Status: ${status} | Variables: ${JSON.stringify(c.variables)}`);
+                
                 return {
                     sid: c.sid,
                     friendlyName: c.friendlyName,
                     variables: c.variables,
                     language: c.language,
                     types: c.types,
-                    status: c.status
+                    status: status, // approved, pending, rejected, unknown
+                    rejectionReason: whatsappApproval.rejection_reason || null
                 };
             });
         } catch (error: any) {
-            this.logger.error(`[TWILIO] Erro ao listar templates: ${error.message}`);
+            this.logger.error(`[TWILIO] Erro ao listar templates com aprovações: ${error.message}`);
             return [];
         }
     }

@@ -623,18 +623,20 @@ export class CampaignSchedulerService {
                     // Replaces variables if present
 
                     const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
-                    content = content.replace(/{{cupom_nome}}/g, code)
-                        .replace(/{{cupom_valor}}/g, valStr)
-                        .replace(/{{cupom_validade}}/g, validity);
 
                     // Auto-append if no variables used
                     if (!hasVariables) {
-                        content += `<br/><br/>CUPOM: ${code}<br/>DESCONTO: ${valStr}<br/>DATA DE VALIDADE: ${validity} dias`;
+                        content += `<br/><br/>CUPOM: ${code}<br/>DESCONTO: ${valStr}<br/>DATA DE VALIDADE: ${validity}`;
                     }
 
                 }
-                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}`)
-                         .replace(/{{nome}}/g, contact.name || 'Cliente');
+                const extraVars: Record<string, string> = {
+                    link_rastreio: `${backendUrl}/api/campaigns/track/${campaign.id}`,
+                    cupom_nome: code,
+                    cupom_valor: valStr,
+                    cupom_validade: validity,
+                };
+                content = this.resolveText(content, contact, extraVars);
                 try {
                     await this.emailService.sendEmail({ to: contact.email, subject: node.data?.subject || 'Nova Campanha', html: content, text: content.replace(/<[^>]*>?/gm, '') });
                     stats.sentEmailCount++;
@@ -669,17 +671,17 @@ export class CampaignSchedulerService {
 
                     const hasVariables = content.includes('{{cupom_nome}}') || content.includes('{{cupom_valor}}');
 
-                    content = content.replace(/{{cupom_nome}}/g, code)
-                        .replace(/{{cupom_valor}}/g, valStr)
-                        .replace(/{{cupom_validade}}/g, validity);
-
                     if (!hasVariables) {
-                        content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity} dias`;
+                        content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity}`;
                     }
-
                 }
-                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`)
-                         .replace(/{{nome}}/g, contact.name || 'Cliente');
+                const extraVars: Record<string, string> = {
+                    link_rastreio: `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`,
+                    cupom_nome: code,
+                    cupom_valor: valStr,
+                    cupom_validade: validity,
+                };
+                content = this.resolveText(content, contact, extraVars);
                 try {
                     const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
                     if (success) {
@@ -784,26 +786,21 @@ export class CampaignSchedulerService {
 
                 Object.keys(templateVars).forEach(key => {
                     if (typeof templateVars[key] === 'string') {
-                        templateVars[key] = templateVars[key]
-                            .replace(/{{cupom_nome}}/g, code)
-                            .replace(/{{cupom_valor}}/g, valStr)
-                            .replace(/{{cupom_validade}}/g, validity)
-                            .replace(/{{link_rastreio}}/g, trackUrl)
-                            .replace(/{{nome}}/g, contact.name || 'Cliente');
+                        templateVars[key] = this.resolveText(templateVars[key], contact, {
+                            cupom_nome: code,
+                            cupom_valor: valStr,
+                            cupom_validade: validity,
+                            link_rastreio: trackUrl
+                        });
                     }
                 });
 
-                if (newActiveCoupon) {
-                    templateVars['cupom_nome'] = code;
-                    templateVars['cupom_valor'] = valStr;
-                    templateVars['cupom_validade'] = validity;
-                }
-                templateVars['link_rastreio'] = trackUrl;
-                templateVars['nome'] = contact.name || 'Cliente';
-
-                // Remove empty strings to avoid Twilio 400 errors (like invalid media URL)
+                // Remove empty strings and non-numeric keys to avoid Twilio 400 errors or failures
                 Object.keys(templateVars).forEach(key => {
-                    if (templateVars[key] === '' || templateVars[key] === null || templateVars[key] === undefined) {
+                    const isNumeric = !isNaN(Number(key));
+                    const isEmpty = templateVars[key] === '' || templateVars[key] === null || templateVars[key] === undefined;
+                    
+                    if (isEmpty || !isNumeric) {
                         delete templateVars[key];
                     }
                 });
@@ -1016,5 +1013,44 @@ export class CampaignSchedulerService {
 
         this.logger.debug(`Condition evaluated: ${condType} for contact ${contact.id} -> Result: ${result}`);
         return result;
+    }
+
+    private resolveText(text: string, contact: Contact, extraVars: Record<string, string>): string {
+        if (!text) return '';
+        let resolved = text;
+
+        // Dynamic Contact fields mapping
+        const contactMap: Record<string, any> = {
+            nome: contact.name,
+            sobrenome: contact.lastName,
+            email: contact.email,
+            telefone: contact.phone,
+            empresa: contact.company,
+            cargo: contact.position,
+            cidade: contact.city,
+            estado: contact.state,
+            id: contact.id,
+            status: contact.status,
+            origem: contact.source,
+            notas: contact.notes,
+        };
+
+        // Extra fields from Contact entity (can be extended here)
+        Object.keys(contactMap).forEach(key => {
+            const val = contactMap[key];
+            const regex = new RegExp(`{{${key}}}`, 'g');
+            // If it's the name and it's missing, use 'Cliente' as fallback
+            const fallback = key === 'nome' ? 'Cliente' : '';
+            resolved = resolved.replace(regex, val || fallback);
+        });
+
+        // Extra variables passed (coupon, tracking, etc)
+        Object.keys(extraVars).forEach(key => {
+            const val = extraVars[key];
+            const regex = new RegExp(`{{${key}}}`, 'g');
+            resolved = resolved.replace(regex, val || '');
+        });
+
+        return resolved;
     }
 }

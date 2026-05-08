@@ -610,13 +610,15 @@ export class CampaignsService {
             const campaignId = Number(query?.campaignId);
             const contactId = Number(query?.contactId);
             const messageSid = payload?.MessageSid || payload?.SmsSid;
+            const errorCode = payload?.ErrorCode;
+            const errorMessage = payload?.ErrorMessage;
 
             if (!campaignId || Number.isNaN(campaignId)) {
                 this.logger.warn(`[TWILIO WEBHOOK] campaignId inválido. status=${messageStatus}, sid=${messageSid || 'N/A'}`);
                 return;
             }
 
-            this.logger.log(`[TWILIO WEBHOOK] campaign=${campaignId}, contact=${contactId || 'N/A'}, status=${messageStatus}, sid=${messageSid || 'N/A'}`);
+            this.logger.log(`[TWILIO WEBHOOK] campaign=${campaignId}, contact=${contactId || 'N/A'}, status=${messageStatus}, sid=${messageSid || 'N/A'}${errorCode ? `, error=${errorCode}` : ''}${errorMessage ? `, msg=${errorMessage}` : ''}`);
 
             const campaign = await this.campaignsRepository.findOne({ where: { id: campaignId } });
             if (!campaign) {

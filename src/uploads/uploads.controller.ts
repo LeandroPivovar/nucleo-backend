@@ -65,6 +65,7 @@ export class UploadsController {
             return res.status(404).send('Arquivo não encontrado');
         }
 
+        const stats = fs.statSync(filePath);
         const ext = extname(filename).toLowerCase();
         let contentType = 'application/octet-stream';
         if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
@@ -73,9 +74,13 @@ export class UploadsController {
         else if (ext === '.mp4') contentType = 'video/mp4';
         
         res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Length', stats.size);
         res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
         
-        this.logger.log(`Serving file: ${filename} (Type: ${contentType})`);
-        return res.sendFile(filename, { root: uploadDir });
+        this.logger.log(`Serving file: ${filename} (${stats.size} bytes) - Type: ${contentType}`);
+        
+        const stream = fs.createReadStream(filePath);
+        stream.pipe(res);
     }
 }

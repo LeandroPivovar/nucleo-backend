@@ -604,12 +604,16 @@ export class CampaignSchedulerService {
             this.logger.log(`[NODE EXECUTING] EMAIL | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Email: ${contact.email}`);
             if (currentEmailsSent < (planEmailsLimit + (user?.extraEmailsBalance || 0))) {
                 let content = node.data?.content || '';
+                let code = '';
+                let valStr = '';
+                let validity = '';
+
                 if (newActiveCoupon) {
                     const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
-                    const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
-                    const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+                    valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                    code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
 
-                    let validity = '';
+                    validity = '';
                     if (newActiveCoupon.validityDate) {
                         try {
                             validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');
@@ -653,12 +657,16 @@ export class CampaignSchedulerService {
             this.logger.log(`[NODE EXECUTING] SMS | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
             if (currentSmsSent < (planSmsLimit + (user?.extraSmsBalance || 0))) {
                 let content = node.data?.content || 'Olá!';
+                let code = '';
+                let valStr = '';
+                let validity = '';
+
                 if (newActiveCoupon) {
                     const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
-                    const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
-                    const code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
+                    valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
+                    code = newActiveCoupon._generatedCode || newActiveCoupon.couponName || 'CUPOM';
 
-                    let validity = '';
+                    validity = '';
                     if (newActiveCoupon.validityDate) {
                         try {
                             validity = format(new Date(newActiveCoupon.validityDate), 'dd/MM/yyyy');

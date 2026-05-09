@@ -720,8 +720,10 @@ export class CampaignSchedulerService {
                         content += `\n\nCUPOM: ${code}\nDESCONTO: ${valStr}\nDATA DE VALIDADE: ${validity}`;
                     }
                 }
+                const nodeDest = node.data?.destinationUrl || campaign.config?.tracking?.destinationUrl || '';
+                const trackingUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}${nodeDest ? `&dest=${encodeURIComponent(nodeDest)}` : ''}`;
                 const extraVars: Record<string, string> = {
-                    link_rastreio: `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`,
+                    link_rastreio: trackingUrl,
                     cupom_nome: code,
                     cupom_valor: valStr,
                     cupom_validade: validity,
@@ -786,7 +788,9 @@ export class CampaignSchedulerService {
                     }
                 }
 
-                content = content.replace(/{{link_rastreio}}/g, `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`);
+                const nodeDest = node.data?.destinationUrl || campaign.config?.tracking?.destinationUrl || '';
+                const trackingUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}${nodeDest ? `&dest=${encodeURIComponent(nodeDest)}` : ''}`;
+                content = content.replace(/{{link_rastreio}}/g, trackingUrl);
 
                 // Sempre usar Twilio para Campanhas
                 const verifiedConnection = await this.twilioConnectionsService.getVerifiedConnection(campaign.userId);
@@ -811,7 +815,8 @@ export class CampaignSchedulerService {
                 let code = 'CUPOM';
                 let valStr = '0';
                 let validity = '30 dias';
-                const trackUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`;
+                const nodeDest = node.data?.destinationUrl || campaign.config?.tracking?.destinationUrl || '';
+                const trackUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}${nodeDest ? `&dest=${encodeURIComponent(nodeDest)}` : ''}`;
 
                 if (newActiveCoupon) {
                     const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';

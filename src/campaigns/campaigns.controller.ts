@@ -147,11 +147,12 @@ export class CampaignsTrackingController {
     async track(
         @Param('id') id: string,
         @Query('contactId') contactId: string,
+        @Query('dest') dest: string,
         @Res() res: any
     ) {
         try {
             const campaign = await this.campaignsService.trackClick(+id, contactId ? +contactId : undefined);
-            let destination = campaign.config?.tracking?.destinationUrl || '/';
+            let destination = dest || campaign.config?.tracking?.destinationUrl || '/';
 
             // Normalizar URL de destino (garantir protocolo)
             if (destination !== '/') {

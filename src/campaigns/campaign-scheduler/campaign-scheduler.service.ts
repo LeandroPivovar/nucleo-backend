@@ -659,7 +659,7 @@ export class CampaignSchedulerService {
 
                 }
                 const extraVars: Record<string, string> = {
-                    link_rastreio: `${backendUrl}/api/campaigns/track/${campaign.id}`,
+                    link_rastreio: `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}`,
                     cupom_nome: code,
                     cupom_valor: valStr,
                     cupom_validade: validity,

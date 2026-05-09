@@ -151,7 +151,28 @@ export class CampaignsTrackingController {
     ) {
         try {
             const campaign = await this.campaignsService.trackClick(+id, contactId ? +contactId : undefined);
-            const destination = campaign.config?.tracking?.destinationUrl || '/';
+            let destination = campaign.config?.tracking?.destinationUrl || '/';
+
+            // Normalizar URL de destino (garantir protocolo)
+            if (destination !== '/') {
+                if (!destination.startsWith('http')) {
+                    destination = `https://${destination}`;
+                }
+
+                // Adicionar UTMs se configurado
+                const tracking = campaign.config?.tracking;
+                if (tracking) {
+                    try {
+                        const url = new URL(destination);
+                        if (tracking.utmSource) url.searchParams.append('utm_source', tracking.utmSource);
+                        if (tracking.utmMedium) url.searchParams.append('utm_medium', tracking.utmMedium);
+                        if (tracking.utmCampaign) url.searchParams.append('utm_campaign', tracking.utmCampaign);
+                        destination = url.toString();
+                    } catch (e) {
+                        console.error('Erro ao processar URL de destino com UTMs:', e);
+                    }
+                }
+            }
 
             if (res && typeof res.redirect === 'function') {
                 return res.redirect(destination);

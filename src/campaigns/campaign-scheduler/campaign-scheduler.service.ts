@@ -665,8 +665,21 @@ export class CampaignSchedulerService {
                     cupom_validade: validity,
                 };
                 content = this.resolveText(content, contact, extraVars);
+
+                // Coletar mídias do nó para anexar
+                const attachments = (node.data?.media || []).map((m: any) => ({
+                    filename: m.name,
+                    path: m.url
+                }));
+
                 try {
-                    await this.emailService.sendEmail({ to: contact.email, subject: node.data?.subject || 'Nova Campanha', html: content, text: content.replace(/<[^>]*>?/gm, '') });
+                    await this.emailService.sendEmail({ 
+                        to: contact.email, 
+                        subject: node.data?.subject || 'Nova Campanha', 
+                        html: content, 
+                        text: content.replace(/<[^>]*>?/gm, ''),
+                        attachments
+                    });
                     stats.sentEmailCount++;
                     usage.emailsSent = (Number(usage.emailsSent) || 0) + 1;
                     await this.userUsageRepository.save(usage);

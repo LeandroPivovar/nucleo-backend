@@ -761,6 +761,9 @@ export class CampaignSchedulerService {
             
             if (isUnlimited || currentWhatsappSent < planWhatsappLimit || (user?.extraWhatsappBalance || 0) > 0) {
                 let content = node.data?.content || 'Olá!';
+                const nodeDest = node.data?.destinationUrl || campaign.config?.tracking?.destinationUrl || '';
+                const trackUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}${nodeDest ? `&dest=${encodeURIComponent(nodeDest)}` : ''}`;
+
                 if (newActiveCoupon) {
                     const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';
                     const valStr = newActiveCoupon.discountType === 'percentage' ? `${val}%` : `R$ ${val}`;
@@ -788,9 +791,7 @@ export class CampaignSchedulerService {
                     }
                 }
 
-                const nodeDest = node.data?.destinationUrl || campaign.config?.tracking?.destinationUrl || '';
-                const trackingUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}${nodeDest ? `&dest=${encodeURIComponent(nodeDest)}` : ''}`;
-                content = content.replace(/{{link_rastreio}}/g, trackingUrl);
+                content = content.replace(/{{link_rastreio}}/g, trackUrl);
 
                 // Sempre usar Twilio para Campanhas
                 const verifiedConnection = await this.twilioConnectionsService.getVerifiedConnection(campaign.userId);
@@ -815,8 +816,6 @@ export class CampaignSchedulerService {
                 let code = 'CUPOM';
                 let valStr = '0';
                 let validity = '30 dias';
-                const nodeDest = node.data?.destinationUrl || campaign.config?.tracking?.destinationUrl || '';
-                const trackUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}${nodeDest ? `&dest=${encodeURIComponent(nodeDest)}` : ''}`;
 
                 if (newActiveCoupon) {
                     const val = newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0';

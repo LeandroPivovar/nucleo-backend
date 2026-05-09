@@ -840,14 +840,13 @@ export class CampaignSchedulerService {
                     }
                 });
 
-                // Remove empty strings and non-numeric keys to avoid Twilio 400 errors or failures
+                // Remove empty strings to avoid Twilio 400 errors or failures
                 // AND: Ensure media URLs are absolute using backendUrl
                 Object.keys(templateVars).forEach(key => {
-                    const isNumeric = !isNaN(Number(key));
                     const value = templateVars[key];
                     const isEmpty = value === '' || value === null || value === undefined;
                     
-                    if (isEmpty || !isNumeric) {
+                    if (isEmpty) {
                         delete templateVars[key];
                     } else if (typeof value === 'string') {
                         // Se a URL for relativa (começa com /api), torna absoluta

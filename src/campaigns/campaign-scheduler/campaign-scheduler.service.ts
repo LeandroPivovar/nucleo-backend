@@ -1369,13 +1369,23 @@ export class CampaignSchedulerService {
             const query = this.saleRepository.createQueryBuilder('sale')
                 .where('sale.contactId = :contactId', { contactId: contact.id });
 
-            // Atribuir à campanha se:
-            // 1. A venda está explicitamente ligada à campanha
-            // 2. A venda foi feita após o início da campanha
-            query.andWhere('(sale.campaignId = :campaignId OR sale.createdAt >= :campaignDate)', {
-                campaignId,
-                campaignDate: campaign.createdAt
+            // Verificar se esta é a última campanha ativa do usuário
+            const latestCampaign = await this.campaignsRepository.findOne({
+                where: { userId: campaign.userId },
+                order: { createdAt: 'DESC' },
             });
+            const isLatestCampaign = latestCampaign?.id === campaignId;
+
+            if (isLatestCampaign) {
+                // Última campanha: aceitar vendas vinculadas por cupom OU por data (sem cupom)
+                query.andWhere('(sale.campaignId = :campaignId OR sale.createdAt >= :campaignDate)', {
+                    campaignId,
+                    campaignDate: campaign.createdAt
+                });
+            } else {
+                // Campanhas anteriores: só aceitar vendas explicitamente vinculadas via cupom
+                query.andWhere('sale.campaignId = :campaignId', { campaignId });
+            }
 
             if (condType === 'product_purchased' && node.data?.productId) {
                 query.andWhere('sale.productId = :productId', { productId: node.data.productId });

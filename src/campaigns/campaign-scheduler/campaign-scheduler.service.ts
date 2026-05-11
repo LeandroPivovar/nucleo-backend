@@ -373,11 +373,14 @@ export class CampaignSchedulerService {
                 order: { createdAt: 'DESC' },
             });
 
-            // 2. Buscar vendas recentes sem campaignId
+            // 2. Buscar vendas sem campaignId (olhando até 24h atrás para garantir que nada escape)
+            const twentyFourHoursAgo = new Date();
+            twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+
             const recentSales = await this.saleRepository
                 .createQueryBuilder('sale')
                 .where('sale.userId = :userId', { userId })
-                .andWhere('sale.createdAt >= :sinceDate', { sinceDate })
+                .andWhere('sale.createdAt >= :sinceDate', { sinceDate: twentyFourHoursAgo })
                 .andWhere('sale.campaignId IS NULL')
                 .getMany();
 

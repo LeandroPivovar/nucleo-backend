@@ -258,11 +258,10 @@ export class CampaignSchedulerService {
         }
 
         // --- Simple Campaign Logic (Sequential) ---
-        // If simple nodes are empty, synthesize them from campaign config
-        let simpleNodes = campaign.config?.workflow?.nodes || [];
-        if (simpleNodes.length === 0) {
-            this.logger.log(`Campanha simples sem nós definidos. Sintetizando nós a partir da configuração básica.`);
-            if (campaign.config?.campaignConfig?.enableCoupon) {
+        // Se a campanha é simples, os nós devem ser gerados dinamicamente a partir das configurações básicas (mesmo que haja nós de rascunho vazados do frontend).
+        let simpleNodes: any[] = [];
+        this.logger.log(`Campanha simples: Sintetizando nós a partir da configuração básica.`);
+        if (campaign.config?.campaignConfig?.enableCoupon) {
                 simpleNodes.push({ type: 'coupon', data: campaign.config.campaignConfig.coupon });
             }
             if (campaign.config?.campaignConfig?.enableGiftback) {
@@ -279,7 +278,6 @@ export class CampaignSchedulerService {
                     destinationUrl: campaign.config.tracking?.destinationUrl
                 }
             });
-        }
 
         this.logger.log(`Iniciando processamento em lote (Batch Size: ${BATCH_SIZE}) para campanha simples [ID: ${campaign.id}]`);
         

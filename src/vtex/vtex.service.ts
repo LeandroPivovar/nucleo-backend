@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -15,6 +16,7 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class VtexService {
+  private readonly logger = new Logger(VtexService.name);
   private readonly encryptionKey: string;
 
   constructor(

@@ -18,9 +18,13 @@ import { ShopifyService } from '../../shopify/shopify.service';
 import { NuvemshopService } from '../../nuvemshop/nuvemshop.service';
 import { LojaIntegradaService } from '../../loja-integrada/loja-integrada.service';
 import { VtexService } from '../../vtex/vtex.service';
+import { TrayService } from '../../tray/tray.service';
 import { CampaignQueue } from '../../entities/campaign-queue.entity';
 import { ShopifyConnection } from '../../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../../entities/nuvemshop-connection.entity';
+import { LojaIntegradaConnection } from '../../entities/loja-integrada-connection.entity';
+import { VtexConnection } from '../../entities/vtex-connection.entity';
+import { TrayConnection } from '../../entities/tray-connection.entity';
 import { CampaignClick } from '../../entities/campaign-click.entity';
 import { CampaignCoupon } from '../../entities/campaign-coupon.entity';
 import { addMinutes, addHours, addDays, format } from 'date-fns';
@@ -59,6 +63,7 @@ export class CampaignSchedulerService {
         private nuvemshopService: NuvemshopService,
         private lojaIntegradaService: LojaIntegradaService,
         private vtexService: VtexService,
+        private trayService: TrayService,
         private configService: ConfigService
     ) { }
 
@@ -522,7 +527,12 @@ export class CampaignSchedulerService {
             this.logger.log(`[NODE EXECUTING] ${node.type.toUpperCase()} | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
             newActiveCoupon = { ...node.data, _type: node.type };
             
-                if (node.type === 'giftback') {
+            const days = parseInt(node.data?.expirationDays || '30');
+            const endsAt = new Date();
+            endsAt.setDate(endsAt.getDate() + days);
+            const endsAtIso = endsAt.toISOString();
+
+            if (node.type === 'giftback') {
                 const val = node.data?.giftValue || node.data?.giftbackValue || '0';
 
                 if (shopifyConnection) {

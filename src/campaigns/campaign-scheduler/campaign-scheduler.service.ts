@@ -352,12 +352,24 @@ export class CampaignSchedulerService {
         let nuvemshopConnection: NuvemshopConnection | null = null;
         try { nuvemshopConnection = await this.nuvemshopService.getActiveConnection(campaign.userId); } catch (e) { }
 
+        let lojaIntegradaConnection: LojaIntegradaConnection | null = null;
+        try { lojaIntegradaConnection = await this.lojaIntegradaService.getActiveConnection(campaign.userId); } catch (e) { }
+
+        let vtexConnection: VtexConnection | null = null;
+        try { vtexConnection = await this.vtexService.getActiveConnection(campaign.userId); } catch (e) { }
+
+        let trayConnection: TrayConnection | null = null;
+        try { trayConnection = await this.trayService.getActiveConnection(campaign.userId); } catch (e) { }
+
         return {
             usage,
             subscription,
             user,
             shopifyConnection,
             nuvemshopConnection,
+            lojaIntegradaConnection,
+            vtexConnection,
+            trayConnection,
             planEmailsLimit: subscription?.plan?.limits?.emails || 0,
             planSmsLimit: subscription?.plan?.limits?.sms || 0,
             planWhatsappLimit: subscription?.plan?.limits?.whatsappLimit || 0,
@@ -499,26 +511,24 @@ export class CampaignSchedulerService {
     }
 
     private async processSingleNode(campaign: Campaign, contact: Contact, node: any, context: any, activeCoupon: any, stats: any) {
-        const { usage, user, shopifyConnection, nuvemshopConnection, planEmailsLimit, planSmsLimit, backendUrl } = context;
+        const { usage, user, shopifyConnection, nuvemshopConnection, lojaIntegradaConnection, vtexConnection, trayConnection, planEmailsLimit, planSmsLimit, backendUrl } = context;
         let newActiveCoupon = activeCoupon;
 
         const currentEmailsSent = Number(usage.emailsSent) || 0;
         const currentSmsSent = Number(usage.smsSent) || 0;
         const currentWhatsappSent = Number(usage.whatsappSent) || 0;
 
-        if (node.type === 'coupon' || node.type === 'giftback') {
+        if (node.type === 'coupon' || node.type === 'giftback' || node.type === 'shipping_coupon') {
             this.logger.log(`[NODE EXECUTING] ${node.type.toUpperCase()} | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
             newActiveCoupon = { ...node.data, _type: node.type };
-            if (node.type === 'giftback') {
+            
+                if (node.type === 'giftback') {
                 const val = node.data?.giftValue || node.data?.giftbackValue || '0';
-                const days = parseInt(node.data?.expirationDays || '30');
-                const endsAt = new Date();
-                endsAt.setDate(endsAt.getDate() + days);
 
                 if (shopifyConnection) {
                     try {
                         this.logger.log(`[GIFTCARD] Gerando via Shopify para contato ${contact.id}`);
-                        const gc = await this.shopifyService.createGiftCard(campaign.userId, shopifyConnection.shop, { initialValue: val, note: 'GIFTBACK', endsAt: endsAt.toISOString() });
+                        const gc = await this.shopifyService.createGiftCard(campaign.userId, shopifyConnection.shop, { initialValue: val, note: 'GIFTBACK', endsAt: endsAtIso });
                         newActiveCoupon._generatedCode = gc.code;
                         this.logger.log(`[GIFTCARD] Código gerado: ${gc.code}`);
                     } catch (e) {
@@ -528,18 +538,113 @@ export class CampaignSchedulerService {
                     try {
                         this.logger.log(`[COUPON] Gerando via Nuvemshop para contato ${contact.id}`);
                         const code = `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-                        await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAt.toISOString(), max_uses: 1 });
+                        await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: 1 });
                         newActiveCoupon._generatedCode = code;
                         this.logger.log(`[COUPON] Código gerado: ${code}`);
                     } catch (e) {
                         this.logger.error(`[COUPON] Erro ao gerar via Nuvemshop: ${e.message}`);
                     }
+                } else if (vtexConnection) {
+                    try {
+                        this.logger.log(`[COUPON/VTEX] Gerando cupom via VTEX para contato ${contact.id}`);
+                        const code = `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                        await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, {
+                            couponCode: code,
+                            utmSource: 'nucleo-crm',
+                            utmCampaign: campaign.id.toString()
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[COUPON/VTEX] Erro ao gerar via VTEX: ${e.message}`);
+                    }
+                } else {
+                    // Loja Integrada giftback (como cupom fixo)
+                    try {
+                        const liConn = lojaIntegradaConnection || await this.lojaIntegradaService.getActiveConnection(campaign.userId);
+                        if (liConn) {
+                            this.logger.log(`[GIFTCARD/COUPON] Gerando via Loja Integrada para contato ${contact.id}`);
+                            const code = `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                            await this.lojaIntegradaService.createCoupon(campaign.userId, {
+                                codigo: code,
+                                tipo: 'fixo',
+                                validade: endsAtIso,
+                                valor_minimo: '0',
+                                quantidade: 1,
+                                quantidade_por_cliente: 1,
+                                descricao: 'GIFTBACK'
+                            });
+                            newActiveCoupon._generatedCode = code;
+                        }
+                    } catch (e) {
+                        this.logger.error(`[GIFTCARD/COUPON] Erro ao gerar via Loja Integrada: ${e.message}`);
+                    }
+                }
+            } else if (node.type === 'coupon') {
+                const val = node.data?.discountValue || '0';
+                const type = node.data?.discountType || 'percentage'; // 'percentage' | 'fixed'
+                const code = node.data?.couponName || `CUPOM_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                
+                if (shopifyConnection) {
+                    try {
+                        this.logger.log(`[COUPON] Gerando via Shopify para contato ${contact.id}`);
+                        await this.shopifyService.createDiscountCode(campaign.userId, shopifyConnection.shop, {
+                            title: 'Campanha CRM',
+                            code,
+                            value: val,
+                            valueType: type === 'percentage' ? 'percentage' : 'fixed',
+                            endsAt: endsAtIso
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[COUPON] Erro ao gerar via Shopify: ${e.message}`);
+                    }
+                } else if (nuvemshopConnection) {
+                    try {
+                        this.logger.log(`[COUPON] Gerando via Nuvemshop para contato ${contact.id}`);
+                        await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, {
+                            code,
+                            type: type === 'percentage' ? 'percentage' : 'absolute',
+                            value: val,
+                            start_date: new Date().toISOString(),
+                            end_date: endsAtIso,
+                            max_uses: 1
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[COUPON] Erro ao gerar via Nuvemshop: ${e.message}`);
+                    }
+                } else if (vtexConnection) {
+                    try {
+                        this.logger.log(`[COUPON/VTEX] Gerando cupom via VTEX para contato ${contact.id}`);
+                        await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, {
+                            couponCode: code,
+                            utmSource: 'nucleo-crm',
+                            utmCampaign: campaign.id.toString()
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[COUPON/VTEX] Erro ao gerar via VTEX: ${e.message}`);
+                    }
+                } else {
+                    try {
+                        const liConn = lojaIntegradaConnection || await this.lojaIntegradaService.getActiveConnection(campaign.userId);
+                        if (liConn) {
+                            this.logger.log(`[COUPON] Gerando via Loja Integrada para contato ${contact.id}`);
+                            await this.lojaIntegradaService.createCoupon(campaign.userId, {
+                                codigo: code,
+                                tipo: type === 'percentage' ? 'porcentagem' : 'fixo',
+                                validade: endsAtIso,
+                                quantidade: 1,
+                                quantidade_por_cliente: 1
+                            });
+                            newActiveCoupon._generatedCode = code;
+                        }
+                    } catch (e) {
+                        this.logger.error(`[COUPON] Erro ao gerar via Loja Integrada: ${e.message}`);
+                    }
                 }
             } else if (node.type === 'shipping_coupon') {
                 const code = node.data?.code || `FRETE_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-                const days = parseInt(node.data?.expirationDays || '30');
-                const endsAt = new Date();
-                endsAt.setDate(endsAt.getDate() + days);
 
                 if (shopifyConnection) {
                     try {
@@ -547,7 +652,7 @@ export class CampaignSchedulerService {
                         await this.shopifyService.createFreeShippingDiscountCode(campaign.userId, shopifyConnection.shop, {
                             title: 'FRETE GRÁTIS',
                             code,
-                            endsAt: endsAt.toISOString(),
+                            endsAt: endsAtIso,
                             minimumSubtotal: node.data?.minPurchaseValue || '0',
                             usageLimit: 1
                         });
@@ -562,7 +667,7 @@ export class CampaignSchedulerService {
                             code,
                             type: 'shipping',
                             start_date: new Date().toISOString(),
-                            end_date: endsAt.toISOString(),
+                            end_date: endsAtIso,
                             min_price: node.data?.minPurchaseValue || 0,
                             max_uses: 1,
                             only_cheapest_shipping: true
@@ -571,16 +676,28 @@ export class CampaignSchedulerService {
                     } catch (e) {
                         this.logger.error(`[SHIPPING_COUPON] Erro ao gerar via Nuvemshop: ${e.message}`);
                     }
+                } else if (vtexConnection) {
+                    try {
+                        this.logger.log(`[SHIPPING_COUPON/VTEX] Gerando cupom via VTEX para contato ${contact.id}`);
+                        await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, {
+                            couponCode: code,
+                            utmSource: 'nucleo-crm',
+                            utmCampaign: campaign.id.toString()
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[SHIPPING_COUPON/VTEX] Erro ao gerar via VTEX: ${e.message}`);
+                    }
                 } else {
                     // Loja Integrada (via Active Connection)
                     try {
-                        const liConn = await this.lojaIntegradaService.getActiveConnection(campaign.userId);
+                        const liConn = lojaIntegradaConnection || await this.lojaIntegradaService.getActiveConnection(campaign.userId);
                         if (liConn) {
                             this.logger.log(`[SHIPPING_COUPON] Gerando via Loja Integrada para contato ${contact.id}`);
                             await this.lojaIntegradaService.createCoupon(campaign.userId, {
                                 codigo: code,
                                 tipo: 'frete_gratis',
-                                validade: endsAt.toISOString(),
+                                validade: endsAtIso,
                                 valor_minimo: node.data?.minPurchaseValue || '0',
                                 quantidade: 1,
                                 quantidade_por_cliente: 1
@@ -596,11 +713,7 @@ export class CampaignSchedulerService {
             // Persistir o cupom gerado ou definido no banco de dados para segmentação
             if (newActiveCoupon && (newActiveCoupon._generatedCode || newActiveCoupon.couponName)) {
                 try {
-                    const endsAt = newActiveCoupon.validityDate ? new Date(newActiveCoupon.validityDate) : new Date();
-                    if (!newActiveCoupon.validityDate) {
-                        const days = parseInt(newActiveCoupon.expirationDays || '30');
-                        endsAt.setDate(endsAt.getDate() + days);
-                    }
+                    const couponEndsAt = newActiveCoupon.validityDate ? new Date(newActiveCoupon.validityDate) : endsAt;
 
                     await this.campaignCouponRepository.save({
                         userId: campaign.userId,
@@ -608,11 +721,11 @@ export class CampaignSchedulerService {
                         contactId: contact.id,
                         name: newActiveCoupon.couponName || (node.type === 'giftback' ? 'Giftback' : (node.type === 'shipping_coupon' ? 'Frete Grátis' : 'Cupom')),
                         code: newActiveCoupon._generatedCode || newActiveCoupon.couponName,
-                        platform: shopifyConnection ? 'shopify' : (nuvemshopConnection ? 'nuvemshop' : (context.lojaIntegradaConnection ? 'loja_integrada' : 'internal')),
+                        platform: shopifyConnection ? 'shopify' : (nuvemshopConnection ? 'nuvemshop' : (lojaIntegradaConnection ? 'loja_integrada' : (vtexConnection ? 'vtex' : (trayConnection ? 'tray' : 'internal')))),
                         value: parseFloat(newActiveCoupon.discountValue || newActiveCoupon.giftValue || newActiveCoupon.giftbackValue || '0'),
                         type: newActiveCoupon.discountType || (node.type === 'giftback' ? 'absolute' : (node.type === 'shipping_coupon' ? 'shipping' : 'percentage')),
                         startsAt: new Date(),
-                        endsAt: endsAt
+                        endsAt: couponEndsAt
                     });
 
                     this.logger.log(`[COUPON SAVE] Cupom salvo para contato ${contact.id}: ${newActiveCoupon._generatedCode || newActiveCoupon.couponName}`);

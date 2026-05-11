@@ -288,6 +288,11 @@ export class VtexService {
     const credentials = await this.getCredentials(userId, accountName);
     const baseUrl = this.getApiBaseUrl(credentials.accountName);
 
+    this.logger.log(`[VTEX API Request] ${options.method || 'GET'} ${baseUrl}${endpoint}`);
+    if (options.body) {
+        this.logger.debug(`[VTEX API Payload] ${options.body}`);
+    }
+
     const response = await fetch(`${baseUrl}${endpoint}`, {
       ...options,
       headers: {
@@ -302,11 +307,14 @@ export class VtexService {
     if (!response.ok) {
       if (response.status === 404) return null;
       const errorText = await response.text();
+      this.logger.error(`[VTEX API Error] ${options.method || 'GET'} ${endpoint} - Status: ${response.status}`, errorText);
       throw new Error(`Erro na VTEX (${response.status}): ${errorText}`);
     }
 
     if (response.status === 204) return null;
-    return await response.json();
+    const data = await response.json();
+    this.logger.debug(`[VTEX API Response] ${JSON.stringify(data).substring(0, 1000)}${JSON.stringify(data).length > 1000 ? '...' : ''}`);
+    return data;
   }
 
   /**

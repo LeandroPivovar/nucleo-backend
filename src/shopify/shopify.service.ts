@@ -1299,30 +1299,7 @@ export class ShopifyService {
       } as any;
     }
 
-    const response = await fetch(
-      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken,
-        },
-        body: JSON.stringify({
-          query: mutation,
-          variables,
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      throw new BadRequestException('Falha ao criar código de desconto na Shopify');
-    }
-
-    const result = await response.json();
-
-    if (result.errors) {
-      throw new BadRequestException(result.errors[0].message);
-    }
+    const result = await this.makeGraphqlRequest(shop, accessToken, mutation, variables);
 
     if (result.data?.discountCodeBasicCreate?.userErrors?.length > 0) {
       // Se for duplicado, podemos não lançar erro (apenas ignorar) ou tratar
@@ -1408,30 +1385,7 @@ export class ShopifyService {
       }
     };
 
-    const response = await fetch(
-      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken,
-        },
-        body: JSON.stringify({
-          query: mutation,
-          variables,
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      throw new BadRequestException('Falha ao criar código de frete grátis na Shopify');
-    }
-
-    const result = await response.json();
-
-    if (result.errors) {
-      throw new BadRequestException(result.errors[0].message);
-    }
+    const result = await this.makeGraphqlRequest(shop, accessToken, mutation, variables);
 
     if (result.data?.discountCodeFreeShippingCreate?.userErrors?.length > 0) {
       const errorMessage = result.data.discountCodeFreeShippingCreate.userErrors[0].message;
@@ -1477,26 +1431,7 @@ export class ShopifyService {
       }
     };
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': accessToken,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      this.logger.error(`[Shopify REST] Erro ao criar Gift Card: ${JSON.stringify(errorData)}`);
-      throw new BadRequestException(
-        typeof errorData.errors === 'string'
-          ? errorData.errors
-          : JSON.stringify(errorData.errors) || 'Falha ao criar Gift Card na Shopify (REST API)'
-      );
-    }
-
-    const result = await response.json();
+    const result = await this.makeRestRequest(shop, accessToken, '/gift_cards.json', 'POST', body);
 
     if (!result.gift_card || !result.gift_card.code) {
       throw new BadRequestException('Código do Gift Card não retornado pela Shopify.');
@@ -1646,6 +1581,67 @@ export class ShopifyService {
       checkouts,
       products,
     };
+  }
+
+  private async makeGraphqlRequest(shop: string, accessToken: string, query: string, variables?: any): Promise<any> {
+    const url = `https://${shop}/admin/api/${this.apiVersion}/graphql.json`;
+    
+    this.logger.log(`[Shopify GraphQL Request] POST ${url}`);
+    this.logger.debug(`[Shopify GraphQL Query] ${query.substring(0, 500)}${query.length > 500 ? '...' : ''}`);
+    if (variables) {
+      this.logger.debug(`[Shopify GraphQL Variables] ${JSON.stringify(variables)}`);
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken,
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify GraphQL Error] Status: ${response.status}`, errorText);
+      throw new BadRequestException(`Falha na API da Shopify: ${response.status}`);
+    }
+
+    const data = await response.json();
+    this.logger.debug(`[Shopify GraphQL Response] ${JSON.stringify(data).substring(0, 1000)}${JSON.stringify(data).length > 1000 ? '...' : ''}`);
+    return data;
+  }
+
+  private async makeRestRequest(shop: string, accessToken: string, path: string, method: string = 'GET', body?: any): Promise<any> {
+    const url = `https://${shop}/admin/api/${this.apiVersion}${path}`;
+    
+    this.logger.log(`[Shopify REST Request] ${method} ${url}`);
+    if (body) {
+      this.logger.debug(`[Shopify REST Payload] ${JSON.stringify(body)}`);
+    }
+
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken,
+      },
+      ...(body && { body: JSON.stringify(body) }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      this.logger.error(`[Shopify REST Error] ${method} ${path} - Status: ${response.status}`, errorData);
+      throw new BadRequestException(
+        typeof errorData.errors === 'string'
+          ? errorData.errors
+          : JSON.stringify(errorData.errors) || `Erro na API REST da Shopify (${response.status})`
+      );
+    }
+
+    const data = await response.json();
+    this.logger.debug(`[Shopify REST Response] ${JSON.stringify(data).substring(0, 1000)}${JSON.stringify(data).length > 1000 ? '...' : ''}`);
+    return data;
   }
 }
 

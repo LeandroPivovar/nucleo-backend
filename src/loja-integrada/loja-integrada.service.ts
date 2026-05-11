@@ -124,15 +124,23 @@ export class LojaIntegradaService {
             options.body = JSON.stringify(body);
         }
 
+        this.logger.log(`[Loja Integrada API Request] ${method} ${url.toString()}`);
+        if (body) {
+            this.logger.debug(`[Loja Integrada API Payload] ${JSON.stringify(body)}`);
+        }
+
         const response = await fetch(url.toString(), options);
 
         if (!response.ok) {
             const error = await response.text();
-            this.logger.error(`[Loja Integrada] Erro na requisição ${method} ${endpoint}: ${error}`);
+            this.logger.error(`[Loja Integrada API Error] ${method} ${endpoint}: ${error}`);
             throw new BadRequestException(`Falha na comunicação com a Loja Integrada: ${error}`);
         }
 
-        return await response.json();
+        const data = await response.json();
+        this.logger.debug(`[Loja Integrada API Response] ${JSON.stringify(data).substring(0, 1000)}${JSON.stringify(data).length > 1000 ? '...' : ''}`);
+        
+        return data;
     }
 
     /**

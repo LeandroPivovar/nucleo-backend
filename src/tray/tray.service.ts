@@ -234,4 +234,8 @@ export class TrayService {
     this.logger.log(`[Tray Sync] Sincronizando clientes para ${connection.shopUrl}...`);
     return { imported: 0 };
   }
+
+  async getActiveConnection(userId: number): Promise<TrayConnection | null> {
+    return await this.trayConnectionRepository.findOne({ where: { userId, isActive: true } });
+  }
 }

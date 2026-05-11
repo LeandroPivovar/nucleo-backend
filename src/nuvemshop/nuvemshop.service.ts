@@ -600,7 +600,11 @@ export class NuvemshopService {
       options.body = JSON.stringify(body);
     }
 
-    console.log(`[Nuvemshop API Request] ${method} ${url}`);
+    this.logger.log(`[Nuvemshop API Request] ${method} ${url}`);
+    if (body) {
+        this.logger.debug(`[Nuvemshop API Payload] ${JSON.stringify(body)}`);
+    }
+
     const response = await fetch(url, options);
 
     if (!response.ok) {
@@ -612,11 +616,11 @@ export class NuvemshopService {
         error = { message: errorText || `Falha na requisição para ${path}` };
       }
 
-      console.error(`[Nuvemshop API Error] ${method} ${url} - Status: ${response.status}`, error);
+      this.logger.error(`[Nuvemshop API Error] ${method} ${url} - Status: ${response.status}`, error);
 
       // Tratar erro 404 de página inexistente ou loja sem dados (paginação)
       if (ignorePagination404 && response.status === 404 && (error.description?.includes('Last page is') || error.message?.includes('Last page is'))) {
-        console.log(`[Nuvemshop API] Página não encontrada (fim dos dados ou lista vazia). Retornando array vazio.`);
+        this.logger.log(`[Nuvemshop API] Página não encontrada (fim dos dados ou lista vazia). Retornando array vazio.`);
         return [];
       }
 
@@ -628,6 +632,8 @@ export class NuvemshopService {
     }
 
     const data = await response.json();
+    this.logger.debug(`[Nuvemshop API Response] ${JSON.stringify(data).substring(0, 1000)}${JSON.stringify(data).length > 1000 ? '...' : ''}`);
+
     if (Array.isArray(data)) return data;
     if (data.products && Array.isArray(data.products)) return data.products;
     if (data.data && Array.isArray(data.data)) return data.data;

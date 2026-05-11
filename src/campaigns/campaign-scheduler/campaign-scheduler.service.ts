@@ -27,7 +27,17 @@ import { VtexConnection } from '../../entities/vtex-connection.entity';
 import { TrayConnection } from '../../entities/tray-connection.entity';
 import { CampaignClick } from '../../entities/campaign-click.entity';
 import { CampaignCoupon } from '../../entities/campaign-coupon.entity';
-import { addMinutes, addHours, addDays, format } from 'date-fns';
+import { addMinutes, addHours, addDays, format, differenceInDays } from 'date-fns';
+
+/** Tipos de condição que envolvem verificação de pedidos/compras */
+const ORDER_CONDITION_TYPES = [
+    'order_placed',
+    'product_purchased',
+    'order_delivered',
+    'order_cancelled',
+    'order_awaiting_payment',
+    'payment_method',
+];
 
 
 @Injectable()
@@ -95,13 +105,14 @@ export class CampaignSchedulerService {
         this.logger.debug('Checking for delayed workflows to resume...');
 
         const now = new Date();
-        const pendingQueue = await this.campaignQueueRepository.find({
-            where: {
-                status: 'pending',
-                resumeAt: LessThanOrEqual(now),
-            },
-            relations: ['campaign', 'contact']
-        });
+        const pendingQueue = await this.campaignQueueRepository
+            .createQueryBuilder('q')
+            .leftJoinAndSelect('q.campaign', 'campaign')
+            .leftJoinAndSelect('q.contact', 'contact')
+            .where('(q.type = :type OR q.type IS NULL)', { type: 'delay' })
+            .andWhere('q.status = :status', { status: 'pending' })
+            .andWhere('q.resumeAt <= :now', { now })
+            .getMany();
 
         if (pendingQueue.length === 0) return;
 
@@ -124,6 +135,271 @@ export class CampaignSchedulerService {
                 item.status = 'failed';
                 await this.campaignQueueRepository.save(item);
             }
+        }
+    }
+
+    /**
+     * Polling de pedidos para campanhas avançadas.
+     * Roda a cada 2 minutos e processa apenas itens do tipo 'order_wait'.
+     * Intervalos decrescentes baseados no tempo desde o início da campanha.
+     */
+    @Cron('*/2 * * * *')
+    async processOrderWaitQueue() {
+        const now = new Date();
+
+        const pendingItems = await this.campaignQueueRepository.find({
+            where: {
+                type: 'order_wait',
+                status: 'pending',
+                resumeAt: LessThanOrEqual(now),
+            },
+            relations: ['campaign', 'contact'],
+        });
+
+        if (pendingItems.length === 0) return;
+
+        this.logger.log(`[ORDER_WAIT] Verificando ${pendingItems.length} contatos aguardando pedidos...`);
+
+        // Agrupar por userId para sincronizar vendas uma vez por usuário
+        const userIds = [...new Set(pendingItems.map(i => i.userId))];
+        for (const userId of userIds) {
+            await this.syncNewSalesForUser(userId, now);
+        }
+
+        for (const item of pendingItems) {
+            try {
+                await this.processOrderWaitItem(item, now);
+            } catch (err: any) {
+                this.logger.error(`[ORDER_WAIT] Erro ao processar item ${item.id}: ${err.message}`, err.stack);
+            }
+        }
+    }
+
+    private async processOrderWaitItem(item: CampaignQueue, now: Date): Promise<void> {
+        const startedAt = item.campaignStartedAt || item.createdAt;
+        const daysSinceStart = differenceInDays(now, startedAt);
+
+        // Expirar após 30 dias — tomar branch false (se existir) ou encerrar
+        if (daysSinceStart >= 30) {
+            this.logger.log(`[ORDER_WAIT] Item ${item.id} expirado após ${daysSinceStart} dias. Tomando branch false ou encerrando.`);
+            item.status = 'expired';
+            await this.campaignQueueRepository.save(item);
+            // Recarregar campanha para garantir config atualizada no resumeFlow
+            const expiredCampaign = await this.campaignsRepository.findOne({ where: { id: item.campaignId } });
+            if (expiredCampaign) item.campaign = expiredCampaign;
+            await this.resumeOrderWaitFlow(item, false);
+            return;
+        }
+
+        // Calcular próximo intervalo de checagem
+        let nextIntervalMinutes: number;
+        if (daysSinceStart < 1) {
+            nextIntervalMinutes = 2;
+        } else if (daysSinceStart < 7) {
+            nextIntervalMinutes = 60; // 1 hora
+        } else {
+            nextIntervalMinutes = 720; // 12 horas
+        }
+
+        // Recarregar campanha do banco para garantir config atualizada
+        const freshCampaign = await this.campaignsRepository.findOne({ where: { id: item.campaignId } });
+        if (!freshCampaign) {
+            this.logger.warn(`[ORDER_WAIT] Campanha ${item.campaignId} não encontrada para item ${item.id}. Encerrando.`);
+            item.status = 'failed';
+            await this.campaignQueueRepository.save(item);
+            return;
+        }
+        // Usar campanha atualizada para lookup do nó
+        const conditionNode = freshCampaign.config?.workflow?.nodes?.find(
+            (n: any) => n.id === item.waitingNodeId
+        );
+
+        if (!conditionNode || !item.contact) {
+            this.logger.warn(`[ORDER_WAIT] Dados insuficientes para item ${item.id} (nó: ${item.waitingNodeId}). Encerrando.`);
+            item.status = 'failed';
+            await this.campaignQueueRepository.save(item);
+            return;
+        }
+
+        const conditionMet = await this.evaluateCondition(conditionNode, item.contact, freshCampaign, item.eventContext);
+
+        if (conditionMet) {
+            this.logger.log(`[ORDER_WAIT] Condição satisfeita para contato ${item.contact.id} na campanha ${freshCampaign.id}. Retomando fluxo pelo branch TRUE.`);
+            item.status = 'processing';
+            await this.campaignQueueRepository.save(item);
+            // Substituir item.campaign pela versão fresca para o resumeFlow
+            item.campaign = freshCampaign;
+            await this.resumeOrderWaitFlow(item, true);
+            item.status = 'completed';
+            await this.campaignQueueRepository.save(item);
+        } else {
+            // Reagendar para próxima verificação
+            item.lastCheckedAt = now;
+            item.resumeAt = addMinutes(now, nextIntervalMinutes);
+            await this.campaignQueueRepository.save(item);
+            this.logger.debug(`[ORDER_WAIT] Condição não satisfeita para contato ${item.contact.id}. Próxima checagem em ${nextIntervalMinutes}min.`);
+        }
+    }
+
+    /** Retoma o fluxo a partir do próximo nó após o nó de condição (pelo branch true ou false). */
+    private async resumeOrderWaitFlow(item: CampaignQueue, conditionResult: boolean): Promise<void> {
+        try {
+            const campaign = item.campaign;
+            const contact = item.contact;
+            if (!campaign || !contact) return;
+
+            const edges = campaign.config?.workflow?.edges || [];
+            const nodes = campaign.config?.workflow?.nodes || [];
+            const condNodeId = item.waitingNodeId;
+
+            const matchingEdge = edges.find(
+                (e: any) => e.source === condNodeId && e.sourceHandle === (conditionResult ? 'true' : 'false')
+            );
+
+            if (!matchingEdge) {
+                this.logger.log(`[ORDER_WAIT] Nenhuma edge '${conditionResult ? 'true' : 'false'}' encontrada para nó ${condNodeId}. Fluxo encerrado para contato ${contact.id}.`);
+                return;
+            }
+
+            const nextNode = nodes.find((n: any) => n.id === matchingEdge.target);
+            if (!nextNode) {
+                this.logger.log(`[ORDER_WAIT] Próximo nó ${matchingEdge.target} não encontrado. Fluxo encerrado para contato ${contact.id}.`);
+                return;
+            }
+
+            this.logger.log(`[ORDER_WAIT] Retomando fluxo para contato ${contact.id} no nó ${nextNode.id} (${nextNode.type}).`);
+            const context = await this.getExecutionContext(campaign);
+            await this.traverseAndExecute(campaign, contact, nextNode, context, item.eventContext, undefined, 0, {});
+        } catch (err: any) {
+            this.logger.error(`[ORDER_WAIT] Erro ao retomar fluxo para item ${item.id}: ${err.message}`, err.stack);
+        }
+    }
+
+    /**
+     * Sincroniza novas vendas (desde lastCheckedAt) para um usuário,
+     * associando-as à campanha via couponCode.
+     */
+    private async syncNewSalesForUser(userId: number, now: Date): Promise<void> {
+        try {
+            // Buscar a data da última checagem mais antiga entre os itens pendentes deste usuário
+            const oldestItem = await this.campaignQueueRepository.findOne({
+                where: { userId, type: 'order_wait', status: 'pending' },
+                order: { lastCheckedAt: 'ASC' },
+            });
+            // Fallback seguro: se não houver registro ou datas nulas, usar 5 minutos atrás
+            const sinceDate = (oldestItem?.lastCheckedAt instanceof Date && !isNaN(oldestItem.lastCheckedAt.getTime()))
+                ? oldestItem.lastCheckedAt
+                : (oldestItem?.createdAt instanceof Date && !isNaN(oldestItem.createdAt.getTime()))
+                    ? oldestItem.createdAt
+                    : new Date(now.getTime() - 5 * 60 * 1000);
+
+            this.logger.debug(`[ORDER_WAIT] Sincronizando vendas do usuário ${userId} desde ${sinceDate.toISOString()}`);
+
+            const syncPromises: Promise<any>[] = [];
+
+            try {
+                const shopifyConn = await this.shopifyService.getActiveConnection(userId);
+                if (shopifyConn) {
+                    syncPromises.push(
+                        this.shopifyService.syncOrders(userId, shopifyConn.shop)
+                            .catch(e => this.logger.warn(`[ORDER_WAIT] Shopify sync: ${e.message}`))
+                    );
+                }
+            } catch (_) {}
+
+            try {
+                const nuvemConn = await this.nuvemshopService.getActiveConnection(userId);
+                if (nuvemConn) {
+                    syncPromises.push(
+                        this.nuvemshopService.syncOrders(userId, nuvemConn.storeId)
+                            .catch(e => this.logger.warn(`[ORDER_WAIT] Nuvemshop sync: ${e.message}`))
+                    );
+                }
+            } catch (_) {}
+
+            try {
+                const liConn = await this.lojaIntegradaService.getActiveConnection(userId);
+                if (liConn) {
+                    syncPromises.push(
+                        this.lojaIntegradaService.syncOrders(userId)
+                            .catch(e => this.logger.warn(`[ORDER_WAIT] LojaIntegrada sync: ${e.message}`))
+                    );
+                }
+            } catch (_) {}
+
+            try {
+                const vtexConn = await this.vtexService.getActiveConnection(userId);
+                if (vtexConn) {
+                    syncPromises.push(
+                        this.vtexService.syncOrders(userId, vtexConn.accountName)
+                            .catch(e => this.logger.warn(`[ORDER_WAIT] VTEX sync: ${e.message}`))
+                    );
+                }
+            } catch (_) {}
+
+            if (syncPromises.length > 0) {
+                await Promise.allSettled(syncPromises);
+            }
+
+            // Associar novas vendas às campanhas via cupom
+            await this.associateSalesToCampaignsByCoupon(userId, sinceDate);
+
+        } catch (err: any) {
+            this.logger.warn(`[ORDER_WAIT] Erro ao sincronizar vendas do usuário ${userId}: ${err.message}`);
+        }
+    }
+
+    /**
+     * Verifica se novas vendas (com couponCode) correspondem a cupons de campanhas ativas
+     * e as associa (seta campaignId) na tabela sales.
+     */
+    private async associateSalesToCampaignsByCoupon(userId: number, sinceDate: Date): Promise<void> {
+        try {
+            // Buscar vendas recentes sem campaignId mas com couponCode
+            const recentSales = await this.saleRepository
+                .createQueryBuilder('sale')
+                .where('sale.userId = :userId', { userId })
+                .andWhere('sale.createdAt >= :sinceDate', { sinceDate })
+                .andWhere('sale.couponCode IS NOT NULL')
+                .andWhere('sale.campaignId IS NULL')
+                .getMany();
+
+            if (recentSales.length === 0) return;
+
+            // Buscar cupons ativos das campanhas deste usuário
+            const couponCodes = [...new Set(recentSales.map(s => s.couponCode).filter((c): c is string => !!c))];
+            if (couponCodes.length === 0) return; // Guarda contra IN() vazio que quebra no TypeORM
+
+            const campaignCoupons = await this.campaignCouponRepository
+                .createQueryBuilder('cc')
+                .where('cc.userId = :userId', { userId })
+                .andWhere('cc.code IN (:...codes)', { codes: couponCodes })
+                .getMany();
+
+            if (campaignCoupons.length === 0) return;
+
+            // Mapa: código → campaignId
+            const couponToCampaign = new Map<string, number>();
+            const couponToContact = new Map<string, number>();
+            for (const cc of campaignCoupons) {
+                couponToCampaign.set(cc.code, cc.campaignId);
+                couponToContact.set(cc.code, cc.contactId);
+            }
+
+            for (const sale of recentSales) {
+                const campaignId = couponToCampaign.get(sale.couponCode);
+                if (campaignId) {
+                    sale.campaignId = campaignId;
+                    // Associar contactId se ainda não tiver
+                    if (!sale.contactId) {
+                        sale.contactId = couponToContact.get(sale.couponCode) ?? sale.contactId;
+                    }
+                    await this.saleRepository.save(sale);
+                    this.logger.log(`[ORDER_WAIT] Venda ${sale.id} associada à campanha ${campaignId} via cupom '${sale.couponCode}'.`);
+                }
+            }
+        } catch (err: any) {
+            this.logger.warn(`[ORDER_WAIT] Erro ao associar vendas via cupom: ${err.message}`);
         }
     }
 
@@ -471,7 +747,8 @@ export class CampaignSchedulerService {
                     delayNodeId: currentNode.id,
                     resumeAt,
                     eventContext,
-                    status: 'pending'
+                    status: 'pending',
+                    type: 'delay',  // garantir que o campo type seja preenchido
                 });
                 this.logger.log(`Paused workflow for contact ${contact.id} at node ${currentNode.id}. Resume: ${resumeAt}`);
                 return;
@@ -516,7 +793,37 @@ export class CampaignSchedulerService {
 
             let nextNodeId: string | undefined;
             if (currentNode.type === 'condition') {
+                const condType: string | undefined = currentNode.data?.conditionType || currentNode.data?.type;
                 const conditionResult = await this.evaluateCondition(currentNode, contact, campaign, eventContext);
+
+                // Verificar se condição de pedido falhou e não há branch false conectado
+                if (!conditionResult && condType && ORDER_CONDITION_TYPES.includes(condType)) {
+                    const hasFalseBranch = edges.some(
+                        (e: any) => e.source === currentNode.id && e.sourceHandle === 'false'
+                    );
+
+                    if (!hasFalseBranch) {
+                        // Enfileirar para polling — aguardar o pedido acontecer
+                        const now = new Date();
+                        const resumeAt = addMinutes(now, 2);
+                        await this.campaignQueueRepository.save({
+                            userId: campaign.userId,
+                            campaign,
+                            contact,
+                            delayNodeId: currentNode.id,
+                            waitingNodeId: currentNode.id,
+                            resumeAt,
+                            campaignStartedAt: now,
+                            lastCheckedAt: now,
+                            eventContext: { ...(eventContext || {}), waitingFor: condType },
+                            status: 'pending',
+                            type: 'order_wait',
+                        });
+                        this.logger.log(`[ORDER_WAIT] Contato ${contact.id} enfileirado aguardando pedido (${condType}) na campanha ${campaign.id}. Próxima checagem em 2 min.`);
+                        return; // Pausar o fluxo — será retomado pelo processOrderWaitQueue
+                    }
+                }
+
                 const matchingEdge = edges.find((e: any) => e.source === currentNode.id && e.sourceHandle === (conditionResult ? 'true' : 'false'));
                 nextNodeId = matchingEdge?.target;
                 this.logger.debug(`[FLOW] Condition ${currentNode.id} result: ${conditionResult}. Next node: ${nextNodeId || 'NONE'}`);

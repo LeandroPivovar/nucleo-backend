@@ -236,6 +236,33 @@ export class CampaignSchedulerService {
         campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
         await this.campaignsRepository.save(campaign);
 
+        // Pre-generate coupons if needed (Single coupon per campaign run)
+        const preGeneratedCoupons: Record<string, string> = {};
+        
+        // Helper to synthesize nodes for simple campaigns to check for coupon needs
+        let nodesToCheck: any[] = [];
+        if (campaign.complexity === 'simple') {
+            if (campaign.config?.campaignConfig?.enableCoupon) nodesToCheck.push({ id: 'simple-coupon', type: 'coupon', data: campaign.config.campaignConfig.coupon });
+            if (campaign.config?.campaignConfig?.enableGiftback) nodesToCheck.push({ id: 'simple-giftback', type: 'giftback', data: campaign.config.campaignConfig.giftback });
+            if (campaign.config?.campaignConfig?.enableShippingCoupon) nodesToCheck.push({ id: 'simple-shipping', type: 'shipping_coupon', data: campaign.config.campaignConfig.shippingCoupon });
+        } else {
+            nodesToCheck = campaign.config?.workflow?.nodes || [];
+        }
+
+        for (const node of nodesToCheck) {
+            if (node.type === 'coupon' || node.type === 'giftback' || node.type === 'shipping_coupon') {
+                try {
+                    const code = await this.generateSharedCoupon(campaign, node, targetContacts.length, context);
+                    if (code) {
+                        preGeneratedCoupons[node.id] = code;
+                        this.logger.log(`[COUPON PRE-GEN] Gerado código compartilhado para nó ${node.id} (${node.type}): ${code} (Limite: ${targetContacts.length})`);
+                    }
+                } catch (e) {
+                    this.logger.error(`[COUPON PRE-GEN] Erro ao gerar código compartilhado para nó ${node.id}: ${e.message}`);
+                }
+            }
+        }
+
         if (campaign.complexity === 'advanced' || campaign.complexity === 'predefined') {
             const nodes = campaign.config?.workflow?.nodes || [];
             const edges = campaign.config?.workflow?.edges || [];
@@ -250,7 +277,7 @@ export class CampaignSchedulerService {
                 for (const startNodeId of startNodeIds) {
                     const node = nodes.find(n => n.id === startNodeId);
                     if (node) {
-                        await this.traverseAndExecute(campaign, contact, node, context);
+                        await this.traverseAndExecute(campaign, contact, node, context, undefined, undefined, 0, preGeneratedCoupons);
                     }
                 }
             }
@@ -258,26 +285,26 @@ export class CampaignSchedulerService {
         }
 
         // --- Simple Campaign Logic (Sequential) ---
-        // Se a campanha é simples, os nós devem ser gerados dinamicamente a partir das configurações básicas (mesmo que haja nós de rascunho vazados do frontend).
         let simpleNodes: any[] = [];
         this.logger.log(`Campanha simples: Sintetizando nós a partir da configuração básica.`);
         if (campaign.config?.campaignConfig?.enableCoupon) {
-                simpleNodes.push({ type: 'coupon', data: campaign.config.campaignConfig.coupon });
+            simpleNodes.push({ id: 'simple-coupon', type: 'coupon', data: campaign.config.campaignConfig.coupon });
+        }
+        if (campaign.config?.campaignConfig?.enableGiftback) {
+            simpleNodes.push({ id: 'simple-giftback', type: 'giftback', data: campaign.config.campaignConfig.giftback });
+        }
+        if (campaign.config?.campaignConfig?.enableShippingCoupon) {
+            simpleNodes.push({ id: 'simple-shipping', type: 'shipping_coupon', data: campaign.config.campaignConfig.shippingCoupon });
+        }
+        // Adiciona o nó principal da mensagem
+        simpleNodes.push({
+            id: 'simple-message',
+            type: campaign.channel,
+            data: {
+                ...campaign.config.email,
+                destinationUrl: campaign.config.tracking?.destinationUrl
             }
-            if (campaign.config?.campaignConfig?.enableGiftback) {
-                simpleNodes.push({ type: 'giftback', data: campaign.config.campaignConfig.giftback });
-            }
-            if (campaign.config?.campaignConfig?.enableShippingCoupon) {
-                simpleNodes.push({ type: 'shipping_coupon', data: campaign.config.campaignConfig.shippingCoupon });
-            }
-            // Adiciona o nó principal da mensagem
-            simpleNodes.push({
-                type: campaign.channel,
-                data: {
-                    ...campaign.config.email,
-                    destinationUrl: campaign.config.tracking?.destinationUrl
-                }
-            });
+        });
 
         this.logger.log(`Iniciando processamento em lote (Batch Size: ${BATCH_SIZE}) para campanha simples [ID: ${campaign.id}]`);
         
@@ -393,7 +420,7 @@ export class CampaignSchedulerService {
         }
     }
 
-    private async traverseAndExecute(campaign: Campaign, contact: Contact, startNode: any, context: any, eventContext?: any, activeCoupon?: any, depth = 0) {
+    private async traverseAndExecute(campaign: Campaign, contact: Contact, startNode: any, context: any, eventContext?: any, activeCoupon?: any, depth = 0, preGeneratedCoupons: Record<string, string> = {}) {
         if (depth > 50) return;
 
         const nodes = campaign.config?.workflow?.nodes || [];
@@ -467,7 +494,7 @@ export class CampaignSchedulerService {
                     if (adjNode && (adjNode.type === 'coupon' || adjNode.type === 'giftback')) {
                         this.logger.log(`[COUPON LOOK-AHEAD] Found ${adjNode.type} node (${adjId}) adjacent to ${currentNode.type} node (${currentNode.id}) for contact ${contact.id}`);
                         // Pre-process the coupon node to populate currentActiveCoupon
-                        const couponResult = await this.processSingleNode(campaign, contact, adjNode, context, null, stats);
+                        const couponResult = await this.processSingleNode(campaign, contact, adjNode, context, null, stats, preGeneratedCoupons);
                         if (couponResult.activeCoupon) {
                             currentActiveCoupon = couponResult.activeCoupon;
                             preProcessedNodeIds.add(adjId); // mark as already processed
@@ -483,7 +510,7 @@ export class CampaignSchedulerService {
             if (preProcessedNodeIds.has(currentNode.id)) {
                 this.logger.debug(`[FLOW] Skipping node ${currentNode.id} (${currentNode.type}) — already executed by look-ahead`);
             } else {
-                const result = await this.processSingleNode(campaign, contact, currentNode, context, currentActiveCoupon, stats);
+                const result = await this.processSingleNode(campaign, contact, currentNode, context, currentActiveCoupon, stats, preGeneratedCoupons);
                 if (result.activeCoupon) currentActiveCoupon = result.activeCoupon;
             }
 
@@ -513,7 +540,7 @@ export class CampaignSchedulerService {
         }
     }
 
-    private async processSingleNode(campaign: Campaign, contact: Contact, node: any, context: any, activeCoupon: any, stats: any) {
+    private async processSingleNode(campaign: Campaign, contact: Contact, node: any, context: any, activeCoupon: any, stats: any, preGeneratedCoupons: Record<string, string> = {}) {
         const { usage, user, shopifyConnection, nuvemshopConnection, lojaIntegradaConnection, vtexConnection, trayConnection, planEmailsLimit, planSmsLimit, backendUrl } = context;
         let newActiveCoupon = activeCoupon;
 
@@ -530,8 +557,12 @@ export class CampaignSchedulerService {
             endsAt.setDate(endsAt.getDate() + days);
             const endsAtIso = endsAt.toISOString();
 
-            if (node.type === 'giftback') {
+            if (preGeneratedCoupons[node.id]) {
+                newActiveCoupon._generatedCode = preGeneratedCoupons[node.id];
+                this.logger.debug(`[COUPON] Usando código compartilhado para nó ${node.id}: ${newActiveCoupon._generatedCode}`);
+            } else if (node.type === 'giftback') {
                 const val = node.data?.giftValue || node.data?.giftbackValue || '0';
+                const giftbackPrefix = node.data?.couponName || 'GIFT';
 
                 if (shopifyConnection) {
                     try {
@@ -545,7 +576,7 @@ export class CampaignSchedulerService {
                 } else if (nuvemshopConnection) {
                     try {
                         this.logger.log(`[COUPON] Gerando via Nuvemshop para contato ${contact.id}`);
-                        const code = `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                        const code = `${giftbackPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                         await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: 1 });
                         newActiveCoupon._generatedCode = code;
                         this.logger.log(`[COUPON] Código gerado: ${code}`);
@@ -555,7 +586,7 @@ export class CampaignSchedulerService {
                 } else if (vtexConnection) {
                     try {
                         this.logger.log(`[COUPON/VTEX] Gerando cupom via VTEX para contato ${contact.id}`);
-                        const code = `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                        const code = `${giftbackPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                         await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, {
                             couponCode: code,
                             utmSource: 'nucleo-crm',
@@ -571,7 +602,7 @@ export class CampaignSchedulerService {
                         const liConn = lojaIntegradaConnection || await this.lojaIntegradaService.getActiveConnection(campaign.userId);
                         if (liConn) {
                             this.logger.log(`[GIFTCARD/COUPON] Gerando via Loja Integrada para contato ${contact.id}`);
-                            const code = `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                            const code = `${giftbackPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                             await this.lojaIntegradaService.createCoupon(campaign.userId, {
                                 codigo: code,
                                 tipo: 'fixo',
@@ -590,7 +621,8 @@ export class CampaignSchedulerService {
             } else if (node.type === 'coupon') {
                 const val = node.data?.discountValue || '0';
                 const type = node.data?.discountType || 'percentage'; // 'percentage' | 'fixed'
-                const code = node.data?.couponName || `CUPOM_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                const couponPrefix = node.data?.couponName || 'CUPOM';
+                const code = `${couponPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                 
                 if (shopifyConnection) {
                     try {
@@ -652,7 +684,8 @@ export class CampaignSchedulerService {
                     }
                 }
             } else if (node.type === 'shipping_coupon') {
-                const code = node.data?.code || `FRETE_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                const shippingPrefix = node.data?.code || 'FRETE';
+                const code = `${shippingPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
                 if (shopifyConnection) {
                     try {
@@ -1232,5 +1265,70 @@ export class CampaignSchedulerService {
         });
 
         return resolved;
+    }
+    
+    private async generateSharedCoupon(campaign: Campaign, node: any, recipientsCount: number, context: any): Promise<string | null> {
+        const { shopifyConnection, nuvemshopConnection, lojaIntegradaConnection, vtexConnection } = context;
+        const days = parseInt(node.data?.expirationDays || '30');
+        const endsAt = new Date();
+        endsAt.setDate(endsAt.getDate() + days);
+        const endsAtIso = endsAt.toISOString();
+
+        if (node.type === 'giftback') {
+            const val = node.data?.giftValue || node.data?.giftbackValue || '0';
+            const giftbackPrefix = node.data?.couponName || 'GIFT';
+            const code = `${giftbackPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+            if (shopifyConnection) {
+                const gc = await this.shopifyService.createGiftCard(campaign.userId, shopifyConnection.shop, { initialValue: val, note: 'GIFTBACK SHARED', endsAt: endsAtIso });
+                return gc.code;
+            } else if (nuvemshopConnection) {
+                await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: recipientsCount });
+                return code;
+            } else if (vtexConnection) {
+                await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, { couponCode: code, utmSource: 'nucleo-crm', utmCampaign: campaign.id.toString() });
+                return code;
+            } else if (lojaIntegradaConnection) {
+                await this.lojaIntegradaService.createCoupon(campaign.userId, { codigo: code, tipo: 'fixo', validade: endsAtIso, valor_minimo: '0', quantidade: recipientsCount, quantidade_por_cliente: 1, descricao: 'GIFTBACK SHARED' });
+                return code;
+            }
+        } else if (node.type === 'coupon') {
+            const val = node.data?.discountValue || '0';
+            const type = node.data?.discountType || 'percentage';
+            const couponPrefix = node.data?.couponName || 'CUPOM';
+            const code = `${couponPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+            if (shopifyConnection) {
+                await this.shopifyService.createDiscountCode(campaign.userId, shopifyConnection.shop, { title: 'Campanha CRM', code, value: val, valueType: type === 'percentage' ? 'percentage' : 'fixed', endsAt: endsAtIso });
+                return code;
+            } else if (nuvemshopConnection) {
+                await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: type === 'percentage' ? 'percentage' : 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: recipientsCount });
+                return code;
+            } else if (vtexConnection) {
+                await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, { couponCode: code, utmSource: 'nucleo-crm', utmCampaign: campaign.id.toString() });
+                return code;
+            } else if (lojaIntegradaConnection) {
+                await this.lojaIntegradaService.createCoupon(campaign.userId, { codigo: code, tipo: type === 'percentage' ? 'porcentagem' : 'fixo', validade: endsAtIso, quantidade: recipientsCount, quantidade_por_cliente: 1 });
+                return code;
+            }
+        } else if (node.type === 'shipping_coupon') {
+            const shippingPrefix = node.data?.code || 'FRETE';
+            const code = `${shippingPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+            if (shopifyConnection) {
+                await this.shopifyService.createFreeShippingDiscountCode(campaign.userId, shopifyConnection.shop, { title: 'FRETE GRÁTIS', code, endsAt: endsAtIso, minimumSubtotal: node.data?.minPurchaseValue || '0', usageLimit: recipientsCount });
+                return code;
+            } else if (nuvemshopConnection) {
+                await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'shipping', start_date: new Date().toISOString(), end_date: endsAtIso, min_price: node.data?.minPurchaseValue || 0, max_uses: recipientsCount, only_cheapest_shipping: true });
+                return code;
+            } else if (vtexConnection) {
+                await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, { couponCode: code, utmSource: 'nucleo-crm', utmCampaign: campaign.id.toString() });
+                return code;
+            } else if (lojaIntegradaConnection) {
+                await this.lojaIntegradaService.createCoupon(campaign.userId, { codigo: code, tipo: 'frete_gratis', validade: endsAtIso, valor_minimo: node.data?.minPurchaseValue || '0', quantidade: recipientsCount, quantidade_por_cliente: 1 });
+                return code;
+            }
+        }
+        return null;
     }
 }

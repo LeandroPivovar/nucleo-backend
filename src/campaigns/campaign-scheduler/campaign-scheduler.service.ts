@@ -339,7 +339,7 @@ export class CampaignSchedulerService {
                 let activeCoupon: any = null;
 
                 for (const node of simpleNodes) {
-                    const result = await this.processSingleNode(campaign, contact, node, context, activeCoupon, stats);
+                    const result = await this.processSingleNode(campaign, contact, node, context, activeCoupon, stats, preGeneratedCoupons);
                     if (result.activeCoupon) activeCoupon = result.activeCoupon;
                 }
                 return stats;
@@ -562,7 +562,7 @@ export class CampaignSchedulerService {
                 this.logger.debug(`[COUPON] Usando código compartilhado para nó ${node.id}: ${newActiveCoupon._generatedCode}`);
             } else if (node.type === 'giftback') {
                 const val = node.data?.giftValue || node.data?.giftbackValue || '0';
-                const giftbackPrefix = node.data?.couponName || 'GIFT';
+                const code = node.data?.couponName || `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
                 if (shopifyConnection) {
                     try {
@@ -576,7 +576,6 @@ export class CampaignSchedulerService {
                 } else if (nuvemshopConnection) {
                     try {
                         this.logger.log(`[COUPON] Gerando via Nuvemshop para contato ${contact.id}`);
-                        const code = `${giftbackPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                         await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: 1 });
                         newActiveCoupon._generatedCode = code;
                         this.logger.log(`[COUPON] Código gerado: ${code}`);
@@ -586,7 +585,6 @@ export class CampaignSchedulerService {
                 } else if (vtexConnection) {
                     try {
                         this.logger.log(`[COUPON/VTEX] Gerando cupom via VTEX para contato ${contact.id}`);
-                        const code = `${giftbackPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                         await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, {
                             couponCode: code,
                             utmSource: 'nucleo-crm',
@@ -602,7 +600,6 @@ export class CampaignSchedulerService {
                         const liConn = lojaIntegradaConnection || await this.lojaIntegradaService.getActiveConnection(campaign.userId);
                         if (liConn) {
                             this.logger.log(`[GIFTCARD/COUPON] Gerando via Loja Integrada para contato ${contact.id}`);
-                            const code = `${giftbackPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                             await this.lojaIntegradaService.createCoupon(campaign.userId, {
                                 codigo: code,
                                 tipo: 'fixo',
@@ -621,8 +618,7 @@ export class CampaignSchedulerService {
             } else if (node.type === 'coupon') {
                 const val = node.data?.discountValue || '0';
                 const type = node.data?.discountType || 'percentage'; // 'percentage' | 'fixed'
-                const couponPrefix = node.data?.couponName || 'CUPOM';
-                const code = `${couponPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                const code = node.data?.couponName || `CUPOM_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
                 
                 if (shopifyConnection) {
                     try {
@@ -684,8 +680,7 @@ export class CampaignSchedulerService {
                     }
                 }
             } else if (node.type === 'shipping_coupon') {
-                const shippingPrefix = node.data?.code || 'FRETE';
-                const code = `${shippingPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                const code = node.data?.code || `FRETE_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
                 if (shopifyConnection) {
                     try {
@@ -1276,8 +1271,7 @@ export class CampaignSchedulerService {
 
         if (node.type === 'giftback') {
             const val = node.data?.giftValue || node.data?.giftbackValue || '0';
-            const giftbackPrefix = node.data?.couponName || 'GIFT';
-            const code = `${giftbackPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+            const code = node.data?.couponName || `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
             if (shopifyConnection) {
                 const gc = await this.shopifyService.createGiftCard(campaign.userId, shopifyConnection.shop, { initialValue: val, note: 'GIFTBACK SHARED', endsAt: endsAtIso });
@@ -1295,8 +1289,7 @@ export class CampaignSchedulerService {
         } else if (node.type === 'coupon') {
             const val = node.data?.discountValue || '0';
             const type = node.data?.discountType || 'percentage';
-            const couponPrefix = node.data?.couponName || 'CUPOM';
-            const code = `${couponPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+            const code = node.data?.couponName || `CUPOM_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
             if (shopifyConnection) {
                 await this.shopifyService.createDiscountCode(campaign.userId, shopifyConnection.shop, { title: 'Campanha CRM', code, value: val, valueType: type === 'percentage' ? 'percentage' : 'fixed', endsAt: endsAtIso });
@@ -1312,8 +1305,7 @@ export class CampaignSchedulerService {
                 return code;
             }
         } else if (node.type === 'shipping_coupon') {
-            const shippingPrefix = node.data?.code || 'FRETE';
-            const code = `${shippingPrefix}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+            const code = node.data?.code || `FRETE_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
             if (shopifyConnection) {
                 await this.shopifyService.createFreeShippingDiscountCode(campaign.userId, shopifyConnection.shop, { title: 'FRETE GRÁTIS', code, endsAt: endsAtIso, minimumSubtotal: node.data?.minPurchaseValue || '0', usageLimit: recipientsCount });

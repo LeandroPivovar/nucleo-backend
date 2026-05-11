@@ -366,13 +366,25 @@ export class SalesService {
     const deliveryRate = current.envios > 0 ? Math.min((current.recebidos / current.envios) * 100, 100) : 0;
     const prevDeliveryRate = previous.envios > 0 ? Math.min((previous.recebidos / previous.envios) * 100, 100) : 0;
 
-    // CTR calculation (Clicks / Envios or Clicks / Opens?) Usually Clicks / Envios (or delivery)
+    // CTR calculation
     const ctr = current.envios > 0 ? Math.min((current.cliques / current.envios) * 100, 100) : 0;
 
     const responseRate = current.envios > 0 ? Math.min((current.respostas / current.envios) * 100, 100) : 0;
     const prevResponseRate = previous.envios > 0 ? Math.min((previous.respostas / previous.envios) * 100, 100) : 0;
 
+    const [shopifyConns, nuvemshopConns, liConn] = await Promise.all([
+      this.shopifyService.getConnections(userId).catch(() => []),
+      this.nuvemshopService.getConnections(userId).catch(() => []),
+      this.liService.getActiveConnection(userId).catch(() => null),
+    ]);
+
+    const isEcommerceConnected = 
+      shopifyConns.some(c => c.isActive) || 
+      nuvemshopConns.some(c => c.isActive) || 
+      (liConn && liConn.isActive);
+
     return {
+      isEcommerceConnected,
       faturamento: current.faturamento,
       previousFaturamento: previous.faturamento,
       vendas: current.vendas,

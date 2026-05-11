@@ -20,6 +20,13 @@ export class TrayController {
   constructor(private readonly trayService: TrayService) {}
 
   @UseGuards(JwtAuthGuard)
+  @Get('connection')
+  async getConnection(@Req() req) {
+    const connection = await this.trayService.getActiveConnection(req.user.id);
+    return connection || { isActive: false };
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('auth-url')
   async getAuthUrl(
     @Query('shopUrl') shopUrl: string,

@@ -26,6 +26,7 @@ import { LojaIntegradaModule } from '../loja-integrada/loja-integrada.module';
 import { VtexModule } from '../vtex/vtex.module';
 import { TwilioModule } from '../twilio/twilio.module';
 import { TwilioConnectionsModule } from '../twilio-connections/twilio-connections.module';
+import { TrayModule } from '../tray/tray.module';
 
 import { User } from '../entities/user.entity';
 import { Subscription } from '../entities/subscription.entity';
@@ -43,6 +44,7 @@ import { Subscription } from '../entities/subscription.entity';
         VtexModule,
         TwilioModule,
         TwilioConnectionsModule,
+        TrayModule,
     ],
     providers: [CampaignsService, CampaignSchedulerService],
     controllers: [CampaignsController, CampaignsWebhookController, CampaignsTrackingController],

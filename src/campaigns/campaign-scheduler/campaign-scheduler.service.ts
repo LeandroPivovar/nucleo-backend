@@ -362,56 +362,67 @@ export class CampaignSchedulerService {
     }
 
     /**
-     * Verifica se novas vendas (com couponCode) correspondem a cupons de campanhas ativas
-     * e as associa (seta campaignId) na tabela sales.
+     * Verifica se novas vendas correspondem a campanhas e as associa (seta campaignId) na tabela sales.
+     * Regra: Vendas com cupom sempre vinculam. Vendas sem cupom vinculam apenas à ÚLTIMA campanha do usuário.
      */
     private async associateSalesToCampaignsByCoupon(userId: number, sinceDate: Date): Promise<void> {
         try {
-            // Buscar vendas recentes sem campaignId mas com couponCode
+            // 1. Buscar a última campanha do usuário
+            const latestCampaign = await this.campaignsRepository.findOne({
+                where: { userId },
+                order: { createdAt: 'DESC' },
+            });
+
+            // 2. Buscar vendas recentes sem campaignId
             const recentSales = await this.saleRepository
                 .createQueryBuilder('sale')
                 .where('sale.userId = :userId', { userId })
                 .andWhere('sale.createdAt >= :sinceDate', { sinceDate })
-                .andWhere('sale.couponCode IS NOT NULL')
                 .andWhere('sale.campaignId IS NULL')
                 .getMany();
 
             if (recentSales.length === 0) return;
 
-            // Buscar cupons ativos das campanhas deste usuário
+            // 3. Preparar mapa de cupons
             const couponCodes = [...new Set(recentSales.map(s => s.couponCode).filter((c): c is string => !!c))];
-            if (couponCodes.length === 0) return; // Guarda contra IN() vazio que quebra no TypeORM
+            let couponToCampaign = new Map<string, number>();
+            let couponToContact = new Map<string, number>();
 
-            const campaignCoupons = await this.campaignCouponRepository
-                .createQueryBuilder('cc')
-                .where('cc.userId = :userId', { userId })
-                .andWhere('cc.code IN (:...codes)', { codes: couponCodes })
-                .getMany();
+            if (couponCodes.length > 0) {
+                const campaignCoupons = await this.campaignCouponRepository
+                    .createQueryBuilder('cc')
+                    .where('cc.userId = :userId', { userId })
+                    .andWhere('cc.code IN (:...codes)', { codes: couponCodes })
+                    .getMany();
 
-            if (campaignCoupons.length === 0) return;
-
-            // Mapa: código → campaignId
-            const couponToCampaign = new Map<string, number>();
-            const couponToContact = new Map<string, number>();
-            for (const cc of campaignCoupons) {
-                couponToCampaign.set(cc.code, cc.campaignId);
-                couponToContact.set(cc.code, cc.contactId);
+                for (const cc of campaignCoupons) {
+                    couponToCampaign.set(cc.code, cc.campaignId);
+                    couponToContact.set(cc.code, cc.contactId);
+                }
             }
 
+            // 4. Processar associações
             for (const sale of recentSales) {
-                const campaignId = couponToCampaign.get(sale.couponCode);
-                if (campaignId) {
-                    sale.campaignId = campaignId;
-                    // Associar contactId se ainda não tiver
-                    if (!sale.contactId) {
-                        sale.contactId = couponToContact.get(sale.couponCode) ?? sale.contactId;
+                let campaignIdToLink = sale.couponCode ? couponToCampaign.get(sale.couponCode) : null;
+
+                // Se não tem cupom (ou cupom não é de campanha), tenta linkar pela data SE for a última campanha
+                if (!campaignIdToLink && latestCampaign && sale.createdAt >= latestCampaign.createdAt) {
+                    campaignIdToLink = latestCampaign.id;
+                }
+
+                if (campaignIdToLink) {
+                    sale.campaignId = campaignIdToLink;
+                    // Tentar recuperar contactId se estiver faltando
+                    if (!sale.contactId && sale.couponCode) {
+                        sale.contactId = couponToContact.get(sale.couponCode) || sale.contactId;
                     }
+                    
                     await this.saleRepository.save(sale);
-                    this.logger.log(`[ORDER_WAIT] Venda ${sale.id} associada à campanha ${campaignId} via cupom '${sale.couponCode}'.`);
+                    this.logger.log(`[ORDER_WAIT] Venda ${sale.id} associada à campanha ${campaignIdToLink} (Metodo: ${sale.couponCode ? 'Cupom' : 'Data/Ultima Campanha'}).`);
                 }
             }
         } catch (err: any) {
-            this.logger.warn(`[ORDER_WAIT] Erro ao associar vendas via cupom: ${err.message}`);
+            this.logger.warn(`[ORDER_WAIT] Erro ao associar vendas ao faturamento: ${err.message}`);
         }
     }
 

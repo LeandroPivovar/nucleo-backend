@@ -803,6 +803,13 @@ export class CampaignSchedulerService {
                     );
 
                     if (!hasFalseBranch) {
+                        // Salvar stats acumuladas antes de pausar (senão o return pula a contabilização no fim do loop)
+                        if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
+                            campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
+                            await this.campaignsRepository.save(campaign);
+                            stats.sentEmailCount = 0; stats.sentSmsCount = 0; stats.sentWhatsappCount = 0;
+                        }
+
                         // Enfileirar para polling — aguardar o pedido acontecer
                         const now = new Date();
                         const resumeAt = addMinutes(now, 2);

@@ -373,8 +373,8 @@ export class SalesService {
     const prevResponseRate = previous.envios > 0 ? Math.min((previous.respostas / previous.envios) * 100, 100) : 0;
 
     const [shopifyConns, nuvemshopConns, liConn] = await Promise.all([
-      this.shopifyService.getConnections(userId).catch(() => []),
-      this.nuvemshopService.getConnections(userId).catch(() => []),
+      this.shopifyService.getConnections(userId).catch(() => [] as ShopifyConnection[]),
+      this.nuvemshopService.getConnections(userId).catch(() => [] as NuvemshopConnection[]),
       this.liService.getActiveConnection(userId).catch(() => null),
     ]);
 

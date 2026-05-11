@@ -42,11 +42,11 @@ export class CampaignQueue {
     status: string; // 'pending' | 'processing' | 'completed' | 'failed' | 'expired'
 
     /** Tipo da entrada: 'delay' (pausa por tempo) ou 'order_wait' (aguardando pedido) */
-    @Column({ length: 30, default: 'delay' })
+    @Column({ type: 'varchar', length: 30, default: 'delay' })
     type: string;
 
     /** ID do nó de condição aguardando (usado apenas para type = 'order_wait') */
-    @Column({ name: 'waiting_node_id', length: 100, nullable: true })
+    @Column({ name: 'waiting_node_id', type: 'varchar', length: 100, nullable: true })
     waitingNodeId: string | null;
 
     /** Quando a campanha foi iniciada — usado para calcular intervalos decrescentes */

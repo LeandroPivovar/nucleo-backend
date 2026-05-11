@@ -1426,6 +1426,13 @@ export class CampaignSchedulerService {
             }
 
             const recentSale = await query.orderBy('sale.createdAt', 'DESC').getOne();
+            
+            if (recentSale) {
+                this.logger.debug(`[CONDITION_MATCH] Venda encontrada para contato ${contact.id}. SaleID: ${recentSale.id}, SaleDate: ${recentSale.createdAt}, CampaignDate: ${campaign.createdAt}`);
+            } else {
+                this.logger.debug(`[CONDITION_NO_MATCH] Nenhuma venda encontrada para contato ${contact.id} seguindo os critérios (Latest: ${isLatestCampaign}, CampaignDate: ${campaign.createdAt})`);
+            }
+
             result = !!recentSale;
         } else if (condType === 'clicked_link') {
             const click = await this.campaignClicksRepository.findOne({

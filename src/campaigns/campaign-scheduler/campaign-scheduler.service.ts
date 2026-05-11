@@ -43,6 +43,7 @@ const ORDER_CONDITION_TYPES = [
 @Injectable()
 export class CampaignSchedulerService {
     private readonly logger = new Logger(CampaignSchedulerService.name);
+    private isProcessingOrderWait = false;
 
     constructor(
         @InjectRepository(Campaign)
@@ -145,33 +146,44 @@ export class CampaignSchedulerService {
      */
     @Cron('*/2 * * * *')
     async processOrderWaitQueue() {
-        const now = new Date();
-
-        const pendingItems = await this.campaignQueueRepository.find({
-            where: {
-                type: 'order_wait',
-                status: 'pending',
-                resumeAt: LessThanOrEqual(now),
-            },
-            relations: ['campaign', 'contact'],
-        });
-
-        if (pendingItems.length === 0) return;
-
-        this.logger.log(`[ORDER_WAIT] Verificando ${pendingItems.length} contatos aguardando pedidos...`);
-
-        // Agrupar por userId para sincronizar vendas uma vez por usuário
-        const userIds = [...new Set(pendingItems.map(i => i.userId))];
-        for (const userId of userIds) {
-            await this.syncNewSalesForUser(userId, now);
+        // Guard: evitar execuções concorrentes (cron pode disparar antes da anterior terminar)
+        if (this.isProcessingOrderWait) {
+            this.logger.debug('[ORDER_WAIT] Já em execução, pulando esta iteração.');
+            return;
         }
+        this.isProcessingOrderWait = true;
 
-        for (const item of pendingItems) {
-            try {
-                await this.processOrderWaitItem(item, now);
-            } catch (err: any) {
-                this.logger.error(`[ORDER_WAIT] Erro ao processar item ${item.id}: ${err.message}`, err.stack);
+        try {
+            const now = new Date();
+
+            const pendingItems = await this.campaignQueueRepository.find({
+                where: {
+                    type: 'order_wait',
+                    status: 'pending',
+                    resumeAt: LessThanOrEqual(now),
+                },
+                relations: ['campaign', 'contact'],
+            });
+
+            if (pendingItems.length === 0) return;
+
+            this.logger.log(`[ORDER_WAIT] Verificando ${pendingItems.length} contatos aguardando pedidos...`);
+
+            // Agrupar por userId para sincronizar vendas uma vez por usuário
+            const userIds = [...new Set(pendingItems.map(i => i.userId))];
+            for (const userId of userIds) {
+                await this.syncNewSalesForUser(userId, now);
             }
+
+            for (const item of pendingItems) {
+                try {
+                    await this.processOrderWaitItem(item, now);
+                } catch (err: any) {
+                    this.logger.error(`[ORDER_WAIT] Erro ao processar item ${item.id}: ${err.message}`, err.stack);
+                }
+            }
+        } finally {
+            this.isProcessingOrderWait = false;
         }
     }
 

@@ -387,6 +387,32 @@ export class LojaIntegradaService {
                         });
                         await this.saleRepository.save(sale);
                         imported++;
+                    } else {
+                        // Atualizar status se já existir
+                        let statusMatch = 'processing';
+                        const situacaoCodigo = order.situacao?.codigo;
+                        if (situacaoCodigo === 'pedido_cancelado') statusMatch = 'cancelled';
+                        else if (situacaoCodigo === 'pedido_entregue') statusMatch = 'delivered';
+                        else if (situacaoCodigo === 'pedido_pago') statusMatch = 'completed';
+                        else if (situacaoCodigo === 'aguardando_pagamento') statusMatch = 'pending';
+
+                        const paymentMethod = order.pagamentos?.[0]?.forma_pagamento?.nome
+                            || order.pagamentos?.[0]?.forma_pagamento?.codigo
+                            || null;
+
+                        let updated = false;
+                        if (existingSale.status !== statusMatch) {
+                            existingSale.status = statusMatch;
+                            updated = true;
+                        }
+                        if (paymentMethod && existingSale.paymentMethod !== paymentMethod) {
+                            existingSale.paymentMethod = paymentMethod;
+                            updated = true;
+                        }
+
+                        if (updated) {
+                            await this.saleRepository.save(existingSale);
+                        }
                     }
                 }
             }
@@ -443,8 +469,13 @@ export class LojaIntegradaService {
             }
 
             for (const item of (order.itens || [])) {
-                const externalId = `loja_integrada_checkout_${order.numero}_${item.id}`;
+                const externalId = `loja_integrada_${order.numero}_${item.id}`;
                 const existingSale = await this.saleRepository.findOne({ where: { userId, externalId } });
+
+                // Check if it's considered abandoned (e.g. older than 2 hours)
+                const createdAt = new Date(order.data_criacao);
+                const hoursOld = (new Date().getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+                const status = hoursOld > 2 ? 'abandoned_cart' : 'active_cart';
 
                 if (!existingSale) {
                     let product = item.sku
@@ -462,11 +493,6 @@ export class LojaIntegradaService {
                         });
                         await this.productRepository.save(product);
                     }
-
-                    // Check if it's considered abandoned (e.g. older than 2 hours)
-                    const createdAt = new Date(order.data_criacao);
-                    const hoursOld = (new Date().getTime() - createdAt.getTime()) / (1000 * 60 * 60);
-                    const status = hoursOld > 2 ? 'abandoned_cart' : 'active_cart';
 
                     const sale = this.saleRepository.create({
                         userId,
@@ -486,6 +512,16 @@ export class LojaIntegradaService {
                     });
                     await this.saleRepository.save(sale);
                     imported++;
+                } else {
+                    // Se já existe e é um "checkout" (aguardando pagamento), podemos atualizar para abandoned se for o caso
+                    // Mas cuidado: se syncOrders já marcou como 'completed' ou outro status final, não devemos voltar para abandoned
+                    const terminalStatuses = ['completed', 'cancelled', 'delivered'];
+                    if (!terminalStatuses.includes(existingSale.status)) {
+                        if (existingSale.status !== status) {
+                            existingSale.status = status;
+                            await this.saleRepository.save(existingSale);
+                        }
+                    }
                 }
             }
         }

@@ -13,6 +13,8 @@ import { ShopifyModule } from '../shopify/shopify.module';
 import { NuvemshopModule } from '../nuvemshop/nuvemshop.module';
 import { VtexModule } from '../vtex/vtex.module';
 import { LojaIntegradaModule } from '../loja-integrada/loja-integrada.module';
+import { TrayModule } from '../tray/tray.module';
+import { TrayConnection } from '../entities/tray-connection.entity';
 
 import { PublicSettingsController } from './public-settings.controller';
 
@@ -25,11 +27,13 @@ import { PublicSettingsController } from './public-settings.controller';
         NuvemshopConnection,
         VtexConnection,
         LojaIntegradaConnection,
+        TrayConnection,
       ]),
       ShopifyModule,
       NuvemshopModule,
       VtexModule,
       LojaIntegradaModule,
+      TrayModule,
     ],
     controllers: [SystemSettingsController, PublicSettingsController],
     providers: [SystemSettingsService, SyncSchedulerService],

@@ -19,17 +19,35 @@ export class LojaIntegradaController {
   @UseGuards(JwtAuthGuard)
   async getConnection(@Request() req) {
     try {
-      const connection = await this.lojaIntegradaService.getActiveConnection(req.user.userId);
+      const userId = req.user.userId || req.user.id;
+      const connection = await this.lojaIntegradaService.getActiveConnection(userId);
       return connection;
     } catch (error) {
       return { isActive: false };
     }
   }
 
+  @Post('connect')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async connect(
+    @Request() req,
+    @Body() data: { storeName: string; apiKey: string; applicationKey?: string },
+  ) {
+    const userId = req.user.userId || req.user.id;
+    return await this.lojaIntegradaService.createOrUpdateConnection(
+      userId,
+      data.storeName,
+      data.apiKey,
+      data.applicationKey,
+    );
+  }
+
   @Post('sync')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async sync(@Request() req) {
-    return await this.lojaIntegradaService.syncAll(req.user.userId);
+    const userId = req.user.userId || req.user.id;
+    return await this.lojaIntegradaService.syncAll(userId);
   }
 }

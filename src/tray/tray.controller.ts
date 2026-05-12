@@ -13,7 +13,7 @@ import { TrayService } from './tray.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { Response } from 'express';
 
-@Controller('api/tray')
+@Controller('tray')
 export class TrayController {
   private readonly logger = new Logger(TrayController.name);
 

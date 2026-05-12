@@ -498,4 +498,14 @@ export class LojaIntegradaService {
         const checkouts = await this.syncCheckouts(userId);
         return { products, orders, checkouts };
     }
+
+    async deactivateConnection(userId: number): Promise<void> {
+        const connection = await this.connectionRepository.findOne({
+            where: { userId, isActive: true },
+        });
+        if (connection) {
+            connection.isActive = false;
+            await this.connectionRepository.save(connection);
+        }
+    }
 }

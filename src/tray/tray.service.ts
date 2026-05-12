@@ -422,5 +422,13 @@ export class TrayService {
   async getActiveConnection(userId: number): Promise<TrayConnection | null> {
     return await this.trayConnectionRepository.findOne({ where: { userId, isActive: true } });
   }
+
+  async deactivateConnection(userId: number): Promise<void> {
+    const connection = await this.trayConnectionRepository.findOne({ where: { userId, isActive: true } });
+    if (connection) {
+      connection.isActive = false;
+      await this.trayConnectionRepository.save(connection);
+    }
+  }
 }
 

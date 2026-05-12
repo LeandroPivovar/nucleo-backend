@@ -72,4 +72,12 @@ export class TrayController {
 
     return results;
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('disconnect')
+  async disconnect(@Req() req) {
+    const userId = req.user.id;
+    await this.trayService.deactivateConnection(userId);
+    return { success: true, message: 'Conexão desativada com sucesso' };
+  }
 }

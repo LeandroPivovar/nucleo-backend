@@ -50,4 +50,13 @@ export class LojaIntegradaController {
     const userId = req.user.userId || req.user.id;
     return await this.lojaIntegradaService.syncAll(userId);
   }
+
+  @Post('disconnect')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async disconnect(@Request() req) {
+    const userId = req.user.userId || req.user.id;
+    await this.lojaIntegradaService.deactivateConnection(userId);
+    return { success: true, message: 'Conexão desativada com sucesso' };
+  }
 }

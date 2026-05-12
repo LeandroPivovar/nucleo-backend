@@ -316,6 +316,16 @@ export class UsersService {
         `DELETE FROM \`vtex_connections\` WHERE \`userId\` = ?`,
         [userId]
       );
+      
+      await transactionalEntityManager.query(
+        `DELETE FROM \`loja_integrada_connections\` WHERE \`userId\` = ?`,
+        [userId]
+      );
+
+      await transactionalEntityManager.query(
+        `DELETE FROM \`tray_connections\` WHERE \`userId\` = ?`,
+        [userId]
+      );
 
       // Resetar contador de e-mails enviados no mês se desejar (opcional, vamos manter por segurança de limite)
       // await transactionalEntityManager.update(User, userId, { emailsSentMonth: 0 });

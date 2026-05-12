@@ -1048,7 +1048,7 @@ export class CampaignSchedulerService {
                     } catch (e) {
                         this.logger.error(`[COUPON/VTEX] Erro ao gerar via VTEX: ${e.message}`);
                     }
-                } else {
+                } else if (lojaIntegradaConnection) {
                     try {
                         const liConn = lojaIntegradaConnection || await this.lojaIntegradaService.getActiveConnection(campaign.userId);
                         if (liConn) {
@@ -1125,8 +1125,7 @@ export class CampaignSchedulerService {
                     } catch (e) {
                         this.logger.error(`[SHIPPING_COUPON/VTEX] Erro ao gerar via VTEX: ${e.message}`);
                     }
-                } else {
-                    // Loja Integrada (via Active Connection)
+                } else if (lojaIntegradaConnection) {
                     try {
                         const liConn = lojaIntegradaConnection || await this.lojaIntegradaService.getActiveConnection(campaign.userId);
                         if (liConn) {

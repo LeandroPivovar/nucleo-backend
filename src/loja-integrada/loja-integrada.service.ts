@@ -181,35 +181,93 @@ export class LojaIntegradaService {
         return await this.makeRequest(connection, '/cupom/', {}, 'POST', body);
     }
 
-    async syncProducts(userId: number): Promise<{ imported: number }> {
+    async syncProducts(userId: number): Promise<{ imported: number; updated: number }> {
         const connection = await this.getActiveConnection(userId);
-        const data = await this.makeRequest(connection, '/produto/', { limit: 100 });
-        const liProducts = data.objects || [];
-        let imported = 0;
-
-        for (const liProduct of liProducts) {
-            let product = await this.productRepository.findOne({
-                where: { userId, sku: liProduct.sku },
-            });
-
-            if (product) {
-                product.name = liProduct.nome;
-                product.price = parseFloat(liProduct.preco_venda || liProduct.preco_cheio || '0');
-                await this.productRepository.save(product);
-            } else {
-                product = this.productRepository.create({
-                    userId,
-                    sku: liProduct.sku,
-                    name: liProduct.nome,
-                    price: parseFloat(liProduct.preco_venda || liProduct.preco_cheio || '0'),
-                    stock: 0,
-                    active: liProduct.ativo,
+        
+        // 1. Buscar Preços (Bulk/Paginado)
+        const priceMap = new Map();
+        let priceOffset = 0;
+        let hasMorePrices = true;
+        while (hasMorePrices && priceOffset < 500) { // Limite de segurança de 500 produtos
+            const priceData = await this.makeRequest(connection, '/produto_preco/', { limit: 100, offset: priceOffset });
+            if (priceData && priceData.objects && priceData.objects.length > 0) {
+                priceData.objects.forEach(p => {
+                    priceMap.set(p.produto, p.promocional || p.cheio || '0');
                 });
-                await this.productRepository.save(product);
-                imported++;
+                priceOffset += 100;
+                if (priceData.objects.length < 100) hasMorePrices = false;
+            } else {
+                hasMorePrices = false;
             }
         }
-        return { imported };
+
+        // 2. Buscar Estoque (Bulk/Paginado)
+        const stockMap = new Map();
+        let stockOffset = 0;
+        let hasMoreStocks = true;
+        while (hasMoreStocks && stockOffset < 500) {
+            const stockData = await this.makeRequest(connection, '/produto_estoque/', { limit: 100, offset: stockOffset });
+            if (stockData && stockData.objects && stockData.objects.length > 0) {
+                stockData.objects.forEach(s => {
+                    stockMap.set(s.produto, s.quantidade || 0);
+                });
+                stockOffset += 100;
+                if (stockData.objects.length < 100) hasMoreStocks = false;
+            } else {
+                hasMoreStocks = false;
+            }
+        }
+
+        // 3. Buscar Produtos e mesclar
+        let imported = 0;
+        let updated = 0;
+        let productOffset = 0;
+        let hasMoreProducts = true;
+
+        while (hasMoreProducts && productOffset < 500) {
+            const data = await this.makeRequest(connection, '/produto/', { limit: 100, offset: productOffset });
+            const liProducts = data.objects || [];
+            
+            if (liProducts.length === 0) {
+                hasMoreProducts = false;
+                break;
+            }
+
+            for (const liProduct of liProducts) {
+                const productUri = liProduct.resource_uri;
+                const price = priceMap.get(productUri) || '0';
+                const stock = stockMap.get(productUri) || 0;
+
+                let product = await this.productRepository.findOne({
+                    where: { userId, sku: liProduct.sku },
+                });
+
+                if (product) {
+                    product.name = liProduct.nome;
+                    product.price = parseFloat(price);
+                    product.stock = stock;
+                    product.active = liProduct.ativo;
+                    await this.productRepository.save(product);
+                    updated++;
+                } else {
+                    product = this.productRepository.create({
+                        userId,
+                        sku: liProduct.sku,
+                        name: liProduct.nome,
+                        price: parseFloat(price),
+                        stock: stock,
+                        active: liProduct.ativo,
+                    });
+                    await this.productRepository.save(product);
+                    imported++;
+                }
+            }
+
+            productOffset += 100;
+            if (liProducts.length < 100) hasMoreProducts = false;
+        }
+
+        return { imported, updated };
     }
 
     async syncOrders(userId: number): Promise<{ imported: number }> {

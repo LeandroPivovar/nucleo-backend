@@ -151,6 +151,7 @@ export class LojaIntegradaService {
         params: {
             codigo: string;
             tipo: 'fixo' | 'porcentagem' | 'frete_gratis';
+            valor?: string | number;
             ativo?: boolean;
             validade?: string;
             valor_minimo?: string;
@@ -162,20 +163,27 @@ export class LojaIntegradaService {
     ): Promise<any> {
         const connection = await this.getActiveConnection(userId);
         
-        // Formatar datas para DD/MM/YYYY se for string ISO
+        // Tipos corretos conforme documentação oficial da Loja Integrada
+        // porcentagem | fixo | frete_gratis
+        // Nenhuma transformação necessária - os nomes internos já são os corretos da API
+
+        // Formatar data para YYYY-MM-DD (ISO)
         let validade = params.validade;
-        if (validade && validade.includes('-')) {
-            const date = new Date(validade);
-            validade = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getFullYear()}`;
+        if (validade && validade.includes('T')) {
+            validade = validade.split('T')[0];
         }
 
         const body = {
-            ...params,
+            codigo: params.codigo,
+            tipo: params.tipo, // 'porcentagem' | 'fixo' | 'frete_gratis'
+            valor: params.valor ? parseFloat(params.valor.toString()) : 0,
             validade,
             ativo: params.ativo ?? true,
-            aplicar_no_total: params.tipo === 'frete_gratis' ? false : true,
-            condicao_cliente: 'todos_clientes',
-            condicao_produto: 'todos_produtos',
+            valor_minimo: parseFloat((params.valor_minimo || '0').toString()), // número, não string
+            quantidade: params.quantidade ?? 1,
+            quantidade_por_cliente: params.quantidade_por_cliente ?? 1,
+            ...(params.cumulativo !== undefined && { cumulativo: params.cumulativo }),
+            ...(params.descricao && { descricao: params.descricao }),
         };
 
         return await this.makeRequest(connection, '/cupom/', {}, 'POST', body);
@@ -184,6 +192,9 @@ export class LojaIntegradaService {
     async syncProducts(userId: number): Promise<{ imported: number; updated: number }> {
         const connection = await this.getActiveConnection(userId);
         
+        // Normaliza URI para uso como chave de mapa (remove prefixo /api se presente)
+        const normalizeUri = (uri: string) => uri?.replace(/^\/api/, '') || uri;
+
         // 1. Buscar Preços (Bulk/Paginado)
         const priceMap = new Map();
         let priceOffset = 0;
@@ -192,7 +203,7 @@ export class LojaIntegradaService {
             const priceData = await this.makeRequest(connection, '/produto_preco/', { limit: 100, offset: priceOffset });
             if (priceData && priceData.objects && priceData.objects.length > 0) {
                 priceData.objects.forEach(p => {
-                    priceMap.set(p.produto, p.promocional || p.cheio || '0');
+                    priceMap.set(normalizeUri(p.produto), p.promocional || p.cheio || '0');
                 });
                 priceOffset += 100;
                 if (priceData.objects.length < 100) hasMorePrices = false;
@@ -209,7 +220,8 @@ export class LojaIntegradaService {
             const stockData = await this.makeRequest(connection, '/produto_estoque/', { limit: 100, offset: stockOffset });
             if (stockData && stockData.objects && stockData.objects.length > 0) {
                 stockData.objects.forEach(s => {
-                    stockMap.set(s.produto, s.quantidade || 0);
+                    // campo correto da API: quantidade_disponivel (estoque disponível para venda)
+                    stockMap.set(normalizeUri(s.produto), s.quantidade_disponivel ?? s.quantidade ?? 0);
                 });
                 stockOffset += 100;
                 if (stockData.objects.length < 100) hasMoreStocks = false;
@@ -234,7 +246,7 @@ export class LojaIntegradaService {
             }
 
             for (const liProduct of liProducts) {
-                const productUri = liProduct.resource_uri;
+                const productUri = normalizeUri(liProduct.resource_uri);
                 const price = priceMap.get(productUri) || '0';
                 const stock = stockMap.get(productUri) || 0;
 
@@ -272,110 +284,143 @@ export class LojaIntegradaService {
 
     async syncOrders(userId: number): Promise<{ imported: number }> {
         const connection = await this.getActiveConnection(userId);
-        const data = await this.makeRequest(connection, '/pedido/', { limit: 50 });
-        const liOrders = data.objects || [];
         let imported = 0;
+        let offset = 0;
+        let hasMore = true;
 
-        for (const liOrder of liOrders) {
-            // LI list endpoint only returns basic info. We need full info for customer/items.
-            const order = await this.makeRequest(connection, `/pedido/${liOrder.numero}/`);
+        while (hasMore) {
+            const data = await this.makeRequest(connection, '/pedido/', { limit: 50, offset });
+            const liOrders = data.objects || [];
 
-            const customerEmail = (order.cliente.email || '').toLowerCase().trim();
-            if (!customerEmail) continue;
+            if (liOrders.length === 0) break;
 
-            let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-            const name = order.cliente.nome || 'Sem Nome';
-            
-            if (!contact) {
-                contact = this.contactRepository.create({
-                    userId,
-                    email: customerEmail,
-                    name,
-                    source: 'loja_integrada',
-                    status: 'customer',
-                });
-                await this.contactRepository.save(contact);
-            } else {
-                // Atualizar dados do contato se estiverem vazios
-                let updatedContact = false;
-                if (!contact.name || contact.name === 'Sem Nome') {
-                    contact.name = name;
-                    updatedContact = true;
+            for (const liOrder of liOrders) {
+                // Guard: número do pedido deve existir
+                if (!liOrder.numero) continue;
+
+                let order: any;
+                try {
+                    order = await this.makeRequest(connection, `/pedido/${liOrder.numero}/`);
+                } catch (e) {
+                    this.logger.warn(`[LI Sync] Falha ao buscar pedido ${liOrder.numero}: ${e.message}`);
+                    continue;
                 }
-                if (updatedContact) {
-                    await this.contactRepository.save(contact);
-                }
-            }
 
-            for (const item of order.itens) {
-                const externalId = `loja_integrada_${order.numero}_${item.id}`;
-                let existingSale = await this.saleRepository.findOne({ where: { userId, externalId } });
+                // Guard: cliente e email obrigatórios
+                const customerEmail = (order.cliente?.email || '').toLowerCase().trim();
+                if (!customerEmail) continue;
 
-                if (!existingSale) {
-                    // Find product by SKU
-                    let product = await this.productRepository.findOne({ where: { userId, sku: item.sku } });
-                    if (!product) {
-                        product = this.productRepository.create({
-                            userId,
-                            sku: item.sku || '',
-                            name: item.nome || 'Produto sem nome',
-                            price: parseFloat(item.preco_venda),
-                            stock: 0,
-                            active: true,
-                        });
-                        await this.productRepository.save(product);
-                    }
-
-                    let statusMatch = 'processing';
-                    if (order.situacao?.codigo === 'pedido_cancelado') {
-                        statusMatch = 'cancelled';
-                    } else if (order.situacao?.codigo === 'pedido_entregue') {
-                        statusMatch = 'delivered';
-                    } else if (order.situacao?.codigo === 'pedido_pago') {
-                        statusMatch = 'completed';
-                    } else if (order.situacao?.codigo === 'aguardando_pagamento') {
-                        statusMatch = 'pending';
-                    }
-
-                    const paymentMethod = order.pagamento?.codigo || order.pagamento?.nome || null;
-
-                    const sale = this.saleRepository.create({
+                let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
+                const name = order.cliente?.nome || 'Sem Nome';
+                
+                if (!contact) {
+                    contact = this.contactRepository.create({
                         userId,
-                        productId: product.id,
-                        contactId: contact.id,
-                        quantity: item.quantidade,
-                        unitPrice: parseFloat(item.preco_venda),
-                        totalValue: parseFloat(item.preco_venda) * item.quantidade,
-                        customerName: contact.name,
-                        customerEmail: customerEmail,
-                        channel: 'loja_integrada',
-                        status: statusMatch,
-                        paymentMethod: paymentMethod,
-                        createdAt: new Date(order.data_criacao),
-                        externalId,
+                        email: customerEmail,
+                        name,
+                        source: 'loja_integrada',
+                        status: 'customer',
                     });
-                    await this.saleRepository.save(sale);
-                    imported++;
+                    await this.contactRepository.save(contact);
+                } else {
+                    let updatedContact = false;
+                    if (!contact.name || contact.name === 'Sem Nome') {
+                        contact.name = name;
+                        updatedContact = true;
+                    }
+                    if (updatedContact) {
+                        await this.contactRepository.save(contact);
+                    }
+                }
+
+                // Guard: itens do pedido podem ser null
+                for (const item of (order.itens || [])) {
+                    const externalId = `loja_integrada_${order.numero}_${item.id}`;
+                    const existingSale = await this.saleRepository.findOne({ where: { userId, externalId } });
+
+                    if (!existingSale) {
+                        // Guard: sku pode ser undefined/null
+                        let product = item.sku
+                            ? await this.productRepository.findOne({ where: { userId, sku: item.sku } })
+                            : null;
+
+                        if (!product) {
+                            product = this.productRepository.create({
+                                userId,
+                                sku: item.sku || '',
+                                name: item.nome || 'Produto sem nome',
+                                price: parseFloat(item.preco_venda) || 0,
+                                stock: 0,
+                                active: true,
+                            });
+                            await this.productRepository.save(product);
+                        }
+
+                        let statusMatch = 'processing';
+                        const situacaoCodigo = order.situacao?.codigo;
+                        if (situacaoCodigo === 'pedido_cancelado') statusMatch = 'cancelled';
+                        else if (situacaoCodigo === 'pedido_entregue') statusMatch = 'delivered';
+                        else if (situacaoCodigo === 'pedido_pago') statusMatch = 'completed';
+                        else if (situacaoCodigo === 'aguardando_pagamento') statusMatch = 'pending';
+
+                        // Campo correto da API: pagamentos (array), não pagamento (singular)
+                        const paymentMethod = order.pagamentos?.[0]?.forma_pagamento?.nome
+                            || order.pagamentos?.[0]?.forma_pagamento?.codigo
+                            || null;
+
+                        const sale = this.saleRepository.create({
+                            userId,
+                            productId: product.id,
+                            contactId: contact.id,
+                            quantity: item.quantidade,
+                            unitPrice: parseFloat(item.preco_venda) || 0,
+                            totalValue: (parseFloat(item.preco_venda) || 0) * (item.quantidade || 1),
+                            customerName: contact.name,
+                            customerEmail: customerEmail,
+                            channel: 'loja_integrada',
+                            status: statusMatch,
+                            paymentMethod,
+                            createdAt: new Date(order.data_criacao),
+                            externalId,
+                            // campo correto da API da Loja Integrada para cupom do pedido
+                            couponCode: order.cupom_desconto || null,
+                        });
+                        await this.saleRepository.save(sale);
+                        imported++;
+                    }
                 }
             }
+
+            offset += 50;
+            if (liOrders.length < 50) hasMore = false;
         }
+
         return { imported };
     }
 
     async syncCheckouts(userId: number): Promise<{ imported: number }> {
         const connection = await this.getActiveConnection(userId);
-        // As per docs, we infer abandoned checkouts from 'aguardando_pagamento'
-        const data = await this.makeRequest(connection, '/pedido/', { status_id: 'aguardando_pagamento', limit: 50 });
+        // situacao_id é o parâmetro correto da API LI v1 (não status_id)
+        const data = await this.makeRequest(connection, '/pedido/', { situacao_id: 'aguardando_pagamento', limit: 50 });
         const liOrders = data.objects || [];
         let imported = 0;
 
         for (const liOrder of liOrders) {
-            const order = await this.makeRequest(connection, `/pedido/${liOrder.numero}/`);
-            const customerEmail = (order.cliente.email || '').toLowerCase().trim();
+            if (!liOrder.numero) continue;
+
+            let order: any;
+            try {
+                order = await this.makeRequest(connection, `/pedido/${liOrder.numero}/`);
+            } catch (e) {
+                this.logger.warn(`[LI Checkout Sync] Falha ao buscar pedido ${liOrder.numero}: ${e.message}`);
+                continue;
+            }
+
+            const customerEmail = (order.cliente?.email || '').toLowerCase().trim();
             if (!customerEmail) continue;
 
             let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-            const name = order.cliente.nome || 'Sem Nome';
+            const name = order.cliente?.nome || 'Sem Nome';
 
             if (!contact) {
                 contact = this.contactRepository.create({
@@ -387,7 +432,6 @@ export class LojaIntegradaService {
                 });
                 await this.contactRepository.save(contact);
             } else {
-                // Atualizar dados do contato se estiverem vazios
                 let updatedContact = false;
                 if (!contact.name || contact.name === 'Sem Nome') {
                     contact.name = name;
@@ -398,18 +442,21 @@ export class LojaIntegradaService {
                 }
             }
 
-            for (const item of order.itens) {
+            for (const item of (order.itens || [])) {
                 const externalId = `loja_integrada_checkout_${order.numero}_${item.id}`;
-                let existingSale = await this.saleRepository.findOne({ where: { userId, externalId } });
+                const existingSale = await this.saleRepository.findOne({ where: { userId, externalId } });
 
                 if (!existingSale) {
-                    let product = await this.productRepository.findOne({ where: { userId, sku: item.sku } });
+                    let product = item.sku
+                        ? await this.productRepository.findOne({ where: { userId, sku: item.sku } })
+                        : null;
+
                     if (!product) {
                         product = this.productRepository.create({
                             userId,
                             sku: item.sku || '',
                             name: item.nome || 'Produto sem nome',
-                            price: parseFloat(item.preco_venda),
+                            price: parseFloat(item.preco_venda) || 0,
                             stock: 0,
                             active: true,
                         });
@@ -426,14 +473,16 @@ export class LojaIntegradaService {
                         productId: product.id,
                         contactId: contact.id,
                         quantity: item.quantidade,
-                        unitPrice: parseFloat(item.preco_venda),
-                        totalValue: parseFloat(item.preco_venda) * item.quantidade,
+                        unitPrice: parseFloat(item.preco_venda) || 0,
+                        totalValue: (parseFloat(item.preco_venda) || 0) * (item.quantidade || 1),
                         customerName: contact.name,
                         customerEmail: customerEmail,
                         channel: 'loja_integrada',
                         status,
                         createdAt,
                         externalId,
+                        // campo correto da API da Loja Integrada para cupom do pedido
+                        couponCode: order.cupom_desconto || null,
                     });
                     await this.saleRepository.save(sale);
                     imported++;

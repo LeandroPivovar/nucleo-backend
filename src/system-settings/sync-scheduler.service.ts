@@ -10,6 +10,8 @@ import { ShopifyConnection } from '../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
 import { VtexConnection } from '../entities/vtex-connection.entity';
 import { LojaIntegradaConnection } from '../entities/loja-integrada-connection.entity';
+import { TrayService } from '../tray/tray.service';
+import { TrayConnection } from '../entities/tray-connection.entity';
 
 @Injectable()
 export class SyncSchedulerService {
@@ -28,6 +30,9 @@ export class SyncSchedulerService {
     private vtexRepo: Repository<VtexConnection>,
     @InjectRepository(LojaIntegradaConnection)
     private liRepo: Repository<LojaIntegradaConnection>,
+    private trayService: TrayService,
+    @InjectRepository(TrayConnection)
+    private trayRepo: Repository<TrayConnection>,
   ) {}
 
   /**
@@ -42,6 +47,7 @@ export class SyncSchedulerService {
       this.syncAllNuvemshop(),
       this.syncAllVtex(),
       this.syncAllLojaIntegrada(),
+      this.syncAllTray(),
     ]);
 
     this.logger.log('Sincronização global concluída.');
@@ -95,6 +101,21 @@ export class SyncSchedulerService {
         await this.lojaIntegradaService.syncAll(conn.userId);
       } catch (err) {
         this.logger.error(`Erro ao sincronizar Loja Integrada (User: ${conn.userId}): ${err.message}`);
+      }
+    }
+  }
+
+  private async syncAllTray() {
+    const connections = await this.trayRepo.find({ where: { isActive: true } });
+    this.logger.log(`Sincronizando ${connections.length} lojas Tray...`);
+    
+    for (const conn of connections) {
+      try {
+        await this.trayService.syncProducts(conn.userId);
+        await this.trayService.syncOrders(conn.userId);
+        await this.trayService.syncCustomers(conn.userId);
+      } catch (err) {
+        this.logger.error(`Erro ao sincronizar Tray (User: ${conn.userId}): ${err.message}`);
       }
     }
   }

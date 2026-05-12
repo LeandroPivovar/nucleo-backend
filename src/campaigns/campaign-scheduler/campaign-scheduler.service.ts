@@ -140,6 +140,26 @@ export class CampaignSchedulerService {
     }
 
     /**
+     * Cron global para associar vendas órfãs a campanhas via cupom ou data.
+     * Roda a cada 10 minutos para garantir que todas as vendas (mesmo fora de fluxos avançados) sejam atribuídas.
+     */
+    @Cron(CronExpression.EVERY_10_MINUTES)
+    async handleGlobalAttribution() {
+        this.logger.debug('[ATTRIBUTION] Iniciando atribuição global de vendas...');
+        const users = await this.userRepository.find();
+        const twentyFourHoursAgo = new Date();
+        twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+
+        for (const user of users) {
+            try {
+                await this.associateSalesToCampaignsByCoupon(user.id, twentyFourHoursAgo);
+            } catch (err: any) {
+                this.logger.error(`[ATTRIBUTION] Erro ao processar atribuição para usuário ${user.id}: ${err.message}`);
+            }
+        }
+    }
+
+    /**
      * Polling de pedidos para campanhas avançadas.
      * Roda a cada 2 minutos e processa apenas itens do tipo 'order_wait'.
      * Intervalos decrescentes baseados no tempo desde o início da campanha.
@@ -349,6 +369,16 @@ export class CampaignSchedulerService {
                 }
             } catch (_) {}
 
+            try {
+                const trayConn = await this.trayService.getActiveConnection(userId);
+                if (trayConn) {
+                    syncPromises.push(
+                        this.trayService.syncOrders(userId)
+                            .catch(e => this.logger.warn(`[ORDER_WAIT] Tray sync: ${e.message}`))
+                    );
+                }
+            } catch (_) {}
+
             if (syncPromises.length > 0) {
                 await Promise.allSettled(syncPromises);
             }
@@ -405,6 +435,7 @@ export class CampaignSchedulerService {
             }
 
             // 4. Processar associações
+            const updatedCampaignIds = new Set<number>();
             for (const sale of recentSales) {
                 let campaignIdToLink = sale.couponCode ? couponToCampaign.get(sale.couponCode) : null;
 
@@ -421,11 +452,26 @@ export class CampaignSchedulerService {
                     }
                     
                     await this.saleRepository.save(sale);
-                    this.logger.log(`[ORDER_WAIT] Venda ${sale.id} associada à campanha ${campaignIdToLink} (Metodo: ${sale.couponCode ? 'Cupom' : 'Data/Ultima Campanha'}).`);
+                    updatedCampaignIds.add(campaignIdToLink);
+                    this.logger.log(`[ATTRIBUTION] Venda ${sale.id} associada à campanha ${campaignIdToLink} (Metodo: ${sale.couponCode ? 'Cupom' : 'Data/Ultima Campanha'}).`);
+                }
+            }
+
+            // 5. Atualizar faturamento (revenue) das campanhas afetadas
+            for (const campaignId of updatedCampaignIds) {
+                try {
+                    const { sum } = await this.saleRepository.createQueryBuilder('sale')
+                        .select('SUM(sale.totalValue)', 'sum')
+                        .where('sale.campaignId = :campaignId', { campaignId })
+                        .getRawOne();
+                    
+                    await this.campaignsRepository.update(campaignId, { revenue: parseFloat(sum || '0') });
+                } catch (err: any) {
+                    this.logger.error(`[ATTRIBUTION] Erro ao atualizar receita da campanha ${campaignId}: ${err.message}`);
                 }
             }
         } catch (err: any) {
-            this.logger.warn(`[ORDER_WAIT] Erro ao associar vendas ao faturamento: ${err.message}`);
+            this.logger.warn(`[ATTRIBUTION] Erro ao associar vendas ao faturamento: ${err.message}`);
         }
     }
 
@@ -943,6 +989,7 @@ export class CampaignSchedulerService {
                             await this.lojaIntegradaService.createCoupon(campaign.userId, {
                                 codigo: code,
                                 tipo: 'fixo',
+                                valor: val,
                                 validade: endsAtIso,
                                 valor_minimo: '0',
                                 quantidade: 1,
@@ -1009,6 +1056,7 @@ export class CampaignSchedulerService {
                             await this.lojaIntegradaService.createCoupon(campaign.userId, {
                                 codigo: code,
                                 tipo: type === 'percentage' ? 'porcentagem' : 'fixo',
+                                valor: val,
                                 validade: endsAtIso,
                                 quantidade: 1,
                                 quantidade_por_cliente: 1
@@ -1017,6 +1065,19 @@ export class CampaignSchedulerService {
                         }
                     } catch (e) {
                         this.logger.error(`[COUPON] Erro ao gerar via Loja Integrada: ${e.message}`);
+                    }
+                } else if (trayConnection) {
+                    try {
+                        this.logger.log(`[COUPON] Gerando via Tray para contato ${contact.id}`);
+                        await this.trayService.createCoupon(campaign.userId, {
+                            code,
+                            type: type === 'percentage' ? 'percentage' : 'fixed',
+                            value: val,
+                            date_end: endsAtIso
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[COUPON] Erro ao gerar via Tray: ${e.message}`);
                     }
                 }
             } else if (node.type === 'shipping_coupon') {
@@ -1082,6 +1143,18 @@ export class CampaignSchedulerService {
                         }
                     } catch (e) {
                         this.logger.error(`[SHIPPING_COUPON] Erro ao gerar via Loja Integrada: ${e.message}`);
+                    }
+                } else if (trayConnection) {
+                    try {
+                        this.logger.log(`[SHIPPING_COUPON] Gerando via Tray para contato ${contact.id}`);
+                        await this.trayService.createCoupon(campaign.userId, {
+                            code,
+                            type: 'free_shipping',
+                            date_end: endsAtIso
+                        });
+                        newActiveCoupon._generatedCode = code;
+                    } catch (e) {
+                        this.logger.error(`[SHIPPING_COUPON] Erro ao gerar via Tray: ${e.message}`);
                     }
                 }
             }
@@ -1640,7 +1713,16 @@ export class CampaignSchedulerService {
                 await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, { couponCode: code, utmSource: 'nucleo-crm', utmCampaign: campaign.id.toString() });
                 return code;
             } else if (lojaIntegradaConnection) {
-                await this.lojaIntegradaService.createCoupon(campaign.userId, { codigo: code, tipo: 'fixo', validade: endsAtIso, valor_minimo: '0', quantidade: recipientsCount, quantidade_por_cliente: 1, descricao: 'GIFTBACK SHARED' });
+                await this.lojaIntegradaService.createCoupon(campaign.userId, {
+                    codigo: code,
+                    tipo: 'fixo',
+                    valor: val,
+                    validade: endsAtIso,
+                    valor_minimo: '0',
+                    quantidade: recipientsCount,
+                    quantidade_por_cliente: 1,
+                    descricao: 'GIFTBACK SHARED'
+                });
                 return code;
             }
         } else if (node.type === 'coupon') {
@@ -1658,7 +1740,14 @@ export class CampaignSchedulerService {
                 await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, { couponCode: code, utmSource: 'nucleo-crm', utmCampaign: campaign.id.toString() });
                 return code;
             } else if (lojaIntegradaConnection) {
-                await this.lojaIntegradaService.createCoupon(campaign.userId, { codigo: code, tipo: type === 'percentage' ? 'porcentagem' : 'fixo', validade: endsAtIso, quantidade: recipientsCount, quantidade_por_cliente: 1 });
+                await this.lojaIntegradaService.createCoupon(campaign.userId, {
+                    codigo: code,
+                    tipo: type === 'percentage' ? 'porcentagem' : 'fixo',
+                    valor: val,
+                    validade: endsAtIso,
+                    quantidade: recipientsCount,
+                    quantidade_por_cliente: 1
+                });
                 return code;
             }
         } else if (node.type === 'shipping_coupon') {

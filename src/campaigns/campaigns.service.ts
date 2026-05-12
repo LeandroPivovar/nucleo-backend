@@ -234,6 +234,20 @@ export class CampaignsService {
         const previousStatus = campaign.status;
 
         this.logger.log(`Atualizando campanha [ID: ${id}] para o usuário ${userId}`);
+
+        // Preservar manualContacts se houver um novo config sendo enviado, 
+        // a menos que o frontend envie explicitamente a lista (mesmo que vazia)
+        if (campaignData.config && campaign.config) {
+            const oldManual = campaign.config.manualContacts || [];
+            const newManual = campaignData.config.manualContacts;
+
+            campaignData.config = {
+                ...campaign.config,
+                ...campaignData.config,
+                manualContacts: newManual !== undefined ? newManual : oldManual
+            };
+        }
+
         Object.assign(campaign, campaignData);
         const savedCampaign = await this.campaignsRepository.save(campaign);
 

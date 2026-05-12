@@ -530,8 +530,9 @@ export class CampaignSchedulerService {
             const groups = campaign.config?.groups || [];
             const segmentations = campaign.config?.segmentations || [];
             const specificContacts = campaign.config?.specificContacts || [];
+            const manualContacts = campaign.config?.manualContacts || [];
 
-            this.logger.log(`Buscando contatos para a campanha [ID: ${campaign.id}]. Segmentos: ${segmentations.length}, Grupos: ${groups.length}, Específicos: ${specificContacts.length}`);
+            this.logger.log(`Buscando contatos para a campanha [ID: ${campaign.id}]. Segmentos: ${segmentations.length}, Grupos: ${groups.length}, Específicos: ${specificContacts.length}, Manuais: ${manualContacts.length}`);
 
             let targetContacts: Contact[] = [];
 
@@ -542,10 +543,11 @@ export class CampaignSchedulerService {
                 this.logger.log(`Encontrados ${targetContacts.length} contatos via segmentação e/ou grupos.`);
             }
 
-            // 2. Buscar Contatos Específicos
-            if (specificContacts.length > 0) {
+            // 2. Buscar Contatos Específicos e Manuais
+            const combinedSpecificIds = Array.from(new Set([...specificContacts, ...manualContacts]));
+            if (combinedSpecificIds.length > 0) {
                 const allContacts = await this.contactsService.findAll(campaign.userId);
-                const specificContactsList = allContacts.filter(contact => specificContacts.includes(contact.id));
+                const specificContactsList = allContacts.filter(contact => combinedSpecificIds.includes(contact.id));
                 const existingIds = new Set(targetContacts.map(c => c.id));
 
                 let specificAddedCount = 0;
@@ -555,7 +557,7 @@ export class CampaignSchedulerService {
                         specificAddedCount++;
                     }
                 }
-                this.logger.log(`Adicionados ${specificAddedCount} novos contatos da seleção específica. Total: ${targetContacts.length}`);
+                this.logger.log(`Adicionados ${specificAddedCount} novos contatos da seleção específica/manual. Total: ${targetContacts.length}`);
             }
 
             this.logger.log(`Resumo de contatos para a campanha [ID: ${campaign.id}]: ${targetContacts.length} contatos únicos identificados.`);
@@ -927,6 +929,7 @@ export class CampaignSchedulerService {
     }
 
     private async processSingleNode(campaign: Campaign, contact: Contact, node: any, context: any, activeCoupon: any, stats: any, preGeneratedCoupons: Record<string, string> = {}) {
+        this.logger.log(`[FLOW-EXEC] Campaign: ${campaign.id} (${campaign.name}), Contact: ${contact.id} (${contact.name}), Node: ${node.id} (${node.type})`);
         const { usage, user, shopifyConnection, nuvemshopConnection, lojaIntegradaConnection, vtexConnection, trayConnection, planEmailsLimit, planSmsLimit, backendUrl } = context;
         let newActiveCoupon = activeCoupon;
 

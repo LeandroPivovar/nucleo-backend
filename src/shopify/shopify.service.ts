@@ -1242,6 +1242,7 @@ export class ShopifyService {
       value: string;
       valueType: 'percentage' | 'fixed';
       endsAt?: string;
+      usageLimit?: number;
     }
   ): Promise<any> {
     const accessToken = await this.getAccessToken(userId, shop);
@@ -1272,7 +1273,7 @@ export class ShopifyService {
     const variables = {
       basicCodeDiscount: {
         title: params.title,
-        usageLimit: 1, // Um uso para garantir que não seja abusado
+        usageLimit: params.usageLimit || 1, // Se não informado, padrão é 1
         appliesOncePerCustomer: true,
         code: params.code,
         startsAt: new Date().toISOString(),
@@ -1397,6 +1398,89 @@ export class ShopifyService {
     this.logger.log(`Cupom de Frete '${params.code}' gerado com sucesso na Shopify: ${shop}`);
 
     return codeNode;
+  }
+
+  /**
+   * Busca o ID (GraphQL GID) de um cupom pelo código
+   */
+  async findDiscountCodeIdByCode(userId: number, shop: string, code: string): Promise<string | null> {
+    const accessToken = await this.getAccessToken(userId, shop);
+    const query = `
+      query {
+        codeDiscountNodes(first: 1, query: "code:${code}") {
+          nodes {
+            id
+            codeDiscount {
+              ... on DiscountCodeBasic {
+                id
+              }
+              ... on DiscountCodeFreeShipping {
+                id
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const result = await this.makeGraphqlRequest(shop, accessToken, query);
+    const nodes = result.data?.codeDiscountNodes?.nodes;
+    if (nodes && nodes.length > 0) {
+      return nodes[0].codeDiscount?.id || nodes[0].id;
+    }
+    return null;
+  }
+
+  /**
+   * Atualiza o limite de uso de um cupom básico
+   */
+  async updateDiscountCodeUsageLimit(userId: number, shop: string, discountId: string, usageLimit: number): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, shop);
+    const mutation = `
+      mutation discountCodeBasicUpdate($id: ID!, $basicCodeDiscount: DiscountCodeBasicInput!) {
+        discountCodeBasicUpdate(id: $id, basicCodeDiscount: $basicCodeDiscount) {
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      id: discountId,
+      basicCodeDiscount: {
+        usageLimit
+      }
+    };
+
+    return await this.makeGraphqlRequest(shop, accessToken, mutation, variables);
+  }
+
+  /**
+   * Atualiza o limite de uso de um cupom de frete grátis
+   */
+  async updateFreeShippingUsageLimit(userId: number, shop: string, discountId: string, usageLimit: number): Promise<any> {
+    const accessToken = await this.getAccessToken(userId, shop);
+    const mutation = `
+      mutation discountCodeFreeShippingUpdate($id: ID!, $freeShippingCodeDiscount: DiscountCodeFreeShippingInput!) {
+        discountCodeFreeShippingUpdate(id: $id, freeShippingCodeDiscount: $freeShippingCodeDiscount) {
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      id: discountId,
+      freeShippingCodeDiscount: {
+        usageLimit
+      }
+    };
+
+    return await this.makeGraphqlRequest(shop, accessToken, mutation, variables);
   }
 
   /**

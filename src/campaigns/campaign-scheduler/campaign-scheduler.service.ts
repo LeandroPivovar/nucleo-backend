@@ -602,10 +602,10 @@ export class CampaignSchedulerService {
         for (const node of nodesToCheck) {
             if (node.type === 'coupon' || node.type === 'giftback' || node.type === 'shipping_coupon') {
                 try {
-                    const code = await this.generateSharedCoupon(campaign, node, targetContacts.length, context);
+                    const code = await this.generateSharedCoupon(campaign, node, campaign.recipientsCount, context);
                     if (code) {
                         preGeneratedCoupons[node.id] = code;
-                        this.logger.log(`[COUPON PRE-GEN] Gerado código compartilhado para nó ${node.id} (${node.type}): ${code} (Limite: ${targetContacts.length})`);
+                        this.logger.log(`[COUPON PRE-GEN] Gerado/Atualizado código compartilhado para nó ${node.id} (${node.type}): ${code} (Limite Total: ${campaign.recipientsCount})`);
                     }
                 } catch (e) {
                     this.logger.error(`[COUPON PRE-GEN] Erro ao gerar código compartilhado para nó ${node.id}: ${e.message}`);
@@ -1695,7 +1695,7 @@ export class CampaignSchedulerService {
     }
     
     private async generateSharedCoupon(campaign: Campaign, node: any, recipientsCount: number, context: any): Promise<string | null> {
-        const { shopifyConnection, nuvemshopConnection, lojaIntegradaConnection, vtexConnection } = context;
+        const { shopifyConnection, nuvemshopConnection, lojaIntegradaConnection, vtexConnection, trayConnection } = context;
         const days = parseInt(node.data?.expirationDays || '30');
         const endsAt = new Date();
         endsAt.setDate(endsAt.getDate() + days);
@@ -1706,25 +1706,53 @@ export class CampaignSchedulerService {
             const code = node.data?.couponName || `GIFT_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
             if (shopifyConnection) {
+                // Shopify GiftCards são individuais por padrão na nossa implementação atual
                 const gc = await this.shopifyService.createGiftCard(campaign.userId, shopifyConnection.shop, { initialValue: val, note: 'GIFTBACK SHARED', endsAt: endsAtIso });
                 return gc.code;
             } else if (nuvemshopConnection) {
-                await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: recipientsCount });
+                const existingId = await this.nuvemshopService.getCouponIdByCode(campaign.userId, nuvemshopConnection.storeId, code);
+                if (existingId) {
+                    await this.nuvemshopService.updateCoupon(campaign.userId, nuvemshopConnection.storeId, existingId, { max_uses: recipientsCount });
+                } else {
+                    await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: recipientsCount });
+                }
                 return code;
             } else if (vtexConnection) {
                 await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, { couponCode: code, utmSource: 'nucleo-crm', utmCampaign: campaign.id.toString() });
                 return code;
             } else if (lojaIntegradaConnection) {
-                await this.lojaIntegradaService.createCoupon(campaign.userId, {
+                const existingId = await this.lojaIntegradaService.getCouponIdByCode(campaign.userId, code);
+                const couponData = {
                     codigo: code,
-                    tipo: 'fixo',
+                    tipo: 'fixo' as any,
                     valor: val,
                     validade: endsAtIso,
                     valor_minimo: '0',
                     quantidade: recipientsCount,
                     quantidade_por_cliente: 1,
                     descricao: 'GIFTBACK SHARED'
-                });
+                };
+                if (existingId) {
+                    await this.lojaIntegradaService.updateCoupon(campaign.userId, existingId, couponData);
+                } else {
+                    await this.lojaIntegradaService.createCoupon(campaign.userId, couponData);
+                }
+                return code;
+            } else if (trayConnection) {
+                const existingId = await this.trayService.getCouponIdByCode(campaign.userId, code);
+                const couponData = {
+                    Coupon: {
+                        code,
+                        type: '1', // fixed
+                        value: val,
+                        active: '1'
+                    }
+                };
+                if (existingId) {
+                    await this.trayService.updateCoupon(campaign.userId, existingId, couponData);
+                } else {
+                    await this.trayService.createCoupon(campaign.userId, { code, type: 'fixed', value: val });
+                }
                 return code;
             }
         } else if (node.type === 'coupon') {
@@ -1733,39 +1761,102 @@ export class CampaignSchedulerService {
             const code = node.data?.couponName || `CUPOM_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
             if (shopifyConnection) {
-                await this.shopifyService.createDiscountCode(campaign.userId, shopifyConnection.shop, { title: 'Campanha CRM', code, value: val, valueType: type === 'percentage' ? 'percentage' : 'fixed', endsAt: endsAtIso });
+                const existingId = await this.shopifyService.findDiscountCodeIdByCode(campaign.userId, shopifyConnection.shop, code);
+                if (existingId) {
+                    await this.shopifyService.updateDiscountCodeUsageLimit(campaign.userId, shopifyConnection.shop, existingId, recipientsCount);
+                } else {
+                    await this.shopifyService.createDiscountCode(campaign.userId, shopifyConnection.shop, { title: 'Campanha CRM', code, value: val, valueType: type === 'percentage' ? 'percentage' : 'fixed', endsAt: endsAtIso, usageLimit: recipientsCount });
+                }
                 return code;
             } else if (nuvemshopConnection) {
-                await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: type === 'percentage' ? 'percentage' : 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: recipientsCount });
+                const existingId = await this.nuvemshopService.getCouponIdByCode(campaign.userId, nuvemshopConnection.storeId, code);
+                if (existingId) {
+                    await this.nuvemshopService.updateCoupon(campaign.userId, nuvemshopConnection.storeId, existingId, { max_uses: recipientsCount });
+                } else {
+                    await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: type === 'percentage' ? 'percentage' : 'absolute', value: val, start_date: new Date().toISOString(), end_date: endsAtIso, max_uses: recipientsCount });
+                }
                 return code;
             } else if (vtexConnection) {
                 await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, { couponCode: code, utmSource: 'nucleo-crm', utmCampaign: campaign.id.toString() });
                 return code;
             } else if (lojaIntegradaConnection) {
-                await this.lojaIntegradaService.createCoupon(campaign.userId, {
+                const existingId = await this.lojaIntegradaService.getCouponIdByCode(campaign.userId, code);
+                const couponData = {
                     codigo: code,
-                    tipo: type === 'percentage' ? 'porcentagem' : 'fixo',
+                    tipo: (type === 'percentage' ? 'porcentagem' : 'fixo') as any,
                     valor: val,
                     validade: endsAtIso,
                     quantidade: recipientsCount,
                     quantidade_por_cliente: 1
-                });
+                };
+                if (existingId) {
+                    await this.lojaIntegradaService.updateCoupon(campaign.userId, existingId, couponData);
+                } else {
+                    await this.lojaIntegradaService.createCoupon(campaign.userId, couponData);
+                }
+                return code;
+            } else if (trayConnection) {
+                const existingId = await this.trayService.getCouponIdByCode(campaign.userId, code);
+                const couponData = {
+                    Coupon: {
+                        code,
+                        type: type === 'percentage' ? '2' : '1',
+                        value: val,
+                        active: '1'
+                    }
+                };
+                if (existingId) {
+                    await this.trayService.updateCoupon(campaign.userId, existingId, couponData);
+                } else {
+                    await this.trayService.createCoupon(campaign.userId, { code, type: type === 'percentage' ? 'percentage' : 'fixed', value: val });
+                }
                 return code;
             }
         } else if (node.type === 'shipping_coupon') {
             const code = node.data?.code || `FRETE_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
             if (shopifyConnection) {
-                await this.shopifyService.createFreeShippingDiscountCode(campaign.userId, shopifyConnection.shop, { title: 'FRETE GRÁTIS', code, endsAt: endsAtIso, minimumSubtotal: node.data?.minPurchaseValue || '0', usageLimit: recipientsCount });
+                const existingId = await this.shopifyService.findDiscountCodeIdByCode(campaign.userId, shopifyConnection.shop, code);
+                if (existingId) {
+                    await this.shopifyService.updateFreeShippingUsageLimit(campaign.userId, shopifyConnection.shop, existingId, recipientsCount);
+                } else {
+                    await this.shopifyService.createFreeShippingDiscountCode(campaign.userId, shopifyConnection.shop, { title: 'FRETE GRÁTIS', code, endsAt: endsAtIso, minimumSubtotal: node.data?.minPurchaseValue || '0', usageLimit: recipientsCount });
+                }
                 return code;
             } else if (nuvemshopConnection) {
-                await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'shipping', start_date: new Date().toISOString(), end_date: endsAtIso, min_price: node.data?.minPurchaseValue || 0, max_uses: recipientsCount, only_cheapest_shipping: true });
+                const existingId = await this.nuvemshopService.getCouponIdByCode(campaign.userId, nuvemshopConnection.storeId, code);
+                if (existingId) {
+                    await this.nuvemshopService.updateCoupon(campaign.userId, nuvemshopConnection.storeId, existingId, { max_uses: recipientsCount });
+                } else {
+                    await this.nuvemshopService.createCoupon(campaign.userId, nuvemshopConnection.storeId, { code, type: 'shipping', start_date: new Date().toISOString(), end_date: endsAtIso, min_price: node.data?.minPurchaseValue || 0, max_uses: recipientsCount, only_cheapest_shipping: true });
+                }
                 return code;
             } else if (vtexConnection) {
                 await this.vtexService.createCoupon(campaign.userId, vtexConnection.accountName, { couponCode: code, utmSource: 'nucleo-crm', utmCampaign: campaign.id.toString() });
                 return code;
             } else if (lojaIntegradaConnection) {
-                await this.lojaIntegradaService.createCoupon(campaign.userId, { codigo: code, tipo: 'frete_gratis', validade: endsAtIso, valor_minimo: node.data?.minPurchaseValue || '0', quantidade: recipientsCount, quantidade_por_cliente: 1 });
+                const existingId = await this.lojaIntegradaService.getCouponIdByCode(campaign.userId, code);
+                const couponData = { codigo: code, tipo: 'frete_gratis' as any, validade: endsAtIso, valor_minimo: node.data?.minPurchaseValue || '0', quantidade: recipientsCount, quantidade_por_cliente: 1 };
+                if (existingId) {
+                    await this.lojaIntegradaService.updateCoupon(campaign.userId, existingId, couponData);
+                } else {
+                    await this.lojaIntegradaService.createCoupon(campaign.userId, couponData);
+                }
+                return code;
+            } else if (trayConnection) {
+                const existingId = await this.trayService.getCouponIdByCode(campaign.userId, code);
+                const couponData = {
+                    Coupon: {
+                        code,
+                        type: '3', // free shipping
+                        active: '1'
+                    }
+                };
+                if (existingId) {
+                    await this.trayService.updateCoupon(campaign.userId, existingId, couponData);
+                } else {
+                    await this.trayService.createCoupon(campaign.userId, { code, type: 'free_shipping' });
+                }
                 return code;
             }
         }

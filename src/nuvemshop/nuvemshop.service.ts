@@ -1346,48 +1346,31 @@ export class NuvemshopService {
       start_date: formatDate(params.start_date),
       end_date: formatDate(params.end_date),
     };
+    return await this.makeApiRequest(userId, storeId, '/coupons', 'POST', formattedParams);
+  }
 
-    const response = await fetch(
-      `${this.apiBaseUrl}/${storeId}/coupons`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Authentication': `bearer ${accessToken}`,
-          'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
-        },
-        body: JSON.stringify(formattedParams),
-      },
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let error: any;
-      try {
-        error = JSON.parse(errorText);
-      } catch {
-        error = { message: errorText || 'Falha ao criar cupom na Nuvemshop' };
+  /**
+   * Busca o ID de um cupom pelo código
+   */
+  async getCouponIdByCode(userId: number, storeId: string, code: string): Promise<number | null> {
+    try {
+      const coupons = await this.makeApiRequest(userId, storeId, `/coupons?code=${code}`);
+      if (Array.isArray(coupons) && coupons.length > 0) {
+        // Nuvemshop API might return multiple if the code is a substring, so filter strictly
+        const coupon = coupons.find(c => c.code === code);
+        return coupon ? coupon.id : null;
       }
-
-      this.logger.error('Erro ao criar cupom na Nuvemshop:', {
-        status: response.status,
-        statusText: response.statusText,
-        error,
-        sentParams: formattedParams,
-      });
-
-      // Se for erro de código já existente, podemos tratar ou apenas logar
-      if (error.code === 400 && error.message?.toLowerCase().includes('already exists')) {
-        this.logger.warn(`Cupom '${params.code}' já existe na Nuvemshop.`);
-        return { code: params.code, alreadyExists: true };
-      }
-
-      const errorMessage = error.error_description || error.message || 'Falha ao criar cupom na Nuvemshop';
-      throw new BadRequestException(errorMessage);
+    } catch (e) {
+      this.logger.error(`Erro ao buscar cupom Nuvemshop por código (${code}): ${e.message}`);
     }
+    return null;
+  }
 
-    const data = await response.json();
-    return data;
+  /**
+   * Atualiza um cupom existente
+   */
+  async updateCoupon(userId: number, storeId: string, id: number, body: any): Promise<any> {
+    return await this.makeApiRequest(userId, storeId, `/coupons/${id}`, 'PUT', body);
   }
 
   /**

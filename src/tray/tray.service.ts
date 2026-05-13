@@ -241,6 +241,38 @@ export class TrayService {
     });
   }
 
+  /**
+   * Busca o ID de um cupom pelo código
+   */
+  async getCouponIdByCode(userId: number, code: string): Promise<number | null> {
+    try {
+      const connection = await this.trayConnectionRepository.findOne({ where: { userId, isActive: true } });
+      if (!connection) return null;
+
+      const data = await this.request(connection, `/coupons?code=${code}`);
+      if (data && data.Coupons && data.Coupons.length > 0) {
+          const coupon = data.Coupons.find((c: any) => c.Coupon.code === code);
+          return coupon ? coupon.Coupon.id : null;
+      }
+    } catch (e) {
+      this.logger.error(`Erro ao buscar cupom Tray por código (${code}): ${e.message}`);
+    }
+    return null;
+  }
+
+  /**
+   * Atualiza um cupom existente
+   */
+  async updateCoupon(userId: number, id: number, body: any): Promise<any> {
+    const connection = await this.trayConnectionRepository.findOne({ where: { userId, isActive: true } });
+    if (!connection) throw new NotFoundException('Conexão Tray não encontrada');
+
+    return await this.request(connection, `/coupons/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
   // --- MÉTODOS DE SINCRONIZAÇÃO ---
 
   async syncProducts(userId: number): Promise<any> {

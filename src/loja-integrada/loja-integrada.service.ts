@@ -189,6 +189,38 @@ export class LojaIntegradaService {
         return await this.makeRequest(connection, '/cupom/', {}, 'POST', body);
     }
 
+    /**
+     * Busca o ID de um cupom pelo código
+     */
+    async getCouponIdByCode(userId: number, code: string): Promise<number | null> {
+        try {
+            const connection = await this.getActiveConnection(userId);
+            const data = await this.makeRequest(connection, '/cupom/', { codigo: code });
+            if (data && data.objects && data.objects.length > 0) {
+                // A API pode retornar busca aproximada, então filtramos o exato
+                const coupon = data.objects.find(c => c.codigo === code);
+                return coupon ? coupon.id : null;
+            }
+        } catch (e) {
+            this.logger.error(`Erro ao buscar cupom por código (${code}): ${e.message}`);
+        }
+        return null;
+    }
+
+    /**
+     * Atualiza um cupom existente
+     */
+    async updateCoupon(userId: number, id: number, body: any): Promise<any> {
+        const connection = await this.getActiveConnection(userId);
+        
+        // Se houver validade, formatar para YYYY-MM-DD
+        if (body.validade && body.validade.includes('T')) {
+            body.validade = body.validade.split('T')[0];
+        }
+
+        return await this.makeRequest(connection, `/cupom/${id}/`, {}, 'PUT', body);
+    }
+
     async syncProducts(userId: number): Promise<{ imported: number; updated: number }> {
         const connection = await this.getActiveConnection(userId);
         

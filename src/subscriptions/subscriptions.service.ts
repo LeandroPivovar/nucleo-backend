@@ -356,7 +356,11 @@ export class SubscriptionsService {
 
             let qrCode = null;
             if (billingType === 'PIX') {
-                qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+                try {
+                    qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+                } catch (err: any) {
+                    this.logger.warn(`Could not generate PIX QR Code for payment ${asaasPayment.id}: ${err.message}. Falling back to invoice URL.`);
+                }
             }
 
             return {
@@ -423,7 +427,11 @@ export class SubscriptionsService {
 
             let qrCode = null;
             if (billingType === 'PIX') {
-                qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+                try {
+                    qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+                } catch (err: any) {
+                    this.logger.warn(`Could not generate PIX QR Code for template request payment ${asaasPayment.id}: ${err.message}. Falling back to invoice URL.`);
+                }
             }
 
             return {

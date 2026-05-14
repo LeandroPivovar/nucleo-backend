@@ -159,6 +159,42 @@ export class ProductsController {
   async remove(@Param('id', ParseIntPipe) id: number, @Request() req) {
     return this.productsService.remove(id, req.user.id);
   }
+
+  @Get('import/template')
+  @HttpCode(HttpStatus.OK)
+  async downloadTemplate(@Res() res: Response) {
+    const data = [
+      {
+        'Nome': 'Produto Exemplo 1',
+        'Descrição': 'Descrição detalhada do produto 1',
+        'SKU': 'SKU001',
+        'Categoria': 'Eletrônicos',
+        'Preço': 99.90,
+        'Estoque': 50,
+        'Status': 'Ativo'
+      },
+      {
+        'Nome': 'Produto Exemplo 2',
+        'Descrição': 'Descrição detalhada do produto 2',
+        'SKU': 'SKU002',
+        'Categoria': 'Vestuário',
+        'Preço': 49.99,
+        'Estoque': 100,
+        'Status': 'Ativo'
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=modelo_importacao_produtos.xlsx');
+    
+    return res.send(buffer);
+  }
 }
 
 @Controller('products-image')

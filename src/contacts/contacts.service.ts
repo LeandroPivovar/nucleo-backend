@@ -290,12 +290,6 @@ export class ContactsService {
           }
         }
 
-        // Mapear segmentações (separadas por ponto e vírgula)
-        const segmentationIds: string[] = [];
-        if (row.segmentations && row.segmentations.trim()) {
-          const segIds = row.segmentations.split(';').map(s => s.trim()).filter(s => s);
-          segmentationIds.push(...segIds);
-        }
 
         // Criar contato
         const createDto: CreateContactDto = {

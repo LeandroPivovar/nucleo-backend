@@ -26,6 +26,8 @@ import { diskStorage } from 'multer';
 import { join, extname } from 'path';
 import * as fs from 'fs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ImportProductRow } from './dto/import-products.dto';
+import * as XLSX from 'xlsx';
 
 // Ensure the upload directory exists using absolute path from __dirname
 const uploadDir = join(__dirname, '..', '..', 'uploads', 'products');
@@ -63,6 +65,38 @@ export class ProductsController {
   @HttpCode(HttpStatus.CREATED)
   async create(@Request() req, @Body() createProductDto: CreateProductDto) {
     return this.productsService.create(req.user.userId, createProductDto);
+  }
+
+  @Post('import-excel')
+  @UseInterceptors(FileInterceptor('file'))
+  async importExcel(
+    @Request() req,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo enviado');
+    }
+
+    try {
+      const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet) as ImportProductRow[];
+
+      if (rows.length === 0) {
+        throw new BadRequestException('A planilha está vazia');
+      }
+
+      if (rows.length > 5000) {
+        throw new BadRequestException('A planilha excede o limite de 5000 linhas');
+      }
+
+      const result = await this.productsService.importFromCSV(req.user.userId, rows);
+      return result;
+    } catch (error) {
+      this.logger.error(`Erro ao importar produtos Excel: ${error.message}`, error.stack);
+      throw new BadRequestException(error.message || 'Erro ao processar planilha');
+    }
   }
 
   /**

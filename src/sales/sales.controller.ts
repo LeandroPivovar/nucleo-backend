@@ -202,9 +202,11 @@ export class SalesController {
       const headerLine = lines[0].trim();
       const header = parseCSVLine(headerLine).map(h => h.trim().toLowerCase().replace(/^"|"$ /g, ''));
 
+      /* 
       if (!header.includes('email')) {
         throw new BadRequestException('A planilha deve conter a coluna "Email" do comprador');
       }
+      */
 
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -253,9 +255,11 @@ export class SalesController {
       const firstRow = excelData[0] || {};
       const lowerKeys = Object.keys(firstRow).map(k => k.trim().toLowerCase());
 
+      /*
       if (!lowerKeys.includes('email')) {
         throw new BadRequestException('A planilha deve conter a coluna "Email" do comprador');
       }
+      */
 
       rows = excelData.map(row => {
         const lowerRow: Record<string, string> = {};

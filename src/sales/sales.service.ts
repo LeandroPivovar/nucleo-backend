@@ -39,6 +39,52 @@ export class SalesService {
     private liService: LojaIntegradaService,
   ) { }
 
+  private parseDate(dateStr: string | undefined): Date {
+    if (!dateStr) return new Date();
+
+    // Remove any extra whitespace
+    const cleanStr = dateStr.trim();
+    if (!cleanStr) return new Date();
+
+    // Try standard parsing first
+    let date = new Date(cleanStr);
+    if (!isNaN(date.getTime())) return date;
+
+    // Handle common Brazilian format: DD/MM/YYYY or DD-MM-YYYY
+    const brDatePattern = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/;
+    const match = cleanStr.match(brDatePattern);
+
+    if (match) {
+      const day = parseInt(match[1]);
+      const month = parseInt(match[2]) - 1; // JS months are 0-11
+      let year = parseInt(match[3]);
+
+      if (year < 100) {
+        year += 2000; // Assume 21st century for 2-digit years
+      }
+
+      date = new Date(year, month, day);
+      if (!isNaN(date.getTime())) return date;
+    }
+
+    // Fallback: If it's a number (Unix timestamp or Excel date number)
+    if (/^\d+$/.test(cleanStr)) {
+      const num = parseInt(cleanStr);
+      // Simple heuristic: if > 100000000000, probably ms timestamp, else maybe Excel date or s timestamp
+      if (num > 10000000000) {
+        date = new Date(num);
+      } else if (num > 30000 && num < 60000) {
+        // Likely Excel date (number of days since 1900-01-01)
+        date = new Date((num - 25569) * 86400 * 1000);
+      } else {
+        date = new Date(num * 1000);
+      }
+      if (!isNaN(date.getTime())) return date;
+    }
+
+    return new Date();
+  }
+
   async create(userId: number, createSaleDto: CreateSaleDto): Promise<Sale> {
     const { productId, quantity, customerName, customerEmail, status, unitPrice: dtoUnitPrice, totalValue: dtoTotalValue, channel, paymentMethod } = createSaleDto;
 
@@ -1031,24 +1077,23 @@ export class SalesService {
       const lineNumber = i + 2;
 
       try {
-        if (!row.email) {
-          errors.push(`Linha ${lineNumber}: Email do comprador é obrigatório`);
-          continue;
-        }
-
-        // 1. Buscar ou Vincular Contato
-        let contact = await this.contactRepository.findOne({
-          where: { email: row.email, userId },
-        });
-
-        if (!contact) {
-          contact = this.contactRepository.create({
-            email: row.email,
-            name: row.customerName || row.email.split('@')[0],
-            userId,
-            status: 'lead',
+        // 1. Buscar ou Vincular Contato (Opcional)
+        let contact: Contact | null = null;
+        
+        if (row.email && row.email.trim()) {
+          contact = await this.contactRepository.findOne({
+            where: { email: row.email, userId },
           });
-          contact = await this.contactRepository.save(contact);
+
+          if (!contact) {
+            contact = this.contactRepository.create({
+              email: row.email,
+              name: row.customerName || row.email.split('@')[0],
+              userId,
+              status: 'lead',
+            });
+            contact = await this.contactRepository.save(contact);
+          }
         }
 
         // 2. Buscar Produto
@@ -1078,17 +1123,17 @@ export class SalesService {
         // 4. Criar Venda
         const sale = this.saleRepository.create({
           userId,
-          contactId: contact.id,
+          contactId: contact ? contact.id : undefined,
           productId: product.id,
           quantity,
           unitPrice,
           totalValue,
-          customerName: contact.name,
-          customerEmail: contact.email,
+          customerName: contact ? contact.name : (row.customerName || 'Consumidor'),
+          customerEmail: contact ? contact.email : (row.email || undefined),
           channel: row.channel || 'import',
           status: row.status || 'completed',
           paymentMethod: row.paymentMethod || 'other',
-          createdAt: row.date ? new Date(row.date) : new Date(),
+          createdAt: this.parseDate(row.date),
         });
 
         await this.saleRepository.save(sale);

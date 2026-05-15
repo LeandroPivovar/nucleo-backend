@@ -782,7 +782,7 @@ export class SalesService {
     };
   }
 
-  async getSalesByCampaign(userId: number, period: number, filters: { productId?: number; startDate?: string; endDate?: string } = {}) {
+  async getSalesByCampaign(userId: number, period: number, filters: { productId?: number; startDate?: string; endDate?: string; onlyWithCampaigns?: boolean } = {}) {
     const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     const qb = this.saleRepository.createQueryBuilder('sale')

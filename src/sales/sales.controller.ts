@@ -36,6 +36,7 @@ export class SalesController {
     return this.salesService.create(req.user.userId, createSaleDto);
   }
 
+  @Get()
   async findAll(
     @Request() req,
     @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
@@ -70,8 +71,9 @@ export class SalesController {
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getSalesByCampaign(req.user.userId, period, { productId, startDate, endDate });
+    return this.salesService.getSalesByCampaign(req.user.userId, period, { productId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/channels')

@@ -39,6 +39,23 @@ export class SalesService {
     private liService: LojaIntegradaService,
   ) { }
 
+  private COMPLETED_STATUSES = ['completed', 'Completo', 'pago', 'Pago', 'aprovado', 'Aprovado', 'success', 'Sucesso'];
+
+  private normalizeStatus(status: string | undefined): string {
+    if (!status) return 'completed';
+    const s = status.toLowerCase().trim();
+    if (['completo', 'pago', 'aprovado', 'finalizado', 'completed', 'paid', 'approved', 'success'].includes(s)) {
+      return 'completed';
+    }
+    if (['cancelado', 'cancelled', 'canceled', 'estornado', 'refunded'].includes(s)) {
+      return 'cancelled';
+    }
+    if (['processando', 'processing', 'pendente', 'pending', 'waiting_payment'].includes(s)) {
+      return 'processing';
+    }
+    return s;
+  }
+
   private parseDate(dateStr: string | undefined): Date {
     if (!dateStr) return new Date();
 
@@ -46,11 +63,7 @@ export class SalesService {
     const cleanStr = dateStr.trim();
     if (!cleanStr) return new Date();
 
-    // Try standard parsing first
-    let date = new Date(cleanStr);
-    if (!isNaN(date.getTime())) return date;
-
-    // Handle common Brazilian format: DD/MM/YYYY or DD-MM-YYYY
+    // 1. Handle common Brazilian format FIRST: DD/MM/YYYY or DD-MM-YYYY
     const brDatePattern = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/;
     const match = cleanStr.match(brDatePattern);
 
@@ -63,9 +76,13 @@ export class SalesService {
         year += 2000; // Assume 21st century for 2-digit years
       }
 
-      date = new Date(year, month, day);
+      const date = new Date(year, month, day);
       if (!isNaN(date.getTime())) return date;
     }
+
+    // 2. Try standard parsing (ISO, etc.)
+    let date = new Date(cleanStr);
+    if (!isNaN(date.getTime())) return date;
 
     // Fallback: If it's a number (Unix timestamp or Excel date number)
     if (/^\d+$/.test(cleanStr)) {
@@ -320,7 +337,7 @@ export class SalesService {
         .addSelect('COUNT(sale.id)', 'vendas')
         .where('sale.userId = :userId', { userId })
         .andWhere('sale.createdAt BETWEEN :start AND :end', { start, end })
-        .andWhere('sale.status = :status', { status: 'completed' });
+        .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES });
 
       if (filters.campaignId) {
         salesQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
@@ -369,7 +386,7 @@ export class SalesService {
         .addSelect('SUM(sale.totalValue)', 'faturamento')
         .where('sale.userId = :userId', { userId })
         .andWhere('sale.createdAt BETWEEN :start AND :end', { start, end })
-        .andWhere('sale.status = :status', { status: 'completed' })
+        .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES })
         .groupBy('DATE(sale.createdAt)')
         .orderBy('DATE(sale.createdAt)', 'ASC');
 
@@ -522,7 +539,7 @@ export class SalesService {
     const buyersQuery = this.saleRepository.createQueryBuilder('sale')
       .select('COUNT(DISTINCT sale.contactId)', 'count')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.status = :status', { status: 'completed' })
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES })
       .andWhere('sale.contactId IS NOT NULL')
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
@@ -540,7 +557,7 @@ export class SalesService {
     const loyalQuery = this.saleRepository.createQueryBuilder('sale')
       .select('sale.contactId')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.status = :status', { status: 'completed' })
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES })
       .andWhere('sale.contactId IS NOT NULL')
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
       .groupBy('sale.contactId')
@@ -639,7 +656,7 @@ export class SalesService {
     const buyersQb = this.saleRepository.createQueryBuilder('sale')
       .select('COUNT(DISTINCT sale.contactId)', 'count')
       .where('sale.userId = :userId', { userId })
-      .andWhere('sale.status = "completed"')
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES })
       .andWhere('sale.contactId IS NOT NULL')
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate });
 
@@ -687,7 +704,7 @@ export class SalesService {
         const subQuery = qb.subQuery()
           .select('sale.contactId')
           .from(Sale, 'sale')
-          .where('sale.status = "completed"')
+          .where('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES })
           .andWhere('sale.userId = :userId')
           .getQuery();
         return 'contact.id NOT IN ' + subQuery;
@@ -718,7 +735,7 @@ export class SalesService {
           .select('sale.contactId')
           .from(Sale, 'sale')
           .where('sale.userId = :userId')
-          .andWhere('sale.status = "completed"')
+          .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES })
           .andWhere('sale.createdAt >= :date', { date: ninetyDaysAgo })
           .getQuery();
         return 'contact.id NOT IN ' + subQuery;
@@ -729,7 +746,7 @@ export class SalesService {
     // 6. Loyalty (2+ Sales) - Filtered by period
     const loyalQb = this.contactRepository.createQueryBuilder('contact')
       .select('contact.id')
-      .innerJoin(Sale, 'sale', 'sale.contactId = contact.id AND sale.status = "completed" AND sale.userId = :userId', { userId })
+      .innerJoin(Sale, 'sale', 'sale.contactId = contact.id AND sale.status IN (:...statuses) AND sale.userId = :userId', { userId, statuses: this.COMPLETED_STATUSES })
       .where('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
       .groupBy('contact.id')
       .having('COUNT(sale.id) > 1');
@@ -774,7 +791,7 @@ export class SalesService {
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere('sale.status = :status', { status: 'completed' })
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES })
       .andWhere('sale.campaignId IS NOT NULL');
 
     if (filters.productId) {
@@ -811,7 +828,7 @@ export class SalesService {
       .addSelect('COUNT(sale.id)', 'vendas')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere('sale.status = :status', { status: 'completed' });
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES });
 
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) qb.andWhere('sale.productId = :productId', { productId: filters.productId });
@@ -836,7 +853,7 @@ export class SalesService {
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere('sale.status = :status', { status: 'completed' });
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES });
 
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
 
@@ -861,7 +878,7 @@ export class SalesService {
       .addSelect('SUM(sale.totalValue)', 'totalFaturamento')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere('sale.status = :status', { status: 'completed' });
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES });
 
     if (filters.campaignId) totalCountQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) totalCountQb.andWhere('sale.productId = :productId', { productId: filters.productId });
@@ -876,7 +893,7 @@ export class SalesService {
       .addSelect('SUM(sale.totalValue)', 'faturamento')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
-      .andWhere('sale.status = :status', { status: 'completed' });
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES });
 
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) qb.andWhere('sale.productId = :productId', { productId: filters.productId });
@@ -925,6 +942,7 @@ export class SalesService {
     const salesCount = await this.saleRepository.createQueryBuilder('sale')
       .where('sale.userId = :userId', { userId })
       .andWhere('sale.createdAt BETWEEN :startDate AND :endDate', { startDate, endDate })
+      .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES })
       .getCount();
 
     // 4. Carts: Placeholder (0) as we don't track cart events yet
@@ -979,7 +997,7 @@ export class SalesService {
         'contact.createdAt AS createdAt',
         'contact.updatedAt AS updatedAt',
         'MAX(COALESCE(sale.createdAt, contact.updatedAt, event.createdAt)) AS lastActivityAt',
-        'COUNT(DISTINCT CASE WHEN sale.status = "completed" AND sale.createdAt BETWEEN :startDate AND :endDate THEN sale.id END) AS saleCount',
+        'COUNT(DISTINCT CASE WHEN sale.status IN (:...statuses) AND sale.createdAt BETWEEN :startDate AND :endDate THEN sale.id END) AS saleCount',
         'COUNT(DISTINCT CASE WHEN event.event IN ("PageView", "ViewContent") AND event.createdAt BETWEEN :startDate AND :endDate THEN event.id END) AS engagementCount',
         'COUNT(DISTINCT CASE WHEN (event.event = "AddToCart" AND event.createdAt BETWEEN :startDate AND :endDate) OR (sale.status = "active_cart" AND sale.createdAt BETWEEN :startDate AND :endDate) THEN COALESCE(event.id, sale.id) END) AS cartCount',
         'COUNT(DISTINCT CASE WHEN sale.status = "abandoned_cart" AND sale.createdAt BETWEEN :startDate AND :endDate THEN sale.id END) AS abandonedCount'
@@ -987,7 +1005,7 @@ export class SalesService {
       .leftJoin(Sale, 'sale', 'sale.contactId = contact.id')
       .leftJoin(PixelEvent, 'event', 'contact.email IS NOT NULL AND (event.data->>"$.email" = contact.email OR event.data->>"$.customer_email" = contact.email)')
       .where('contact.userId = :userId', { userId })
-      .setParameters({ startDate, endDate })
+      .setParameters({ startDate, endDate, statuses: this.COMPLETED_STATUSES })
       .groupBy('contact.id');
 
     if (filters.campaignId) {
@@ -1131,7 +1149,7 @@ export class SalesService {
           customerName: contact ? contact.name : (row.customerName || 'Consumidor'),
           customerEmail: contact ? contact.email : (row.email || undefined),
           channel: row.channel || 'import',
-          status: row.status || 'completed',
+          status: this.normalizeStatus(row.status),
           paymentMethod: row.paymentMethod || 'other',
           createdAt: this.parseDate(row.date),
         });

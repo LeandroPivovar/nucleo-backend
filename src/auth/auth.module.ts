@@ -15,6 +15,8 @@ import { EmailModule } from '../email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { CampaignsModule } from '../campaigns/campaigns.module';
+import { ShopifyModule } from '../shopify/shopify.module';
+import { ShopifySessionStrategy } from './shopify-session.strategy';
 
 @Module({
   imports: [
@@ -24,6 +26,7 @@ import { CampaignsModule } from '../campaigns/campaigns.module';
     NotificationsModule,
     SubscriptionsModule,
     CampaignsModule,
+    ShopifyModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
@@ -34,7 +37,7 @@ import { CampaignsModule } from '../campaigns/campaigns.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, ShopifySessionStrategy],
   exports: [AuthService],
 })
 export class AuthModule { }

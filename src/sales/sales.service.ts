@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, Not, IsNull } from 'typeorm';
 import { Sale } from '../entities/sale.entity';
 import { Product } from '../entities/product.entity';
 import { Campaign } from '../entities/campaign.entity';
@@ -179,9 +179,15 @@ export class SalesService {
     });
   }
 
-  async findAll(userId: number): Promise<Sale[]> {
+  async findAll(userId: number, filters: { onlyWithCampaigns?: boolean } = {}): Promise<Sale[]> {
+    const where: any = { userId };
+    
+    if (filters.onlyWithCampaigns) {
+      where.campaignId = Not(IsNull());
+    }
+
     const sales = await this.saleRepository.find({
-      where: { userId },
+      where,
       relations: ['product', 'contact', 'campaign'],
       order: { createdAt: 'DESC' },
     });
@@ -324,7 +330,7 @@ export class SalesService {
     }
   }
 
-  async getDashboardStats(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string } = {}) {
+  async getDashboardStats(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string; onlyWithCampaigns?: boolean } = {}) {
     // Disparar sincronização em background
     this.triggerIntegrationsSync(userId);
 
@@ -342,8 +348,8 @@ export class SalesService {
       if (filters.campaignId) {
         salesQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
       }
-      if (filters.productId) {
-        salesQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+      if (filters.onlyWithCampaigns) {
+        salesQb.andWhere('sale.campaignId IS NOT NULL');
       }
 
       const salesResult = await salesQb.getRawOne();
@@ -395,6 +401,10 @@ export class SalesService {
       }
       if (filters.productId) {
         dailySalesQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+      }
+
+      if (filters.onlyWithCampaigns) {
+        dailySalesQb.andWhere('sale.campaignId IS NOT NULL');
       }
 
       const dailySalesResult = await dailySalesQb.getRawMany();
@@ -810,7 +820,7 @@ export class SalesService {
     }));
   }
 
-  async getSalesByChannel(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string } = {}) {
+  async getSalesByChannel(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string; onlyWithCampaigns?: boolean } = {}) {
     const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     const qb = this.saleRepository.createQueryBuilder('sale')
@@ -832,6 +842,7 @@ export class SalesService {
 
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) qb.andWhere('sale.productId = :productId', { productId: filters.productId });
+    if (filters.onlyWithCampaigns) qb.andWhere('sale.campaignId IS NOT NULL');
 
     const result = await qb.groupBy('canal')
       .getRawMany();
@@ -843,7 +854,7 @@ export class SalesService {
     }));
   }
 
-  async getTopProducts(userId: number, period: number, filters: { campaignId?: number; startDate?: string; endDate?: string } = {}) {
+  async getTopProducts(userId: number, period: number, filters: { campaignId?: number; startDate?: string; endDate?: string; onlyWithCampaigns?: boolean } = {}) {
     const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     const qb = this.saleRepository.createQueryBuilder('sale')
@@ -856,6 +867,7 @@ export class SalesService {
       .andWhere('sale.status IN (:...statuses)', { statuses: this.COMPLETED_STATUSES });
 
     if (filters.campaignId) qb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
+    if (filters.onlyWithCampaigns) qb.andWhere('sale.campaignId IS NOT NULL');
 
     const result = await qb.groupBy('product.name')
       .orderBy('faturamento', 'DESC')
@@ -869,7 +881,7 @@ export class SalesService {
     }));
   }
 
-  async getPaymentMethods(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string } = {}) {
+  async getPaymentMethods(userId: number, period: number, filters: { campaignId?: number; productId?: number; startDate?: string; endDate?: string; onlyWithCampaigns?: boolean } = {}) {
     const { startDate, endDate } = this.getDateRange(period, filters.startDate, filters.endDate);
 
     // Use query builder for total count within period
@@ -882,6 +894,7 @@ export class SalesService {
 
     if (filters.campaignId) totalCountQb.andWhere('sale.campaignId = :campaignId', { campaignId: filters.campaignId });
     if (filters.productId) totalCountQb.andWhere('sale.productId = :productId', { productId: filters.productId });
+    if (filters.onlyWithCampaigns) totalCountQb.andWhere('sale.campaignId IS NOT NULL');
 
     const totalResult = await totalCountQb.getRawOne();
     const total = parseInt(totalResult.total || '0');

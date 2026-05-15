@@ -14,6 +14,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ParseBoolPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SalesLoggingInterceptor } from './sales-logging.interceptor';
@@ -35,9 +36,11 @@ export class SalesController {
     return this.salesService.create(req.user.userId, createSaleDto);
   }
 
-  @Get()
-  async findAll(@Request() req) {
-    return this.salesService.findAll(req.user.userId);
+  async findAll(
+    @Request() req,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
+  ) {
+    return this.salesService.findAll(req.user.userId, { onlyWithCampaigns });
   }
 
   @Get('product/:productId')
@@ -55,8 +58,9 @@ export class SalesController {
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getDashboardStats(req.user.userId, period, { campaignId, productId, startDate, endDate });
+    return this.salesService.getDashboardStats(req.user.userId, period, { campaignId, productId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/campaigns')
@@ -78,8 +82,9 @@ export class SalesController {
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getSalesByChannel(req.user.userId, period, { campaignId, productId, startDate, endDate });
+    return this.salesService.getSalesByChannel(req.user.userId, period, { campaignId, productId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/products')
@@ -89,8 +94,9 @@ export class SalesController {
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getTopProducts(req.user.userId, period, { campaignId, startDate, endDate });
+    return this.salesService.getTopProducts(req.user.userId, period, { campaignId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/payment-methods')
@@ -101,8 +107,9 @@ export class SalesController {
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getPaymentMethods(req.user.userId, period, { campaignId, productId, startDate, endDate });
+    return this.salesService.getPaymentMethods(req.user.userId, period, { campaignId, productId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/funnel')

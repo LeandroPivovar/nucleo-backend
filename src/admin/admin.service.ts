@@ -140,7 +140,9 @@ export class AdminService {
 
         const emailLimit = user.plan?.limits?.emails || 0;
         const smsLimit = user.plan?.limits?.sms || 0;
-        const whatsappUnlimited = !!user.plan?.limits?.whatsapp;
+        
+        const whatsappLimit = user.plan?.limits?.whatsapp ? (user.plan?.limits?.whatsappLimit || 0) : 0;
+        const whatsappUnlimited = !!user.plan?.limits?.whatsapp && (user.plan?.limits?.whatsappLimit === -1);
 
         const emailsUsed = usage?.emailsSent || 0;
         const smsUsed = usage?.smsSent || 0;
@@ -148,6 +150,7 @@ export class AdminService {
 
         const extraEmails = user.extraEmailsBalance || 0;
         const extraSms = user.extraSmsBalance || 0;
+        const extraWhatsapp = user.extraWhatsappBalance || 0;
 
         // --- NEW: Profit Calculation ---
         const costSmsSetting = await this.systemSettingRepository.findOne({ where: { key: 'COST_SMS' } });
@@ -196,6 +199,10 @@ export class AdminService {
                 whatsapp: {
                     used: whatsappUsed,
                     unlimited: whatsappUnlimited,
+                    contracted: whatsappUnlimited ? -1 : whatsappLimit,
+                    extra: extraWhatsapp,
+                    total: whatsappUnlimited ? -1 : (whatsappLimit + extraWhatsapp),
+                    available: whatsappUnlimited ? -1 : Math.max(0, whatsappLimit + extraWhatsapp - whatsappUsed),
                 },
             },
             subscription: {

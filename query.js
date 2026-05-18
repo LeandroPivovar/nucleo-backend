@@ -8,8 +8,8 @@ async function run() {
             password: '',
             database: 'nucleo_crm',
         });
-        const [rows] = await connection.execute('SELECT DISTINCT gender FROM contact');
-        console.log('Distinct Genders:', rows);
+        const [rows] = await connection.execute('SELECT id, name, limits, active, visible FROM plans');
+        console.log('Plans:', rows);
         process.exit(0);
     } catch (error) {
         console.error('Error connecting to database:', error);

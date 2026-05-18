@@ -152,8 +152,20 @@ export class ReferralsService {
         const convertedReferrals = await this.referralRepository.count({ where: { status: 'converted' } });
         const conversionRate = totalReferrals > 0 ? (convertedReferrals / totalReferrals) * 100 : 0;
 
-        const commissions = await this.referralCommissionRepository.find();
-        const revenueGenerated = commissions.reduce((sum, c) => sum + Number(c.amount) * 10, 0); // Mock: Assume revenue is 10x commission
+        const commissions = await this.referralCommissionRepository.find({
+            relations: ['subscription', 'subscription.plan']
+        });
+
+        let revenueGenerated = 0;
+        commissions.forEach(c => {
+            if (c.subscription && c.subscription.plan) {
+                revenueGenerated += Number(c.subscription.plan.price);
+            } else {
+                const pct = Number(c.percentage) || 10;
+                revenueGenerated += pct > 0 ? (Number(c.amount) / (pct / 100)) : Number(c.amount) * 10;
+            }
+        });
+
         const pendingCommissions = commissions
             .filter(c => c.status === 'pending' || c.status === 'approved')
             .reduce((sum, c) => sum + Number(c.amount), 0);
@@ -261,14 +273,34 @@ export class ReferralsService {
             .orderBy('conversions', 'DESC')
             .getRawMany();
 
-        return ranking.map(item => ({
-            referrerId: item.referrerId,
-            name: `${item.firstName} ${item.lastName}`,
-            totalReferrals: parseInt(item.totalReferrals),
-            conversions: parseInt(item.conversions),
-            conversionRate: item.totalReferrals > 0 ? (parseInt(item.conversions) / parseInt(item.totalReferrals)) * 100 : 0,
-            revenueGenerated: 0, // Implementar lÃ³gica de receita real se necessÃ¡rio
-            accumulatedCommission: 0, // Implementar lÃ³gica de comissÃ£o real se necessÃ¡rio
+        return Promise.all(ranking.map(async (item) => {
+            const referrerId = parseInt(item.referrerId);
+            const commissions = await this.referralCommissionRepository.find({
+                where: { referrerId },
+                relations: ['subscription', 'subscription.plan']
+            });
+
+            const accumulatedCommission = commissions.reduce((sum, c) => sum + Number(c.amount), 0);
+            
+            let revenueGenerated = 0;
+            commissions.forEach(c => {
+                if (c.subscription && c.subscription.plan) {
+                    revenueGenerated += Number(c.subscription.plan.price);
+                } else {
+                    const pct = Number(c.percentage) || 10;
+                    revenueGenerated += pct > 0 ? (Number(c.amount) / (pct / 100)) : Number(c.amount) * 10;
+                }
+            });
+
+            return {
+                referrerId,
+                name: `${item.firstName} ${item.lastName}`,
+                totalReferrals: parseInt(item.totalReferrals),
+                conversions: parseInt(item.conversions),
+                conversionRate: item.totalReferrals > 0 ? (parseInt(item.conversions) / parseInt(item.totalReferrals)) * 100 : 0,
+                revenueGenerated,
+                accumulatedCommission,
+            };
         }));
     }
 

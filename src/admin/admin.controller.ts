@@ -65,6 +65,11 @@ export class AdminController {
         return this.adminService.impersonateUser(id);
     }
 
+    @Get('reports/clients')
+    async getClientsReport() {
+        return this.adminService.getClientsReport();
+    }
+
     // --- Plan Management ---
     @Get('plans')
     async getAllPlans() {

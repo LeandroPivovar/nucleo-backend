@@ -332,6 +332,38 @@ export class UsersService {
     });
   }
 
+  async deleteUserAdmin(id: number): Promise<void> {
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    // 1. Limpar todos os dados operacionais utilizando o wipeData existente
+    await this.wipeData(id);
+
+    // 2. Limpar dados financeiros e o próprio registro do usuário
+    await this.userRepository.manager.transaction(async (transactionalEntityManager) => {
+      await transactionalEntityManager.query(
+        `DELETE FROM \`notifications\` WHERE \`userId\` = ?`,
+        [id]
+      );
+      await transactionalEntityManager.query(
+        `DELETE FROM \`user_usage\` WHERE \`userId\` = ?`,
+        [id]
+      );
+      await transactionalEntityManager.query(
+        `DELETE FROM \`invoices\` WHERE \`userId\` = ?`,
+        [id]
+      );
+      await transactionalEntityManager.query(
+        `DELETE FROM \`subscriptions\` WHERE \`userId\` = ?`,
+        [id]
+      );
+      await transactionalEntityManager.query(
+        `DELETE FROM \`users\` WHERE \`id\` = ?`,
+        [id]
+      );
+    });
+  }
+
   // ── Twilio WhatsApp (Disabled manual config) ──────────────────────────────
 
   // ──────────────────────────────────────────────────────────────────────────────

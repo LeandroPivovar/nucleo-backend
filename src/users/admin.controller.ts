@@ -3,6 +3,7 @@ import {
     Get,
     Patch,
     Post,
+    Delete,
     Body,
     Param,
     ParseIntPipe,
@@ -46,5 +47,10 @@ export class AdminController {
         @Body('expiryDate') expiryDate: string
     ) {
         return this.usersService.setSubscriptionExpiry(id, expiryDate);
+    }
+
+    @Delete(':id')
+    async delete(@Param('id', ParseIntPipe) id: number) {
+        return this.usersService.deleteUserAdmin(id);
     }
 }

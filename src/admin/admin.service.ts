@@ -161,6 +161,16 @@ export class AdminService {
 
         const lifetimeCosts = (totalLifetimeEmails * costEmail) + (totalLifetimeSms * costSms);
         const lifetimeProfit = (billingAmount || 0) - lifetimeCosts;
+
+        // Total pago pelo cliente em planos
+        const invoiceResult = await this.invoiceRepository
+            .createQueryBuilder('invoice')
+            .select('SUM(invoice.amount)', 'total')
+            .where('invoice.userId = :userId', { userId })
+            .andWhere('invoice.status = :status', { status: 'paid' })
+            .andWhere('invoice.subscriptionId IS NOT NULL')
+            .getRawOne();
+        const totalPaidPlanAmount = parseFloat(invoiceResult?.total || '0');
         // ------------------------------
 
         return {
@@ -192,6 +202,7 @@ export class AdminService {
                 planName: user.plan?.name || 'Sem plano',
                 status: user.subscriptionStatus || 'Inativo',
                 createdAt: user.createdAt,
+                totalPaidPlanAmount,
             }
         };
     }
@@ -256,6 +267,83 @@ export class AdminService {
         return { token, user: userWithoutPassword };
     }
 
+    async getClientsReport() {
+        const users = await this.usersRepository.find({
+            where: { role: Not('admin') },
+            relations: ['plan'],
+            order: { createdAt: 'DESC' }
+        });
+
+        const now = new Date();
+        const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        return Promise.all(users.map(async (user) => {
+            // 1. Current month usage
+            const usage = await this.usageRepository.findOne({
+                where: { userId: user.id, monthYear }
+            });
+
+            // 2. Extra credits and limits
+            const emailsSent = usage?.emailsSent || 0;
+            const smsSent = usage?.smsSent || 0;
+            const whatsappSent = usage?.whatsappSent || 0;
+
+            const emailLimit = user.plan?.limits?.emails || 0;
+            const smsLimit = user.plan?.limits?.sms || 0;
+
+            // 3. Invoice aggregate paid amount
+            const invoiceResult = await this.invoiceRepository
+                .createQueryBuilder('invoice')
+                .select('SUM(invoice.amount)', 'total')
+                .where('invoice.userId = :userId', { userId: user.id })
+                .andWhere('invoice.status = :status', { status: 'paid' })
+                .andWhere('invoice.subscriptionId IS NOT NULL')
+                .getRawOne();
+            const totalPaidPlanAmount = parseFloat(invoiceResult?.total || '0');
+
+            // 4. WhatsApp Template approvals count
+            const templates = await this.templateRequestRepository.find({
+                where: { userId: user.id }
+            });
+            const templatesApproved = templates.filter(t => t.status === TemplateRequestStatus.CREATED).length;
+            const templatesPending = templates.filter(t => t.status === TemplateRequestStatus.REQUESTED).length;
+            const templatesRejected = templates.filter(t => t.status === TemplateRequestStatus.REJECTED).length;
+
+            // 5. Connections configuration
+            const shopify = await this.shopifyConnectionRepository.findOne({ where: { userId: user.id } });
+            const nuvemshop = await this.nuvemshopConnectionRepository.findOne({ where: { userId: user.id } });
+            const vtex = await this.vtexConnectionRepository.findOne({ where: { userId: user.id } });
+            const li = await this.liConnectionRepository.findOne({ where: { userId: user.id } });
+
+            return {
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phone: user.phone,
+                active: user.active,
+                createdAt: user.createdAt,
+                planName: user.plan?.name || 'Sem plano',
+                subscriptionStatus: user.subscriptionStatus || 'Inativo',
+                emailsSent,
+                emailLimit,
+                smsSent,
+                smsLimit,
+                whatsappSent,
+                extraEmails: user.extraEmailsBalance || 0,
+                extraSms: user.extraSmsBalance || 0,
+                totalPaidPlanAmount,
+                templatesApproved,
+                templatesPending,
+                templatesRejected,
+                shopifyActive: !!(shopify?.isActive),
+                nuvemshopActive: !!(nuvemshop?.isActive),
+                vtexActive: !!(vtex?.isActive),
+                liActive: !!(li?.isActive),
+            };
+        }));
+    }
+
     async getGlobalStats(month?: number, year?: number) {
         const now = new Date();
         const filterYear = year || now.getFullYear();
@@ -276,7 +364,7 @@ export class AdminService {
         const isCurrentMonth = filterYear === now.getFullYear() && filterMonth === (now.getMonth() + 1);
 
         const dau = await this.usersRepository.count({
-            where: { updatedAt: MoreThan(isCurrentMonth ? last24h : startDate) },
+            where: { active: true, role: Not('admin') },
         });
 
         const mau = await this.usersRepository.count({
@@ -287,15 +375,14 @@ export class AdminService {
         const activeCompanies = await this.usersRepository.count({
             where: {
                 subscriptionStatus: 'ACTIVE',
-                createdAt: MoreThan(startDate) // This is a simplification
+                role: Not('admin')
             },
         });
 
         // 3. MRR Calculation (Sum of plans of active subscriptions in the period)
         const activeSubscriptions = await this.subscriptionRepository.find({
             where: {
-                status: 'active',
-                createdAt: MoreThan(startDate) // This is a simplification
+                status: 'active'
             },
             relations: ['plan'],
         });
@@ -358,8 +445,7 @@ export class AdminService {
         // 7. LTV Médio (Cumulative up to end of period)
         const ltvInvoices = await this.invoiceRepository.find({
             where: {
-                status: 'paid',
-                createdAt: MoreThan(startDate) // Approx
+                status: 'paid'
             }
         });
         const totalPaidAmount = ltvInvoices.reduce((acc, inv) => acc + Number(inv.amount), 0);
@@ -378,6 +464,17 @@ export class AdminService {
         // 9. Ticket Médio Global (Combined)
         const totalAverageTicket = activeSubscriptions.length > 0 ? mrr / activeSubscriptions.length : 0;
 
+        // 10. Dynamic CAC Calculation
+        const marketingSetting = await this.systemSettingRepository.findOne({ where: { key: 'MARKETING_EXPENSES' } });
+        const marketingExpenses = parseFloat(marketingSetting?.value || '500'); // Default R$ 500
+        const newCompanies = await this.usersRepository.count({
+            where: {
+                subscriptionStatus: 'ACTIVE',
+                createdAt: Between(startDate, endDate)
+            }
+        });
+        const cac = newCompanies > 0 ? marketingExpenses / newCompanies : 0;
+
         return {
             dau,
             mau,
@@ -387,7 +484,7 @@ export class AdminService {
             churnRate,
             defaultRate,
             averageLtv,
-            cac: 50, // Mock fixed value for now
+            cac,
             ticketByPlan,
             totalAverageTicket,
         };
@@ -583,10 +680,21 @@ export class AdminService {
             count
         }));
 
+        // Calculate dynamic MRR growth
+        let mrrGrowthMoM = 0;
+        if (monthlyData.length >= 2) {
+            const currentSubRev = monthlyData[monthlyData.length - 1].subscriptionRevenue;
+            const prevSubRev = monthlyData[monthlyData.length - 2].subscriptionRevenue;
+            if (prevSubRev > 0) {
+                mrrGrowthMoM = ((currentSubRev - prevSubRev) / prevSubRev) * 100;
+            }
+        }
+
         return {
             monthlyData,
             projections,
             currentMrr,
+            mrrGrowthMoM,
             revenueByPlan,
             inadimplency,
             cancellationsByReason,
@@ -745,10 +853,10 @@ export class AdminService {
             this.campaignRepository.count(),
             this.categoryRepository.count(),
             this.campaignClickRepository.count(),
-            this.shopifyConnectionRepository.count(),
-            this.nuvemshopConnectionRepository.count(),
-            this.vtexConnectionRepository.count(),
-            this.liConnectionRepository.count(),
+            this.shopifyConnectionRepository.count({ where: { isActive: true } }),
+            this.nuvemshopConnectionRepository.count({ where: { isActive: true } }),
+            this.vtexConnectionRepository.count({ where: { isActive: true } }),
+            this.liConnectionRepository.count({ where: { isActive: true } }),
         ]);
 
         const usageStats = await this.usageRepository.createQueryBuilder('usage')

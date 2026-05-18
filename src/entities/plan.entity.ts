@@ -34,6 +34,9 @@ export class Plan {
     @Column({ default: true })
     active: boolean;
 
+    @Column({ default: true })
+    visible: boolean;
+
     @CreateDateColumn()
     createdAt: Date;
 

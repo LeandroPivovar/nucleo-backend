@@ -46,7 +46,7 @@ export class SubscriptionsService {
     ) { }
 
     async getPlans(): Promise<Plan[]> {
-        return this.planRepository.find({ where: { active: true } });
+        return this.planRepository.find({ where: { active: true, visible: true } });
     }
 
     async getCurrentSubscription(userId: number) {

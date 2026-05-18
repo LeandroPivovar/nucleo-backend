@@ -178,6 +178,9 @@ export class UsersService {
     );
 
     if (!planId) {
+      user.planId = null as any;
+      user.subscriptionStatus = 'inactive';
+      await this.userRepository.save(user);
       return { success: true, message: 'Plano removido com sucesso, conta rebaixada para o modo gratuito.' };
     }
 
@@ -193,7 +196,13 @@ export class UsersService {
       currentPeriodEnd: new Date(new Date().setMonth(new Date().getMonth() + 1)), // 1 month
     });
 
-    return this.subscriptionRepository.save(newSubscription);
+    const savedSubscription = await this.subscriptionRepository.save(newSubscription);
+
+    user.planId = planId;
+    user.subscriptionStatus = 'active';
+    await this.userRepository.save(user);
+
+    return savedSubscription;
   }
 
   async setSubscriptionExpiry(userId: number, expiryDate: string) {

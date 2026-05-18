@@ -12,7 +12,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { NuvemshopService } from '../nuvemshop/nuvemshop.service';
 import { ShopifyService } from '../shopify/shopify.service';
 import { CategoriesService } from '../categories/categories.service';
-
+import { ImportProductRow } from './dto/import-products.dto';
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -762,6 +762,69 @@ export class ProductsService {
 
       dto.categoryId = category.id;
     }
+  }
+
+  async importFromCSV(userId: number, rows: ImportProductRow[]): Promise<{ created: number; errors: string[] }> {
+    const errors: string[] = [];
+    let created = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const lineNumber = i + 2; // +2 porque linha 1 é cabeçalho e arrays começam em 0
+
+      try {
+        const name = row.Nome?.trim();
+        if (!name) {
+          errors.push(`Linha ${lineNumber}: Nome é obrigatório`);
+          continue;
+        }
+
+        const description = row.Descricao?.trim() || row['Descrição']?.trim() || undefined;
+        const sku = row.SKU?.trim() || undefined;
+        const category = row.Categoria?.trim() || undefined;
+        
+        let price = 0;
+        const rawPrice = row.Preco ?? row['Preço'];
+        if (typeof rawPrice === 'number') {
+          price = rawPrice;
+        } else if (typeof rawPrice === 'string') {
+          const parsedPrice = parseFloat(rawPrice.replace(',', '.'));
+          if (!isNaN(parsedPrice)) price = parsedPrice;
+        }
+
+        let stock = 0;
+        const rawStock = row.Estoque;
+        if (typeof rawStock === 'number') {
+          stock = rawStock;
+        } else if (typeof rawStock === 'string') {
+          const parsedStock = parseInt(rawStock, 10);
+          if (!isNaN(parsedStock)) stock = parsedStock;
+        }
+
+        let active = true;
+        const status = row.Status?.trim().toLowerCase() || row.Ativo?.trim().toLowerCase();
+        if (status === 'inativo' || status === 'não' || status === 'nao' || status === 'false') {
+          active = false;
+        }
+
+        await this.createOrUpdateFromIntegration(userId, {
+          name,
+          description,
+          price,
+          stock,
+          sku,
+          category,
+          active,
+        });
+
+        created++;
+      } catch (error) {
+        this.logger.error(`Erro ao importar linha ${lineNumber}:`, error);
+        errors.push(`Linha ${lineNumber}: ${error.message || 'Erro desconhecido'}`);
+      }
+    }
+
+    return { created, errors };
   }
 }
 

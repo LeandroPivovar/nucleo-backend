@@ -126,6 +126,45 @@ export class SubscriptionsService {
         };
     }
 
+    private async executeAsaasActionWithCustomerRetry(user: User, action: (customerId: string) => Promise<any>): Promise<any> {
+        let asaasCustomerId = (user as any).asaasCustomerId;
+        
+        if (!asaasCustomerId) {
+            if (!user.document) throw new BadRequestException('Você precisa preencher seu CPF/CNPJ no perfil para transações no Asaas.');
+            const asaasCustomer = await this.asaasService.createCustomer({
+                name: `${user.firstName} ${user.lastName}`,
+                email: user.email,
+                phone: user.phone,
+                cpfCnpj: user.document,
+            });
+            asaasCustomerId = asaasCustomer.id;
+            (user as any).asaasCustomerId = asaasCustomerId;
+            await this.userRepository.save(user);
+        }
+
+        try {
+            return await action(asaasCustomerId);
+        } catch (error: any) {
+            if (error.message && (error.message.toLowerCase().includes('customer inválido') || error.message.toLowerCase().includes('invalid customer') || error.message.toLowerCase().includes('cliente não encontrado'))) {
+                this.logger.warn(`Asaas customer ${asaasCustomerId} invalid for user ${user.id}. Recreating customer in current Asaas environment.`);
+                if (!user.document) throw new BadRequestException('Você precisa preencher seu CPF/CNPJ no perfil para transações no Asaas.');
+                
+                const newCustomer = await this.asaasService.createCustomer({
+                    name: `${user.firstName} ${user.lastName}`,
+                    email: user.email,
+                    phone: user.phone,
+                    cpfCnpj: user.document,
+                });
+                asaasCustomerId = newCustomer.id;
+                (user as any).asaasCustomerId = asaasCustomerId;
+                await this.userRepository.save(user);
+
+                return await action(asaasCustomerId);
+            }
+            throw error;
+        }
+    }
+
     async checkout(userId: number, data: any, remoteIp?: string): Promise<any> {
         const { planId, billingType, document, address, phone, creditCard, creditCardHolderInfo } = data;
 
@@ -142,28 +181,13 @@ export class SubscriptionsService {
         await this.userRepository.save(user);
 
         try {
-            // 2. Garantir que o cliente exista no Asaas
-            let asaasCustomerId = (user as any).asaasCustomerId;
-            if (!asaasCustomerId) {
-                const asaasCustomer = await this.asaasService.createCustomer({
-                    name: `${user.firstName} ${user.lastName}`,
-                    email: user.email,
-                    phone: user.phone,
-                    cpfCnpj: user.document,
-                });
-                asaasCustomerId = asaasCustomer.id;
-                (user as any).asaasCustomerId = asaasCustomerId;
-                await this.userRepository.save(user);
-            }
-
-            // 3. Criar a assinatura no Asaas
             const now = new Date();
             // Ajuste para Horário de Brasília (UTC-3)
             const brDate = new Date(now.getTime() - (3 * 60 * 60 * 1000));
             const dateString = brDate.toISOString().split('T')[0];
 
             const asaasRequestData = {
-                customer: asaasCustomerId,
+                customer: '',
                 billingType: (billingType || 'BOLETO') as any,
                 nextDueDate: dateString,
                 value: Number(plan.price),
@@ -171,9 +195,11 @@ export class SubscriptionsService {
                 description: `Assinatura Plano ${plan.name}`,
             };
 
-            this.logger.log(`Asaas Subscription Request: ${JSON.stringify(asaasRequestData, null, 2)}`);
-
-            const asaasSub = await this.asaasService.createSubscription(asaasRequestData);
+            const asaasSub = await this.executeAsaasActionWithCustomerRetry(user, async (customerId) => {
+                asaasRequestData.customer = customerId;
+                this.logger.log(`Asaas Subscription Request: ${JSON.stringify(asaasRequestData, null, 2)}`);
+                return await this.asaasService.createSubscription(asaasRequestData);
+            });
 
             this.logger.log(`Asaas Subscription Response: ${JSON.stringify(asaasSub, null, 2)}`);
 
@@ -303,23 +329,6 @@ export class SubscriptionsService {
         if (!user) throw new NotFoundException('Usuário não encontrado');
 
         try {
-            // Garantir que o cliente exista no Asaas (caso tente comprar avulso sem assinar antes)
-            let asaasCustomerId = (user as any).asaasCustomerId;
-            if (!asaasCustomerId) {
-                if (!user.document) {
-                    throw new BadRequestException('Você precisa preencher seu CPF/CNPJ no perfil antes de comprar créditos.');
-                }
-                const asaasCustomer = await this.asaasService.createCustomer({
-                    name: `${user.firstName} ${user.lastName}`,
-                    email: user.email,
-                    phone: user.phone,
-                    cpfCnpj: user.document,
-                });
-                asaasCustomerId = asaasCustomer.id;
-                (user as any).asaasCustomerId = asaasCustomerId;
-                await this.userRepository.save(user);
-            }
-
             const now = new Date();
             const brDate = new Date(now.getTime() - (3 * 60 * 60 * 1000));
             const dateString = brDate.toISOString().split('T')[0];
@@ -328,7 +337,7 @@ export class SubscriptionsService {
             const externalRef = `EXTRA_CREDITS|${type}|${amount}|${userId}`;
 
             const asaasRequestData = {
-                customer: asaasCustomerId,
+                customer: '',
                 billingType: (billingType || 'PIX') as any,
                 value: totalValue,
                 dueDate: dateString,
@@ -340,11 +349,18 @@ export class SubscriptionsService {
                 installmentCount: billingType === 'CREDIT_CARD' ? 1 : undefined
             };
 
-            const asaasPayment = await this.asaasService.createSinglePayment(asaasRequestData);
+            const asaasPayment = await this.executeAsaasActionWithCustomerRetry(user, async (customerId) => {
+                asaasRequestData.customer = customerId;
+                return await this.asaasService.createSinglePayment(asaasRequestData);
+            });
 
             let qrCode = null;
             if (billingType === 'PIX') {
-                qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+                try {
+                    qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+                } catch (err: any) {
+                    this.logger.warn(`Could not generate PIX QR Code for payment ${asaasPayment.id}: ${err.message}. Falling back to invoice URL.`);
+                }
             }
 
             return {
@@ -372,23 +388,6 @@ export class SubscriptionsService {
         const totalValue = 49.90; // Fixed value for template request
 
         try {
-            // Garantir que o cliente exista no Asaas (caso tente comprar avulso sem assinar antes)
-            let asaasCustomerId = (user as any).asaasCustomerId;
-            if (!asaasCustomerId) {
-                if (!user.document) {
-                    throw new BadRequestException('Você precisa preencher seu CPF/CNPJ no perfil antes de solicitar templates pagos.');
-                }
-                const asaasCustomer = await this.asaasService.createCustomer({
-                    name: `${user.firstName} ${user.lastName}`,
-                    email: user.email,
-                    phone: user.phone,
-                    cpfCnpj: user.document,
-                });
-                asaasCustomerId = asaasCustomer.id;
-                (user as any).asaasCustomerId = asaasCustomerId;
-                await this.userRepository.save(user);
-            }
-
             // Create pending template request in local database
             const templateRequest = this.templateRequestRepository.create({
                 userId,
@@ -405,7 +404,7 @@ export class SubscriptionsService {
             const externalRef = `TEMPLATE_REQUEST|${templateRequest.id}|${userId}`;
 
             const asaasRequestData = {
-                customer: asaasCustomerId,
+                customer: '',
                 billingType: (billingType || 'PIX') as any,
                 value: totalValue,
                 dueDate: dateString,
@@ -417,7 +416,10 @@ export class SubscriptionsService {
                 installmentCount: billingType === 'CREDIT_CARD' ? 1 : undefined
             };
 
-            const asaasPayment = await this.asaasService.createSinglePayment(asaasRequestData);
+            const asaasPayment = await this.executeAsaasActionWithCustomerRetry(user, async (customerId) => {
+                asaasRequestData.customer = customerId;
+                return await this.asaasService.createSinglePayment(asaasRequestData);
+            });
 
             // Update template request with payment ID
             templateRequest.paymentId = asaasPayment.id;
@@ -425,7 +427,11 @@ export class SubscriptionsService {
 
             let qrCode = null;
             if (billingType === 'PIX') {
-                qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+                try {
+                    qrCode = await this.asaasService.getPixQrCode(asaasPayment.id);
+                } catch (err: any) {
+                    this.logger.warn(`Could not generate PIX QR Code for template request payment ${asaasPayment.id}: ${err.message}. Falling back to invoice URL.`);
+                }
             }
 
             return {

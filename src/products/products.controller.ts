@@ -26,6 +26,8 @@ import { diskStorage } from 'multer';
 import { join, extname } from 'path';
 import * as fs from 'fs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ImportProductRow } from './dto/import-products.dto';
+import * as XLSX from 'xlsx';
 
 // Ensure the upload directory exists using absolute path from __dirname
 const uploadDir = join(__dirname, '..', '..', 'uploads', 'products');
@@ -63,6 +65,38 @@ export class ProductsController {
   @HttpCode(HttpStatus.CREATED)
   async create(@Request() req, @Body() createProductDto: CreateProductDto) {
     return this.productsService.create(req.user.userId, createProductDto);
+  }
+
+  @Post('import-excel')
+  @UseInterceptors(FileInterceptor('file'))
+  async importExcel(
+    @Request() req,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo enviado');
+    }
+
+    try {
+      const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet) as ImportProductRow[];
+
+      if (rows.length === 0) {
+        throw new BadRequestException('A planilha está vazia');
+      }
+
+      if (rows.length > 5000) {
+        throw new BadRequestException('A planilha excede o limite de 5000 linhas');
+      }
+
+      const result = await this.productsService.importFromCSV(req.user.userId, rows);
+      return result;
+    } catch (error) {
+      this.logger.error(`Erro ao importar produtos Excel: ${error.message}`, error.stack);
+      throw new BadRequestException(error.message || 'Erro ao processar planilha');
+    }
   }
 
   /**
@@ -124,6 +158,42 @@ export class ProductsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id', ParseIntPipe) id: number, @Request() req) {
     return this.productsService.remove(id, req.user.id);
+  }
+
+  @Get('import/template')
+  @HttpCode(HttpStatus.OK)
+  async downloadTemplate(@Res() res: Response) {
+    const data = [
+      {
+        'Nome': 'Produto Exemplo 1',
+        'Descrição': 'Descrição detalhada do produto 1',
+        'SKU': 'SKU001',
+        'Categoria': 'Eletrônicos',
+        'Preço': 99.90,
+        'Estoque': 50,
+        'Status': 'Ativo'
+      },
+      {
+        'Nome': 'Produto Exemplo 2',
+        'Descrição': 'Descrição detalhada do produto 2',
+        'SKU': 'SKU002',
+        'Categoria': 'Vestuário',
+        'Preço': 49.99,
+        'Estoque': 100,
+        'Status': 'Ativo'
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=modelo_importacao_produtos.xlsx');
+    
+    return res.send(buffer);
   }
 }
 

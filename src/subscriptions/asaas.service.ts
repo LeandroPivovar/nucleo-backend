@@ -11,7 +11,8 @@ export class AsaasService {
     private async getClient(): Promise<AxiosInstance> {
         const apiKey = await this.settingsService.get('ASAAS_API_KEY');
         const env = await this.settingsService.get('ASAAS_ENVIRONMENT', 'sandbox');
-        const baseUrl = env === 'production' ? 'https://www.asaas.com/api/v3' : 'https://sandbox.asaas.com/api/v3';
+        const isProd = env && env.trim().toLowerCase() === 'production';
+        const baseUrl = isProd ? 'https://api.asaas.com/v3' : 'https://sandbox.asaas.com/api/v3';
 
         if (!apiKey) {
             this.logger.warn('ASAAS_API_KEY is not set in System Settings');

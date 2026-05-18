@@ -14,6 +14,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ParseBoolPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SalesLoggingInterceptor } from './sales-logging.interceptor';
@@ -36,8 +37,11 @@ export class SalesController {
   }
 
   @Get()
-  async findAll(@Request() req) {
-    return this.salesService.findAll(req.user.userId);
+  async findAll(
+    @Request() req,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
+  ) {
+    return this.salesService.findAll(req.user.userId, { onlyWithCampaigns });
   }
 
   @Get('product/:productId')
@@ -55,8 +59,9 @@ export class SalesController {
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getDashboardStats(req.user.userId, period, { campaignId, productId, startDate, endDate });
+    return this.salesService.getDashboardStats(req.user.userId, period, { campaignId, productId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/campaigns')
@@ -66,8 +71,9 @@ export class SalesController {
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getSalesByCampaign(req.user.userId, period, { productId, startDate, endDate });
+    return this.salesService.getSalesByCampaign(req.user.userId, period, { productId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/channels')
@@ -78,8 +84,9 @@ export class SalesController {
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getSalesByChannel(req.user.userId, period, { campaignId, productId, startDate, endDate });
+    return this.salesService.getSalesByChannel(req.user.userId, period, { campaignId, productId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/products')
@@ -89,8 +96,9 @@ export class SalesController {
     @Query('campaignId', new ParseIntPipe({ optional: true })) campaignId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getTopProducts(req.user.userId, period, { campaignId, startDate, endDate });
+    return this.salesService.getTopProducts(req.user.userId, period, { campaignId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/payment-methods')
@@ -101,8 +109,9 @@ export class SalesController {
     @Query('productId', new ParseIntPipe({ optional: true })) productId?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('onlyWithCampaigns', new ParseBoolPipe({ optional: true })) onlyWithCampaigns?: boolean,
   ) {
-    return this.salesService.getPaymentMethods(req.user.userId, period, { campaignId, productId, startDate, endDate });
+    return this.salesService.getPaymentMethods(req.user.userId, period, { campaignId, productId, startDate, endDate, onlyWithCampaigns });
   }
 
   @Get('dashboard/funnel')
@@ -202,9 +211,11 @@ export class SalesController {
       const headerLine = lines[0].trim();
       const header = parseCSVLine(headerLine).map(h => h.trim().toLowerCase().replace(/^"|"$ /g, ''));
 
+      /* 
       if (!header.includes('email')) {
         throw new BadRequestException('A planilha deve conter a coluna "Email" do comprador');
       }
+      */
 
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -253,9 +264,11 @@ export class SalesController {
       const firstRow = excelData[0] || {};
       const lowerKeys = Object.keys(firstRow).map(k => k.trim().toLowerCase());
 
+      /*
       if (!lowerKeys.includes('email')) {
         throw new BadRequestException('A planilha deve conter a coluna "Email" do comprador');
       }
+      */
 
       rows = excelData.map(row => {
         const lowerRow: Record<string, string> = {};

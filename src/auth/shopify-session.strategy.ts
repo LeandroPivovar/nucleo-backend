@@ -13,7 +13,7 @@ export class ShopifySessionStrategy extends PassportStrategy(Strategy, 'shopify-
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('SHOPIFY_CLIENT_SECRET'),
+      secretOrKey: configService.get<string>('SHOPIFY_CLIENT_SECRET') || 'dummy-secret-shopify-client-secret',
       algorithms: ['HS256'],
     });
   }

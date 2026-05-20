@@ -31,19 +31,19 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 @Controller('admin/knowledge-base')
-@UseGuards(JwtAuthGuard)
 export class KnowledgeBaseController {
     private readonly logger = new Logger(KnowledgeBaseController.name);
 
     constructor(private readonly knowledgeBaseService: KnowledgeBaseService) { }
 
     @Get()
+    @UseGuards(JwtAuthGuard)
     findAll() {
         return this.knowledgeBaseService.findAll();
     }
 
     @Post()
-    @UseGuards(AdminGuard)
+    @UseGuards(JwtAuthGuard, AdminGuard)
     @UseInterceptors(FileInterceptor('file', {
         storage: diskStorage({
             destination: uploadDir,
@@ -77,7 +77,7 @@ export class KnowledgeBaseController {
     }
 
     @Patch(':id')
-    @UseGuards(AdminGuard)
+    @UseGuards(JwtAuthGuard, AdminGuard)
     @UseInterceptors(FileInterceptor('file', {
         storage: diskStorage({
             destination: uploadDir,
@@ -110,7 +110,7 @@ export class KnowledgeBaseController {
     }
 
     @Delete(':id')
-    @UseGuards(AdminGuard)
+    @UseGuards(JwtAuthGuard, AdminGuard)
     remove(@Param('id', ParseIntPipe) id: number) {
         return this.knowledgeBaseService.remove(id);
     }

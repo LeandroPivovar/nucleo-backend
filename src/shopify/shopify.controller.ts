@@ -75,13 +75,11 @@ export class ShopifyController {
       return res.status(HttpStatus.BAD_REQUEST).send('Parâmetro shop é obrigatório');
     }
 
-    // Verificar se a loja já está conectada
     const connection = await this.shopifyService.findActiveConnectionByShop(shop);
     if (connection) {
-      // Já está conectada. Redirecionar para o dashboard no frontend.
-      // Adicionamos parâmetros para o frontend saber que é um acesso via Shopify
+      // Já está conectada. Redirecionar para a página de integrações no frontend.
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      return res.redirect(`${frontendUrl}/dashboard?shop=${shop}&embedded=true`);
+      return res.redirect(`${frontendUrl}/integracoes?shop=${shop}`);
     }
 
     const state = crypto.randomBytes(32).toString('hex');

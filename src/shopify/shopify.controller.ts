@@ -30,6 +30,85 @@ export class ShopifyController {
   ) { }
 
   /**
+   * Retorna um HTML que força o redirecionamento da janela principal (top-level)
+   * saindo do iframe da Shopify. Possui um botão de fallback com target="_top" caso
+   * o navegador bloqueie o redirecionamento automático por falta de "user gesture".
+   */
+  private getBreakoutHtml(redirectUrl: string): string {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Redirecionando...</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f6f6f7;
+      color: #303030;
+      text-align: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      max-width: 400px;
+      width: 100%;
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 20px;
+      color: #202223;
+    }
+    p {
+      color: #6d7175;
+      font-size: 14px;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+    .btn {
+      display: inline-block;
+      background-color: #008060;
+      color: white;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-weight: 500;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+    .btn:hover {
+      background-color: #006e52;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Conexão Shopify concluída!</h2>
+    <p>Clique no botão abaixo para retornar de forma segura para o Núcleo CRM e continuar.</p>
+    <a href="${redirectUrl}" target="_top" class="btn">Retornar ao Núcleo CRM</a>
+  </div>
+  <script>
+    try {
+      window.top.location.href = "${redirectUrl}";
+    } catch (e) {
+      console.warn("Redirecionamento automático bloqueado pelo navegador devido a políticas de segurança de iframe. Aguardando ação do usuário.", e);
+    }
+  </script>
+</body>
+</html>
+    `;
+  }
+
+  /**
    * Inicia o fluxo OAuth - retorna a URL de autorização
    */
   @Post('auth/init')
@@ -77,9 +156,12 @@ export class ShopifyController {
 
     const connection = await this.shopifyService.findActiveConnectionByShop(shop);
     if (connection) {
-      // Já está conectada. Redirecionar para a página de integrações no frontend.
+      // Já está conectada. Redirecionar para a página de integrações no frontend de forma segura.
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      return res.redirect(`${frontendUrl}/integracoes?shop=${shop}`);
+      const redirectUrl = `${frontendUrl}/integracoes?shop=${shop}`;
+      
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(this.getBreakoutHtml(redirectUrl));
     }
 
     const state = crypto.randomBytes(32).toString('hex');
@@ -133,9 +215,12 @@ export class ShopifyController {
     // 5. Gerar token JWT para o CRM
     const jwtToken = this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
 
-    // Se for um redirecionamento direto (HTML), manda o token na URL
+    // Se for um redirecionamento direto (HTML), manda o token na URL usando o iframe breakout
     if (req.headers['accept']?.includes('text/html')) {
-      return (req as any).res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/shopify/callback?token=${jwtToken}&shop=${shop}&state=${state}`);
+      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/shopify/callback?token=${jwtToken}&shop=${shop}&state=${state}`;
+      const responseObj = (req as any).res;
+      responseObj.setHeader('Content-Type', 'text/html');
+      return responseObj.send(this.getBreakoutHtml(redirectUrl));
     }
 
     return {

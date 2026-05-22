@@ -697,15 +697,18 @@ export class CampaignSchedulerService {
 
             const results = await Promise.allSettled(batchPromises);
             let batchTotal = 0;
+            let batchEmailTotal = 0;
             results.forEach((result, idx) => {
                 if (result.status === 'fulfilled') {
                     batchTotal += result.value.sentEmailCount + result.value.sentSmsCount + result.value.sentWhatsappCount;
+                    batchEmailTotal += result.value.sentEmailCount;
                 } else {
                     this.logger.error(`Erro ao processar contato ${batch[idx].id} no lote: ${result.reason}`);
                 }
             });
 
             campaign.sentCount = (campaign.sentCount || 0) + batchTotal;
+            campaign.deliveredCount = (campaign.deliveredCount || 0) + batchEmailTotal;
             successCount += batchTotal;
             await this.campaignsRepository.save(campaign);
             this.logger.log(`Lote finalizado. Mensagens enviadas no lote: ${batchTotal}. Total acumulado: ${successCount}`);
@@ -801,6 +804,7 @@ export class CampaignSchedulerService {
                 // Save current stats before pausing
                 if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
                     campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
+                    campaign.deliveredCount = (campaign.deliveredCount || 0) + stats.sentEmailCount;
                     await this.campaignsRepository.save(campaign);
                     stats.sentEmailCount = 0; stats.sentSmsCount = 0; stats.sentWhatsappCount = 0;
                 }
@@ -880,6 +884,7 @@ export class CampaignSchedulerService {
                         // Salvar stats acumuladas antes de pausar (senão o return pula a contabilização no fim do loop)
                         if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
                             campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
+                            campaign.deliveredCount = (campaign.deliveredCount || 0) + stats.sentEmailCount;
                             await this.campaignsRepository.save(campaign);
                             stats.sentEmailCount = 0; stats.sentSmsCount = 0; stats.sentWhatsappCount = 0;
                         }
@@ -924,6 +929,7 @@ export class CampaignSchedulerService {
 
         if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
             campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
+            campaign.deliveredCount = (campaign.deliveredCount || 0) + stats.sentEmailCount;
             await this.campaignsRepository.save(campaign);
         }
     }

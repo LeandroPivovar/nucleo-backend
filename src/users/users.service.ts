@@ -355,7 +355,7 @@ export class UsersService {
         [id]
       );
       await transactionalEntityManager.query(
-        `DELETE FROM \`user_usage\` WHERE \`userId\` = ?`,
+        `DELETE FROM \`user_usages\` WHERE \`userId\` = ?`,
         [id]
       );
       await transactionalEntityManager.query(

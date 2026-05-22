@@ -507,6 +507,20 @@ export class ShopifyController {
   }
 
   /**
+   * Sincroniza todos os dados da Shopify de uma vez
+   */
+  @Post('sync-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async syncAll(@Request() req, @Body() body: { shop?: string }) {
+    const result = await this.shopifyService.syncAll(req.user.userId, body.shop);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  /**
    * Cria um cupom de forma isolada
    */
   @Post('coupons')

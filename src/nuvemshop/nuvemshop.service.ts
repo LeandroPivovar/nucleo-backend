@@ -675,11 +675,7 @@ export class NuvemshopService {
       if (contact) {
         let updatedContact = false;
         if (!contact.name || contact.name === 'Sem Nome') {
-          contact.name = sCustomer.name?.split(' ')[0] || 'Sem Nome';
-          updatedContact = true;
-        }
-        if (!contact.lastName && sCustomer.name?.split(' ').slice(1).join(' ')) {
-          contact.lastName = sCustomer.name?.split(' ').slice(1).join(' ');
+          contact.name = sCustomer.name || 'Sem Nome';
           updatedContact = true;
         }
         if (!contact.phone && sCustomer.phone) {
@@ -702,8 +698,7 @@ export class NuvemshopService {
         contact = this.contactRepository.create({
           userId,
           email: normalizedEmail,
-          name: sCustomer.name?.split(' ')[0] || 'Sem Nome',
-          lastName: sCustomer.name?.split(' ').slice(1).join(' ') || '',
+          name: sCustomer.name || 'Sem Nome',
           phone: sCustomer.phone || '',
           city: sCustomer.default_address?.city || '',
           state: sCustomer.default_address?.province || '',
@@ -757,8 +752,7 @@ export class NuvemshopService {
       if (!customerEmail) continue;
 
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-      const name = sOrder.customer?.name?.split(' ')[0] || 'Sem Nome';
-      const lastName = sOrder.customer?.name?.split(' ').slice(1).join(' ') || '';
+      const name = sOrder.customer?.name || 'Sem Nome';
       const phone = sOrder.customer?.phone || '';
 
       if (!contact) {
@@ -766,7 +760,6 @@ export class NuvemshopService {
           userId,
           email: customerEmail,
           name,
-          lastName,
           phone,
           source: 'nuvemshop',
           status: 'customer',
@@ -777,10 +770,6 @@ export class NuvemshopService {
         let updatedContact = false;
         if (!contact.name || contact.name === 'Sem Nome') {
           contact.name = name;
-          updatedContact = true;
-        }
-        if (!contact.lastName && lastName) {
-          contact.lastName = lastName;
           updatedContact = true;
         }
         if (!contact.phone && phone) {
@@ -903,7 +892,7 @@ export class NuvemshopService {
             quantity: item.quantity,
             unitPrice: parseFloat(item.price),
             totalValue: parseFloat(item.price) * item.quantity,
-            customerName: contact ? `${contact.name} ${contact.lastName}` : sOrder.customer?.name,
+            customerName: contact ? contact.name : sOrder.customer?.name,
             customerEmail: customerEmail,
             channel: 'nuvemshop',
             status: statusMatch,
@@ -964,8 +953,7 @@ export class NuvemshopService {
       let contact: any = null;
       if (customerEmail) {
         contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-        const name = checkout.contact_name?.split(' ')[0] || checkout.customer?.name?.split(' ')[0] || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome';
-        const lastName = checkout.contact_name?.split(' ').slice(1).join(' ') || checkout.customer?.name?.split(' ').slice(1).join(' ') || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '';
+        const name = checkout.contact_name || checkout.customer?.name || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome';
         const phone = checkout.contact_phone || checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone || '';
 
         if (!contact) {
@@ -973,7 +961,6 @@ export class NuvemshopService {
             userId,
             email: customerEmail,
             name,
-            lastName,
             phone,
             source: 'nuvemshop',
             status: 'lead',
@@ -984,10 +971,6 @@ export class NuvemshopService {
           let updatedContact = false;
           if (!contact.name || contact.name === 'Sem Nome') {
             contact.name = name;
-            updatedContact = true;
-          }
-          if (!contact.lastName && lastName) {
-            contact.lastName = lastName;
             updatedContact = true;
           }
           if (!contact.phone && phone) {
@@ -1047,7 +1030,7 @@ export class NuvemshopService {
             quantity: item.quantity || 1,
             unitPrice: parseFloat(item.price || '0'),
             totalValue: parseFloat(item.price || '0') * (item.quantity || 1),
-            customerName: contact ? `${contact.name} ${contact.lastName}` : (checkout.customer?.name || 'Cliente Anônimo'),
+            customerName: contact ? contact.name : (checkout.customer?.name || 'Cliente Anônimo'),
             customerEmail: customerEmail || 'anonimo@nuvemshop.com.br',
             channel: 'nuvemshop',
             status: checkoutStatus,
@@ -1417,8 +1400,7 @@ export class NuvemshopService {
       contact = this.contactRepository.create({
         userId,
         email: customerEmail,
-        name: data.customer?.name?.split(' ')[0] || 'Sem Nome',
-        lastName: data.customer?.name?.split(' ').slice(1).join(' ') || '',
+        name: data.customer?.name || 'Sem Nome',
         source: 'nuvemshop',
         status: 'customer',
       });
@@ -1468,7 +1450,7 @@ export class NuvemshopService {
           quantity: item.quantity || 1,
           unitPrice: parseFloat(item.price || '0'),
           totalValue: parseFloat(item.price || '0') * (item.quantity || 1),
-          customerName: `${contact.name} ${contact.lastName}`,
+          customerName: contact.name,
           customerEmail: customerEmail,
           channel: 'nuvemshop',
           status: checkoutStatus,

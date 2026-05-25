@@ -724,11 +724,7 @@ export class ShopifyService {
       if (contact) {
         let updatedContact = false;
         if (!contact.name || contact.name === 'Sem Nome') {
-          contact.name = sCustomer.first_name || 'Sem Nome';
-          updatedContact = true;
-        }
-        if (!contact.lastName && sCustomer.last_name) {
-          contact.lastName = sCustomer.last_name;
+          contact.name = [sCustomer.first_name, sCustomer.last_name].filter(Boolean).join(' ') || 'Sem Nome';
           updatedContact = true;
         }
         if (!contact.phone && sCustomer.phone) {
@@ -751,8 +747,7 @@ export class ShopifyService {
         contact = this.contactRepository.create({
           userId,
           email: normalizedEmail,
-          name: sCustomer.first_name || 'Sem Nome',
-          lastName: sCustomer.last_name || '',
+          name: [sCustomer.first_name, sCustomer.last_name].filter(Boolean).join(' ') || 'Sem Nome',
           phone: sCustomer.phone || '',
           city: sCustomer.default_address?.city || '',
           state: sCustomer.default_address?.province_code || '',
@@ -790,8 +785,7 @@ export class ShopifyService {
 
       // Buscar ou criar contato
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-      const name = sOrder.customer?.first_name || sOrder.customer?.name || 'Sem Nome';
-      const lastName = sOrder.customer?.last_name || '';
+      const name = [sOrder.customer?.first_name, sOrder.customer?.last_name].filter(Boolean).join(' ') || sOrder.customer?.name || 'Sem Nome';
       const phone = sOrder.customer?.phone || '';
 
       if (!contact) {
@@ -799,7 +793,6 @@ export class ShopifyService {
           userId,
           email: customerEmail,
           name,
-          lastName,
           phone,
           source: 'shopify',
           status: 'customer',
@@ -810,10 +803,6 @@ export class ShopifyService {
         let updatedContact = false;
         if (!contact.name || contact.name === 'Sem Nome') {
           contact.name = name;
-          updatedContact = true;
-        }
-        if (!contact.lastName && lastName) {
-          contact.lastName = lastName;
           updatedContact = true;
         }
         if (!contact.phone && phone) {
@@ -941,7 +930,7 @@ export class ShopifyService {
             quantity: item.quantity,
             unitPrice: parseFloat(item.price),
             totalValue: parseFloat(item.price) * item.quantity,
-            customerName: contact ? `${contact.name} ${contact.lastName}` : sOrder.customer?.first_name,
+            customerName: contact ? contact.name : sOrder.customer?.first_name,
             customerEmail: customerEmail,
             channel: 'shopify',
             status: statusMatch,
@@ -991,8 +980,9 @@ export class ShopifyService {
       if (!customerEmail) continue;
 
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
-      const name = checkout.customer?.first_name || checkout.customer?.name || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome';
+      const firstName = checkout.customer?.first_name || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || '';
       const lastName = checkout.customer?.last_name || checkout.shipping_address?.last_name || checkout.billing_address?.last_name || '';
+      const name = [firstName, lastName].filter(Boolean).join(' ') || checkout.customer?.name || 'Sem Nome';
       const phone = checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone || '';
 
       if (!contact) {
@@ -1000,7 +990,6 @@ export class ShopifyService {
           userId,
           email: customerEmail,
           name,
-          lastName,
           phone,
           source: 'shopify',
           status: 'lead',
@@ -1011,10 +1000,6 @@ export class ShopifyService {
         let updatedContact = false;
         if (!contact.name || contact.name === 'Sem Nome') {
           contact.name = name;
-          updatedContact = true;
-        }
-        if (!contact.lastName && lastName) {
-          contact.lastName = lastName;
           updatedContact = true;
         }
         if (!contact.phone && phone) {
@@ -1077,7 +1062,7 @@ export class ShopifyService {
             quantity: item.quantity,
             unitPrice: parseFloat(item.price),
             totalValue: parseFloat(item.price) * item.quantity,
-            customerName: contact ? `${contact.name} ${contact.lastName}` : checkout.customer?.first_name,
+            customerName: contact ? contact.name : checkout.customer?.first_name,
             customerEmail: customerEmail,
             channel: 'shopify',
             status: checkoutStatus,
@@ -1570,8 +1555,7 @@ export class ShopifyService {
       contact = this.contactRepository.create({
         userId,
         email: customerEmail,
-        name: data.customer?.first_name || data.shipping_address?.first_name || 'Sem Nome',
-        lastName: data.customer?.last_name || data.shipping_address?.last_name || '',
+        name: [data.customer?.first_name || data.shipping_address?.first_name, data.customer?.last_name || data.shipping_address?.last_name].filter(Boolean).join(' ') || 'Sem Nome',
         source: 'shopify',
         status: 'customer',
       });
@@ -1621,7 +1605,7 @@ export class ShopifyService {
           quantity: item.quantity,
           unitPrice: parseFloat(item.price || '0'),
           totalValue: parseFloat(item.price || '0') * item.quantity,
-          customerName: `${contact.name} ${contact.lastName}`,
+          customerName: contact.name,
           customerEmail: customerEmail,
           channel: 'shopify',
           status: checkoutStatus,

@@ -12,10 +12,6 @@ export class CreateContactDto {
   @IsNotEmpty({ message: 'Nome é obrigatório' })
   name: string;
 
-  @IsString()
-  @IsOptional()
-  lastName?: string;
-
   @IsEmail({}, { message: 'E-mail inválido' })
   @IsOptional()
   email?: string;
@@ -59,6 +55,10 @@ export class CreateContactDto {
   @IsString()
   @IsOptional()
   gender?: string;
+
+  @IsString()
+  @IsOptional()
+  cpfCnpj?: string;
 
   @IsNumber()
   @IsOptional()

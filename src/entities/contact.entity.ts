@@ -24,9 +24,6 @@ export class Contact {
   @Column({ length: 100 })
   name: string;
 
-  @Column({ length: 100, nullable: true })
-  lastName: string;
-
   @Column({ length: 255, nullable: true })
   email: string;
 
@@ -59,6 +56,9 @@ export class Contact {
 
   @Column({ length: 1, nullable: true })
   gender: string; // 'M' | 'F'
+
+  @Column({ length: 20, nullable: true })
+  cpfCnpj: string;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'userId' })

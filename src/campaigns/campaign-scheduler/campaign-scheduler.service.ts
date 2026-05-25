@@ -1196,7 +1196,8 @@ export class CampaignSchedulerService {
 
         if (node.type === 'email' && contact.email) {
             this.logger.log(`[NODE EXECUTING] EMAIL | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Email: ${contact.email}`);
-            if (currentEmailsSent < (planEmailsLimit + (user?.extraEmailsBalance || 0))) {
+            const isCampaignSimple = campaign.complexity === 'simple';
+            if (isCampaignSimple || currentEmailsSent < (planEmailsLimit + (user?.extraEmailsBalance || 0))) {
                 let content = node.data?.content || '';
                 let code = '';
                 let valStr = '';
@@ -1251,8 +1252,10 @@ export class CampaignSchedulerService {
                         attachments
                     });
                     stats.sentEmailCount++;
-                    usage.emailsSent = (Number(usage.emailsSent) || 0) + 1;
-                    await this.userUsageRepository.save(usage);
+                    if (!isCampaignSimple) {
+                        usage.emailsSent = (Number(usage.emailsSent) || 0) + 1;
+                        await this.userUsageRepository.save(usage);
+                    }
                     this.logger.log(`[CAMPAIGN EMAIL EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                 } catch (error) {
                     this.logger.error(`[CAMPAIGN EMAIL EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
@@ -1262,7 +1265,8 @@ export class CampaignSchedulerService {
             }
         } else if (node.type === 'sms' && contact.phone) {
             this.logger.log(`[NODE EXECUTING] SMS | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
-            if (currentSmsSent < (planSmsLimit + (user?.extraSmsBalance || 0))) {
+            const isCampaignSimple = campaign.complexity === 'simple';
+            if (isCampaignSimple || currentSmsSent < (planSmsLimit + (user?.extraSmsBalance || 0))) {
                 let content = node.data?.content || 'Olá!';
                 let code = '';
                 let valStr = '';
@@ -1303,8 +1307,10 @@ export class CampaignSchedulerService {
                     const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
                     if (success) {
                         stats.sentSmsCount++;
-                        usage.smsSent = (Number(usage.smsSent) || 0) + 1;
-                        await this.userUsageRepository.save(usage);
+                        if (!isCampaignSimple) {
+                            usage.smsSent = (Number(usage.smsSent) || 0) + 1;
+                            await this.userUsageRepository.save(usage);
+                        }
                         this.logger.log(`[CAMPAIGN SMS EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                     } else {
                         this.logger.error(`[CAMPAIGN SMS EXECUTED] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
@@ -1327,7 +1333,8 @@ export class CampaignSchedulerService {
 
             // ── Controle de Limite (Plano + Extra Balance) ──────────────────────────
             const planWhatsappLimit = context.planWhatsappLimit || 0;
-            const isUnlimited = planWhatsappLimit === -1;
+            const isCampaignSimple = campaign.complexity === 'simple';
+            const isUnlimited = isCampaignSimple || planWhatsappLimit === -1;
             
             if (isUnlimited || currentWhatsappSent < planWhatsappLimit || (user?.extraWhatsappBalance || 0) > 0) {
                 let content = node.data?.content || 'Olá!';
@@ -1445,13 +1452,15 @@ export class CampaignSchedulerService {
 
                 if (success) {
                     stats.sentWhatsappCount++;
-                    usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
-                    await this.userUsageRepository.save(usage);
-                    
-                    // Deduct from extra balance if we already used up the plan limit
-                    if (!isUnlimited && currentWhatsappSent >= planWhatsappLimit && user && user.extraWhatsappBalance > 0) {
-                        user.extraWhatsappBalance--;
-                        await this.userRepository.save(user);
+                    if (!isCampaignSimple) {
+                        usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
+                        await this.userUsageRepository.save(usage);
+                        
+                        // Deduct from extra balance if we already used up the plan limit
+                        if (!isUnlimited && currentWhatsappSent >= planWhatsappLimit && user && user.extraWhatsappBalance > 0) {
+                            user.extraWhatsappBalance--;
+                            await this.userRepository.save(user);
+                        }
                     }
                     
                     this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Sucesso | Contact: ${contact.id}`);
@@ -1668,7 +1677,7 @@ export class CampaignSchedulerService {
         // Dynamic Contact fields mapping
         const contactMap: Record<string, any> = {
             nome: contact.name,
-            sobrenome: contact.lastName,
+            sobrenome: contact.name?.split(' ').slice(1).join(' ') || '',
             email: contact.email,
             telefone: contact.phone,
             empresa: contact.company,

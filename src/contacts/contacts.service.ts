@@ -261,10 +261,8 @@ export class ContactsService {
           continue;
         }
 
-        // Separar nome e sobrenome
-        const nameParts = row.name.trim().split(' ');
-        const firstName = nameParts[0];
-        const lastName = nameParts.slice(1).join(' ') || undefined;
+        // Construir nome completo (suporta planilhas legadas com coluna "lastName" separada)
+        const fullName = [row.name.trim(), row.lastName?.trim()].filter(Boolean).join(' ');
 
         // Mapear grupo por nome
         let groupId: number | undefined = undefined;
@@ -293,8 +291,7 @@ export class ContactsService {
 
         // Criar contato
         const createDto: CreateContactDto = {
-          name: firstName,
-          lastName: row.lastName || lastName,
+          name: fullName,
           email: row.email?.trim() || undefined,
           phone: row.phone?.trim() || undefined,
           company: row.company?.trim() || undefined,
@@ -306,6 +303,7 @@ export class ContactsService {
           city: row.city?.trim() || undefined,
           birthDate: row.birthDate?.trim() || undefined,
           gender: row.gender?.trim() || undefined,
+          cpfCnpj: row.cpfCnpj?.trim() || undefined,
           groupId,
           tagIds: tagIds.length > 0 ? tagIds : undefined,
         };

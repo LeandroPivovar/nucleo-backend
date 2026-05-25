@@ -1090,8 +1090,7 @@ export class AdminService {
                 const birthDate = new Date(birthYear, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1);
 
                 batch.push(this.contactRepository.create({
-                    name: fn,
-                    lastName: ln,
+                    name: `${fn} ${ln}`.trim(),
                     email: contactEmail,
                     phone: demoNum,
                     status: contactStatuses[j % contactStatuses.length],
@@ -1209,7 +1208,7 @@ export class AdminService {
                     quantity,
                     unitPrice,
                     totalValue,
-                    customerName: contact.name ? `${contact.name} ${contact.lastName || ''}` : `Demo Cliente ${j + 1}`,
+                    customerName: contact.name || `Demo Cliente ${j + 1}`,
                     customerEmail: contact.email || `cliente${j}@demo.com`,
                     paymentMethod: paymentMethods[j % paymentMethods.length],
                     campaignId: campaign?.id,

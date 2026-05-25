@@ -123,6 +123,10 @@ export class ContactsController {
           return index >= 0 && index < values.length ? (values[index] || undefined) : undefined;
         };
 
+        const getCpfCnpj = (): string | undefined => {
+          return getValue('cpf/cnpj') || getValue('cpf') || getValue('cnpj') || getValue('documento');
+        };
+
         rows.push({
           name: getValue('nome') || '',
           phone: getValue('telefone'),
@@ -139,6 +143,7 @@ export class ContactsController {
           position: getValue('cargo'),
           notes: getValue('notas'),
           source: getValue('origem'),
+          cpfCnpj: getCpfCnpj(),
         });
       }
     } else {
@@ -186,8 +191,9 @@ export class ContactsController {
           lastName: lowerRow['sobrenome'] || undefined,
           company: lowerRow['empresa'] || undefined,
           position: lowerRow['cargo'] || undefined,
-          notes: lowerRow['notas'] || undefined,
+          notes: lowerRow['notes'] || undefined,
           source: lowerRow['origem'] || undefined,
+          cpfCnpj: lowerRow['cpf/cnpj'] || lowerRow['cpf'] || lowerRow['cnpj'] || lowerRow['documento'] || undefined,
         };
       });
     }

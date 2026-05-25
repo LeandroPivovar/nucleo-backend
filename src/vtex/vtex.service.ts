@@ -424,8 +424,7 @@ export class VtexService {
       });
 
       const contactData = {
-        name: cust.firstName || 'Cliente',
-        lastName: cust.lastName || '',
+        name: [cust.firstName, cust.lastName].filter(Boolean).join(' ') || 'Cliente',
         email: normalizedEmail,
         phone: cust.phone || cust.homePhone || '',
         userId,
@@ -488,14 +487,12 @@ export class VtexService {
         });
 
         const clientData = order.clientProfileData;
-        const name = clientData.firstName || 'Cliente';
-        const lastName = clientData.lastName || '';
+        const name = [clientData.firstName, clientData.lastName].filter(Boolean).join(' ') || 'Cliente';
         const phone = clientData.phone || '';
 
         if (!contact) {
           contact = this.contactRepository.create({
             name,
-            lastName,
             email: normalizedEmail,
             phone,
             userId,
@@ -508,10 +505,6 @@ export class VtexService {
           let updatedContact = false;
           if (!contact.name || contact.name === 'Cliente') {
             contact.name = name;
-            updatedContact = true;
-          }
-          if (!contact.lastName && lastName) {
-            contact.lastName = lastName;
             updatedContact = true;
           }
           if (!contact.phone && phone) {
@@ -533,7 +526,7 @@ export class VtexService {
           quantity: order.items.length,
           channel: 'VTEX',
           customerEmail: normalizedEmail,
-          customerName: `${contact.name} ${contact.lastName}`.trim(),
+          customerName: contact.name,
         };
 
         let saleToSave: Sale;
@@ -585,8 +578,7 @@ export class VtexService {
 
         if (!contact) {
           contact = this.contactRepository.create({
-            name: cart.firstName || 'Cliente',
-            lastName: cart.lastName || '',
+            name: [cart.firstName, cart.lastName].filter(Boolean).join(' ') || 'Cliente',
             email: cart.email,
             phone: cart.phone || cart.homePhone || '',
             userId,
@@ -690,14 +682,12 @@ export class VtexService {
           where: { email: normalizedEmail, userId },
         });
 
-        const name = record.firstName || 'Cliente';
-        const lastName = record.lastName || '';
+        const name = [record.firstName, record.lastName].filter(Boolean).join(' ') || 'Cliente';
         const phone = record.phone || record.homePhone || '';
 
         if (!contact) {
           contact = this.contactRepository.create({
             name,
-            lastName,
             email: normalizedEmail,
             phone,
             userId,
@@ -710,10 +700,6 @@ export class VtexService {
           let updated = false;
           if (!contact.name || contact.name === 'Cliente') {
             contact.name = name;
-            updated = true;
-          }
-          if (!contact.lastName && lastName) {
-            contact.lastName = lastName;
             updated = true;
           }
           if (!contact.phone && phone) {
@@ -769,7 +755,7 @@ export class VtexService {
           quantity,
           channel: 'VTEX',
           customerEmail: normalizedEmail,
-          customerName: `${contact.name} ${contact.lastName}`.trim(),
+          customerName: contact.name,
         };
 
         let saleToSave: Sale;

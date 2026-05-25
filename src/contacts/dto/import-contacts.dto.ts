@@ -14,5 +14,6 @@ export interface ImportContactRow {
   city?: string;
   birthDate?: string;
   gender?: string;
+  cpfCnpj?: string;
 }
 

@@ -139,14 +139,10 @@ export class PixelsService {
                         } else {
                             // Create new contact
                             const nameWithLast = (data.customer_name || data.payer_name || data.name || 'Cliente Pixel').trim();
-                            const nameParts = nameWithLast.split(' ');
-                            const firstName = nameParts[0];
-                            const lastName = nameParts.slice(1).join(' ') || undefined;
 
                             try {
                                 const newContact = await this.contactsService.create(pixel.userId, {
-                                    name: firstName,
-                                    lastName,
+                                    name: nameWithLast,
                                     email,
                                     phone: data.customer_phone || data.phone,
                                     city: data.customer_city || data.city,

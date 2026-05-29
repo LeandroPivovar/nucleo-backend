@@ -7,12 +7,14 @@ import { Contact } from '../entities/contact.entity';
 import { Sale } from '../entities/sale.entity';
 import { Product } from '../entities/product.entity';
 import { User } from '../entities/user.entity';
+import { Plan } from '../entities/plan.entity';
+import { Subscription } from '../entities/subscription.entity';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ShopifyConnection, Contact, Sale, Product, User]),
+    TypeOrmModule.forFeature([ShopifyConnection, Contact, Sale, Product, User, Plan, Subscription]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
@@ -27,5 +29,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
   exports: [ShopifyService],
 })
 export class ShopifyModule { }
+
 
 

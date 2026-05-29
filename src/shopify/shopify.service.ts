@@ -13,6 +13,8 @@ import { Contact } from '../entities/contact.entity';
 import { Sale } from '../entities/sale.entity';
 import { Product } from '../entities/product.entity';
 import { User } from '../entities/user.entity';
+import { Plan } from '../entities/plan.entity';
+import { Subscription } from '../entities/subscription.entity';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 
@@ -35,6 +37,10 @@ export class ShopifyService {
     private productRepository: Repository<Product>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(Plan)
+    private planRepository: Repository<Plan>,
+    @InjectRepository(Subscription)
+    private subscriptionRepository: Repository<Subscription>,
     private configService: ConfigService,
   ) {
     this.clientId = this.configService.get<string>('SHOPIFY_CLIENT_ID') || '';
@@ -1710,6 +1716,261 @@ export class ShopifyService {
     const data = await response.json();
     this.logger.debug(`[Shopify REST Response] ${JSON.stringify(data).substring(0, 1000)}${JSON.stringify(data).length > 1000 ? '...' : ''}`);
     return data;
+  }
+  /**
+   * ─────────────────────────────────────────────────────────────────────────
+   * SHOPIFY BILLING API (appSubscriptionCreate)
+   * ─────────────────────────────────────────────────────────────────────────
+   */
+
+  /**
+   * Cria uma nova assinatura via Shopify Billing API.
+   * Retorna a confirmationUrl para redirecionar o merchant.
+   */
+  async createAppSubscription(
+    shop: string,
+    accessToken: string,
+    plan: { name: string; price: number; interval: string },
+    returnUrl: string,
+    trialDays: number = 0,
+  ): Promise<{ confirmationUrl: string; appSubscriptionId: string }> {
+    const isTestMode = this.configService.get<string>('SHOPIFY_BILLING_TEST_MODE') === 'true';
+    const shopifyInterval = plan.interval === 'yearly' ? 'ANNUAL' : 'EVERY_30_DAYS';
+
+    this.logger.log(`[Shopify Billing] Criando assinatura para loja ${shop} — Plano: "${plan.name}", Preço: ${plan.price}, Intervalo: ${shopifyInterval}, TestMode: ${isTestMode}`);
+
+    const mutation = `
+      mutation AppSubscriptionCreate(
+        $name: String!,
+        $lineItems: [AppSubscriptionLineItemInput!]!,
+        $returnUrl: URL!,
+        $test: Boolean,
+        $trialDays: Int
+      ) {
+        appSubscriptionCreate(
+          name: $name,
+          returnUrl: $returnUrl,
+          lineItems: $lineItems,
+          test: $test,
+          trialDays: $trialDays
+        ) {
+          userErrors {
+            field
+            message
+          }
+          appSubscription {
+            id
+            status
+          }
+          confirmationUrl
+        }
+      }
+    `;
+
+    const variables = {
+      name: plan.name,
+      returnUrl,
+      test: isTestMode,
+      trialDays: trialDays > 0 ? trialDays : null,
+      lineItems: [
+        {
+          plan: {
+            appRecurringPricingDetails: {
+              price: {
+                amount: Number(plan.price),
+                currencyCode: 'USD',
+              },
+              interval: shopifyInterval,
+            },
+          },
+        },
+      ],
+    };
+
+    const response = await fetch(
+      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ query: mutation, variables }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify Billing] Erro HTTP ${response.status} ao criar assinatura para ${shop}: ${errorText}`);
+      throw new BadRequestException(`Falha ao criar assinatura Shopify (HTTP ${response.status})`);
+    }
+
+    const result = await response.json();
+
+    if (result.errors?.length > 0) {
+      const msg = result.errors[0].message;
+      this.logger.error(`[Shopify Billing] Erro GraphQL ao criar assinatura para ${shop}: ${msg}`);
+      throw new BadRequestException(msg);
+    }
+
+    const { userErrors, appSubscription, confirmationUrl } = result.data.appSubscriptionCreate;
+
+    if (userErrors?.length > 0) {
+      const msg = userErrors[0].message;
+      this.logger.error(`[Shopify Billing] userError ao criar assinatura para ${shop}: ${msg}`);
+      throw new BadRequestException(msg);
+    }
+
+    this.logger.log(`[Shopify Billing] Assinatura criada com sucesso para ${shop}. ID: ${appSubscription.id}`);
+
+    return {
+      confirmationUrl,
+      appSubscriptionId: appSubscription.id,
+    };
+  }
+
+  /**
+   * Consulta o status de uma AppSubscription via GraphQL Admin API.
+   */
+  async getAppSubscriptionStatus(
+    shop: string,
+    accessToken: string,
+    appSubscriptionId: string,
+  ): Promise<{
+    id: string;
+    status: string;
+    name: string;
+    test: boolean;
+    currentPeriodEnd: string | null;
+  }> {
+    this.logger.log(`[Shopify Billing] Verificando status da assinatura ${appSubscriptionId} para loja ${shop}`);
+
+    const query = `
+      query GetAppSubscription($id: ID!) {
+        node(id: $id) {
+          ... on AppSubscription {
+            id
+            name
+            status
+            test
+            currentPeriodEnd
+            lineItems {
+              id
+              plan {
+                pricingDetails {
+                  ... on AppRecurringPricing {
+                    interval
+                    price {
+                      amount
+                      currencyCode
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await fetch(
+      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ query, variables: { id: appSubscriptionId } }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify Billing] Erro HTTP ${response.status} ao verificar assinatura ${appSubscriptionId}: ${errorText}`);
+      throw new BadRequestException(`Falha ao verificar assinatura Shopify (HTTP ${response.status})`);
+    }
+
+    const result = await response.json();
+
+    if (result.errors?.length > 0) {
+      throw new BadRequestException(result.errors[0].message);
+    }
+
+    const sub = result.data?.node;
+    if (!sub) {
+      throw new NotFoundException(`AppSubscription ${appSubscriptionId} não encontrada para a loja ${shop}`);
+    }
+
+    this.logger.log(`[Shopify Billing] Status da assinatura ${appSubscriptionId}: ${sub.status}`);
+
+    return {
+      id: sub.id,
+      status: sub.status,
+      name: sub.name,
+      test: sub.test,
+      currentPeriodEnd: sub.currentPeriodEnd ?? null,
+    };
+  }
+
+  /**
+   * Cancela uma AppSubscription via Shopify Billing API.
+   */
+  async cancelAppSubscription(
+    shop: string,
+    accessToken: string,
+    appSubscriptionId: string,
+  ): Promise<{ id: string; status: string }> {
+    this.logger.log(`[Shopify Billing] Cancelando assinatura ${appSubscriptionId} para loja ${shop}`);
+
+    const mutation = `
+      mutation AppSubscriptionCancel($id: ID!) {
+        appSubscriptionCancel(id: $id) {
+          userErrors {
+            field
+            message
+          }
+          appSubscription {
+            id
+            status
+          }
+        }
+      }
+    `;
+
+    const response = await fetch(
+      `https://${shop}/admin/api/${this.apiVersion}/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ query: mutation, variables: { id: appSubscriptionId } }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.logger.error(`[Shopify Billing] Erro HTTP ${response.status} ao cancelar assinatura ${appSubscriptionId}: ${errorText}`);
+      throw new BadRequestException(`Falha ao cancelar assinatura Shopify (HTTP ${response.status})`);
+    }
+
+    const result = await response.json();
+
+    if (result.errors?.length > 0) {
+      throw new BadRequestException(result.errors[0].message);
+    }
+
+    const { userErrors, appSubscription } = result.data.appSubscriptionCancel;
+
+    if (userErrors?.length > 0) {
+      throw new BadRequestException(userErrors[0].message);
+    }
+
+    this.logger.log(`[Shopify Billing] Assinatura ${appSubscriptionId} cancelada. Novo status: ${appSubscription.status}`);
+
+    return { id: appSubscription.id, status: appSubscription.status };
   }
 }
 

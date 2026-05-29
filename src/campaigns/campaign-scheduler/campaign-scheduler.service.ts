@@ -1676,7 +1676,7 @@ export class CampaignSchedulerService {
 
         // Dynamic Contact fields mapping
         const contactMap: Record<string, any> = {
-            nome: contact.name,
+            nome: contact.name?.trim().split(/\s+/)[0] || '',
             sobrenome: contact.name?.split(' ').slice(1).join(' ') || '',
             email: contact.email,
             telefone: contact.phone,

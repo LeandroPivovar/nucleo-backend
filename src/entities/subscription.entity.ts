@@ -43,6 +43,9 @@ export class Subscription {
     @Column({ length: 50, nullable: true })
     asaasSubscriptionId: string;
 
+    @Column({ length: 255, nullable: true })
+    shopifySubscriptionId: string; // gid://shopify/AppSubscription/... (Shopify Billing API)
+
     @OneToMany(() => Invoice, invoice => invoice.subscription)
     invoices: Invoice[];
 

@@ -13,6 +13,8 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { ShopifyService } from './shopify.service';
@@ -21,12 +23,20 @@ import { CreateShopifyConnectionDto } from './dto/create-shopify-connection.dto'
 import { SyncProductsDto } from './dto/sync-products.dto';
 import * as crypto from 'crypto';
 import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Plan } from '../entities/plan.entity';
+import { Subscription } from '../entities/subscription.entity';
 
 @Controller('shopify')
 export class ShopifyController {
   constructor(
     private readonly shopifyService: ShopifyService,
     private readonly jwtService: JwtService,
+    @InjectRepository(Plan)
+    private readonly planRepository: Repository<Plan>,
+    @InjectRepository(Subscription)
+    private readonly subscriptionRepository: Repository<Subscription>,
   ) { }
 
   /**
@@ -562,6 +572,215 @@ export class ShopifyController {
     return {
       success: true,
       result
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SHOPIFY BILLING API
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Cria uma AppSubscription via Shopify Billing API.
+   * O frontend deve redirecionar o merchant para a confirmationUrl retornada.
+   *
+   * Body: { shop?: string; planId: number; trialDays?: number }
+   */
+  @Post('billing/create-subscription')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async createBillingSubscription(
+    @Request() req,
+    @Body() body: { shop?: string; planId: number; trialDays?: number },
+  ) {
+    const { planId, trialDays = 0 } = body;
+
+    // Resolver a loja ativa do usuário se não fornecida
+    let { shop } = body;
+    if (!shop) {
+      const connections = await this.shopifyService.getConnections(req.user.userId);
+      const active = connections.find(c => c.isActive);
+      if (!active) {
+        throw new BadRequestException('Nenhuma loja Shopify conectada. Forneça { shop } no body ou conecte uma loja.');
+      }
+      shop = active.shop;
+    }
+
+    // Buscar plano CRM
+    const plan = await this.planRepository.findOne({ where: { id: planId } });
+    if (!plan) throw new NotFoundException(`Plano ID ${planId} não encontrado`);
+
+    // Token de acesso para a loja
+    const accessToken = await this.shopifyService.getAccessToken(req.user.userId, shop);
+
+    // returnUrl — backend callback para verificar a assinatura após aprovação do merchant
+    const backendUrl = process.env.BACKEND_URL || `http://localhost:3000`;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const returnUrl = `${frontendUrl}/integrations/shopify/billing/callback?shop=${encodeURIComponent(shop)}&planId=${planId}&userId=${req.user.userId}`;
+
+    const { confirmationUrl, appSubscriptionId } = await this.shopifyService.createAppSubscription(
+      shop,
+      accessToken,
+      { name: plan.name, price: Number(plan.price), interval: plan.interval },
+      returnUrl,
+      trialDays,
+    );
+
+    return {
+      success: true,
+      confirmationUrl,
+      appSubscriptionId,
+      shop,
+      planId,
+    };
+  }
+
+  /**
+   * Callback da Shopify após o merchant aprovar (ou recusar) a cobrança.
+   * A Shopify redireciona para este endpoint com ?charge_id=&shop= (ou subscription_id).
+   *
+   * Fluxo:
+   *  1. Recebe charge_id (= appSubscriptionId) e shop na query string
+   *  2. Consulta a Admin API para verificar status
+   *  3. Se ACTIVE → cria/atualiza Subscription local e redireciona para /assinaturas
+   *  4. Se DECLINED → redireciona para /assinaturas?billing=declined
+   */
+  @Get('billing/callback')
+  @HttpCode(HttpStatus.OK)
+  async billingCallback(
+    @Req() req: ExpressRequest,
+    @Res() res: ExpressResponse,
+    @Query('charge_id') chargeId: string,
+    @Query('subscription_id') subscriptionId: string,
+    @Query('shop') shop: string,
+    @Query('planId') planIdStr: string,
+    @Query('userId') userIdStr: string,
+  ) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const appSubscriptionId = chargeId || subscriptionId;
+
+    this.shopifyService['logger'].log(`[Shopify Billing Callback] shop=${shop}, appSubscriptionId=${appSubscriptionId}, planId=${planIdStr}, userId=${userIdStr}`);
+
+    if (!appSubscriptionId || !shop) {
+      const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?error=missing_params`;
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(this.getBreakoutHtml(redirectUrl));
+    }
+
+    try {
+      const userId = parseInt(userIdStr, 10);
+      const planId = parseInt(planIdStr, 10);
+
+      if (!userId || !planId) {
+        throw new BadRequestException('userId e planId são obrigatórios no callback');
+      }
+
+      // Buscar token da loja (sem depender de userId — pode ser instalação nova)
+      const connection = await this.shopifyService.findActiveConnectionByShop(shop);
+      if (!connection) {
+        throw new NotFoundException(`Conexão Shopify não encontrada para a loja ${shop}`);
+      }
+
+      const accessToken = this.shopifyService['decryptToken'](connection.accessToken);
+
+      // Verificar status da assinatura com a Shopify
+      const subStatus = await this.shopifyService.getAppSubscriptionStatus(
+        shop,
+        accessToken,
+        appSubscriptionId,
+      );
+
+      if (subStatus.status === 'ACTIVE') {
+        // Buscar plano CRM
+        const plan = await this.planRepository.findOne({ where: { id: planId } });
+        if (!plan) throw new NotFoundException(`Plano ID ${planId} não encontrado`);
+
+        // Cancelar assinaturas ativas anteriores do usuário
+        await this.subscriptionRepository.update(
+          { userId, status: 'active' },
+          { status: 'canceled' },
+        );
+
+        // Calcular fim do período
+        const periodEnd = subStatus.currentPeriodEnd
+          ? new Date(subStatus.currentPeriodEnd)
+          : new Date(Date.now() + (plan.interval === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000);
+
+        // Criar assinatura local
+        const newSub = this.subscriptionRepository.create({
+          userId,
+          planId,
+          status: 'active',
+          shopifySubscriptionId: appSubscriptionId,
+          currentPeriodStart: new Date(),
+          currentPeriodEnd: periodEnd,
+        });
+        await this.subscriptionRepository.save(newSub);
+
+        this.shopifyService['logger'].log(`[Shopify Billing] Assinatura ${appSubscriptionId} ATIVA. Subscription local ID ${newSub.id} criada para userId ${userId}.`);
+
+        const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?success=true&shop=${encodeURIComponent(shop)}`;
+        res.setHeader('Content-Type', 'text/html');
+        return res.send(this.getBreakoutHtml(redirectUrl));
+      } else {
+        // DECLINED ou outro status
+        this.shopifyService['logger'].warn(`[Shopify Billing] Assinatura ${appSubscriptionId} com status: ${subStatus.status}`);
+        const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?error=not_approved&status=${subStatus.status}`;
+        res.setHeader('Content-Type', 'text/html');
+        return res.send(this.getBreakoutHtml(redirectUrl));
+      }
+    } catch (error) {
+      this.shopifyService['logger'].error(`[Shopify Billing Callback] Erro: ${error.message}`);
+      const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?error=server_error&msg=${encodeURIComponent(error.message)}`;
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(this.getBreakoutHtml(redirectUrl));
+    }
+  }
+
+  /**
+   * Cancela a assinatura Shopify ativa do usuário.
+   * Body: { shop?: string }
+   */
+  @Post('billing/cancel')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async cancelBillingSubscription(
+    @Request() req,
+    @Body() body: { shop?: string },
+  ) {
+    let { shop } = body;
+    if (!shop) {
+      const connections = await this.shopifyService.getConnections(req.user.userId);
+      const active = connections.find(c => c.isActive);
+      if (!active) throw new BadRequestException('Nenhuma loja Shopify conectada.');
+      shop = active.shop;
+    }
+
+    // Buscar assinatura Shopify ativa no banco
+    const localSub = await this.subscriptionRepository.findOne({
+      where: { userId: req.user.userId, status: 'active' },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!localSub?.shopifySubscriptionId) {
+      throw new NotFoundException('Nenhuma assinatura Shopify ativa encontrada para cancelar.');
+    }
+
+    const accessToken = await this.shopifyService.getAccessToken(req.user.userId, shop);
+
+    const result = await this.shopifyService.cancelAppSubscription(
+      shop,
+      accessToken,
+      localSub.shopifySubscriptionId,
+    );
+
+    // Atualizar registro local
+    localSub.status = 'canceled';
+    await this.subscriptionRepository.save(localSub);
+
+    return {
+      success: true,
+      message: 'Assinatura Shopify cancelada com sucesso.',
+      shopifyStatus: result.status,
     };
   }
 }

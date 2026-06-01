@@ -48,8 +48,11 @@ export class BotFlowExecutorService {
       return [{ type: 'text', text: 'Envie uma mensagem de texto para continuar.' }];
     }
 
-    if (!flow.isActive) {
-      return [{ type: 'text', text: 'Este bot está inativo no momento.' }];
+    if (!this.isFlowActive(flow)) {
+      return [{
+        type: 'text',
+        text: 'Este bot está inativo. Ative o fluxo no editor (toggle "Fluxo ativo") ou na tela de conexão.',
+      }];
     }
 
     const nodes = this.parseJsonArray<FlowGraphNode>(flow.nodes);
@@ -124,6 +127,9 @@ export class BotFlowExecutorService {
       lastNodeId = currentNode.id;
 
       switch (currentNode.type) {
+        case 'contextNode':
+          currentNode = this.getNextNode(nodes, edges, currentNode.id);
+          break;
         case 'messageNode': {
           const text = await this.resolveMessageNode(currentNode, flow, trimmed, history);
           if (text) {
@@ -208,14 +214,24 @@ export class BotFlowExecutorService {
     return [];
   }
 
+  private isFlowActive(flow: BotFlow): boolean {
+    const value = flow.isActive as unknown;
+    return value === true || value === 1 || value === '1';
+  }
+
   private findStartNode(nodes: FlowGraphNode[], edges: FlowGraphEdge[]): FlowGraphNode | undefined {
     const targets = new Set(edges.map((e) => e.target));
     const roots = nodes.filter((n) => !targets.has(n.id));
     if (roots.length > 0) {
+      const contextRoot = roots.find((n) => n.type === 'contextNode');
       const messageRoot = roots.find((n) => n.type === 'messageNode');
-      return messageRoot ?? roots[0];
+      return contextRoot ?? messageRoot ?? roots[0];
     }
-    return nodes.find((n) => n.type === 'messageNode') ?? nodes[0];
+    return (
+      nodes.find((n) => n.type === 'contextNode') ??
+      nodes.find((n) => n.type === 'messageNode') ??
+      nodes[0]
+    );
   }
 
   private getNextNode(
@@ -248,18 +264,33 @@ export class BotFlowExecutorService {
     });
   }
 
+  private extractFlowContext(flow: BotFlow): string {
+    const nodes = this.parseJsonArray<FlowGraphNode>(flow.nodes);
+    return nodes
+      .filter((n) => n.type === 'contextNode')
+      .map((n) => String(n.data?.context ?? '').trim())
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
   private buildFlowSystemPrompt(flow: BotFlow): string {
     const nodes = this.parseJsonArray<FlowGraphNode>(flow.nodes);
-    const instructions = nodes
-      .filter((n) => n.type === 'messageNode')
+    const flowContext = this.extractFlowContext(flow);
+    const stepHints = nodes
+      .filter((n) => n.type === 'messageNode' && n.data?.useAi)
       .map((n) => String(n.data?.message ?? '').trim())
       .filter(Boolean);
 
     const base = `Você é o assistente virtual do bot "${flow.name}". Responda sempre em português do Brasil, de forma clara, cordial e concisa.`;
-    if (instructions.length === 0) {
-      return base;
+
+    const parts: string[] = [base];
+    if (flowContext) {
+      parts.push(`\nContextualização geral (siga rigorosamente):\n${flowContext}`);
     }
-    return `${base}\n\nContexto e instruções do fluxo:\n${instructions.map((i, idx) => `${idx + 1}. ${i}`).join('\n')}`;
+    if (stepHints.length > 0) {
+      parts.push(`\nReferências adicionais do fluxo:\n${stepHints.map((i, idx) => `${idx + 1}. ${i}`).join('\n')}`);
+    }
+    return parts.join('');
   }
 
   private async resolveMessageNode(

@@ -148,6 +148,9 @@ export class BotTelegramService {
 
     await this.connectionRepository.save(conn);
 
+    flow.isActive = true;
+    await this.botFlowRepository.save(flow);
+
     this.logger.log(
       `Telegram conectado: fluxo=${botFlowId}, bot=@${botInfo.username ?? telegramBotId}`,
     );
@@ -156,6 +159,7 @@ export class BotTelegramService {
       success: true,
       botUsername: conn.botUsername,
       connectedAt: conn.connectedAt?.toISOString(),
+      isActive: true,
     };
   }
 

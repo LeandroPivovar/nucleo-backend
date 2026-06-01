@@ -196,14 +196,25 @@ async function bootstrap() {
       if (e.code !== 'ER_DUP_FIELDNAME') throw e;
     }
     try {
-      await dataSource.query(`ALTER TABLE \`bot_flows\` DROP INDEX \`IDX_bot_flows_userId\``);
-    } catch {
-      // índice único antigo pode não existir
-    }
-    try {
-      await dataSource.query(`CREATE INDEX \`IDX_bot_flows_userId\` ON \`bot_flows\` (\`userId\`)`);
+      const indexRows: { NON_UNIQUE: number }[] = await dataSource.query(`
+        SELECT NON_UNIQUE FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bot_flows' AND INDEX_NAME = 'IDX_bot_flows_userId'
+        LIMIT 1
+      `);
+      if (indexRows.length > 0 && indexRows[0].NON_UNIQUE === 0) {
+        await dataSource.query(`ALTER TABLE \`bot_flows\` DROP FOREIGN KEY \`FK_bot_flows_userId\``);
+        await dataSource.query(`ALTER TABLE \`bot_flows\` DROP INDEX \`IDX_bot_flows_userId\``);
+        await dataSource.query(`CREATE INDEX \`IDX_bot_flows_userId\` ON \`bot_flows\` (\`userId\`)`);
+        await dataSource.query(`
+          ALTER TABLE \`bot_flows\`
+          ADD CONSTRAINT \`FK_bot_flows_userId\`
+          FOREIGN KEY (\`userId\`) REFERENCES \`users\`(\`id\`)
+          ON DELETE CASCADE ON UPDATE NO ACTION
+        `);
+        logger.log('Fallback Migration: Índice userId de bot_flows convertido para não-único.');
+      }
     } catch (e: any) {
-      if (e.code !== 'ER_DUP_KEYNAME') throw e;
+      logger.warn(`Fallback bot_flows index/FK: ${e.message}`);
     }
     logger.log('Fallback Migration: Tabela bot_flows verificada.');
   } catch (err: any) {

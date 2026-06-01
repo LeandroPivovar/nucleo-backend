@@ -1332,11 +1332,27 @@ export class CampaignSchedulerService {
             }
 
             // ── Controle de Limite (Plano + Extra Balance) ──────────────────────────
+            const currentMonthYear = new Date().toISOString().slice(0, 7);
+            const freshUsage = await this.userUsageRepository.findOne({
+                where: { userId: campaign.userId, monthYear: currentMonthYear },
+            });
+            if (freshUsage) {
+                usage.whatsappSent = freshUsage.whatsappSent;
+            }
+
+            let freshUser = user;
+            if (user) {
+                freshUser = await this.userRepository.findOne({ where: { id: campaign.userId } }) || user;
+            }
+
             const planWhatsappLimit = context.planWhatsappLimit || 0;
-            const isCampaignSimple = campaign.complexity === 'simple';
-            const isUnlimited = isCampaignSimple || planWhatsappLimit === -1;
-            
-            if (isUnlimited || currentWhatsappSent < planWhatsappLimit || (user?.extraWhatsappBalance || 0) > 0) {
+            const extraBalance = freshUser?.extraWhatsappBalance || 0;
+            const isAdmin = freshUser?.role === 'admin';
+            const isUnlimited = isAdmin || planWhatsappLimit === -1;
+            const totalWhatsappLimit = isUnlimited ? -1 : planWhatsappLimit + extraBalance;
+            const whatsappSentNow = Number(usage.whatsappSent) || 0;
+
+            if (isUnlimited || whatsappSentNow < totalWhatsappLimit) {
                 let content = node.data?.content || 'Olá!';
                 const nodeDest = node.data?.destinationUrl || campaign.config?.tracking?.destinationUrl || '';
                 const trackUrl = `${backendUrl}/api/campaigns/track/${campaign.id}?contactId=${contact.id}${nodeDest ? `&dest=${encodeURIComponent(nodeDest)}` : ''}`;
@@ -1452,17 +1468,18 @@ export class CampaignSchedulerService {
 
                 if (success) {
                     stats.sentWhatsappCount++;
-                    if (!isCampaignSimple) {
-                        usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
+                    if (!isUnlimited) {
+                        const sentBeforeIncrement = whatsappSentNow;
+                        usage.whatsappSent = sentBeforeIncrement + 1;
                         await this.userUsageRepository.save(usage);
-                        
-                        // Deduct from extra balance if we already used up the plan limit
-                        if (!isUnlimited && currentWhatsappSent >= planWhatsappLimit && user && user.extraWhatsappBalance > 0) {
-                            user.extraWhatsappBalance--;
-                            await this.userRepository.save(user);
+
+                        // Desconta créditos adicionais após esgotar a cota do plano
+                        if (sentBeforeIncrement >= planWhatsappLimit && freshUser && freshUser.extraWhatsappBalance > 0) {
+                            freshUser.extraWhatsappBalance--;
+                            await this.userRepository.save(freshUser);
                         }
                     }
-                    
+
                     this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Sucesso | Contact: ${contact.id}`);
                 } else {
                     this.logger.error(`[CAMPAIGN WHATSAPP EXECUTED] Rejeitado pelo provedor | Contact: ${contact.id}`);

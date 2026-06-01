@@ -939,10 +939,6 @@ export class CampaignSchedulerService {
         const { usage, user, shopifyConnection, nuvemshopConnection, lojaIntegradaConnection, vtexConnection, trayConnection, planEmailsLimit, planSmsLimit, backendUrl } = context;
         let newActiveCoupon = activeCoupon;
 
-        const currentEmailsSent = Number(usage.emailsSent) || 0;
-        const currentSmsSent = Number(usage.smsSent) || 0;
-        const currentWhatsappSent = Number(usage.whatsappSent) || 0;
-
         if (node.type === 'coupon' || node.type === 'giftback' || node.type === 'shipping_coupon') {
             this.logger.log(`[NODE EXECUTING] ${node.type.toUpperCase()} | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
             newActiveCoupon = { ...node.data, _type: node.type };
@@ -1196,8 +1192,25 @@ export class CampaignSchedulerService {
 
         if (node.type === 'email' && contact.email) {
             this.logger.log(`[NODE EXECUTING] EMAIL | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Email: ${contact.email}`);
-            const isCampaignSimple = campaign.complexity === 'simple';
-            if (isCampaignSimple || currentEmailsSent < (planEmailsLimit + (user?.extraEmailsBalance || 0))) {
+
+            const currentMonthYear = new Date().toISOString().slice(0, 7);
+            const freshUsage = await this.userUsageRepository.findOne({
+                where: { userId: campaign.userId, monthYear: currentMonthYear },
+            });
+            if (freshUsage) {
+                usage.emailsSent = freshUsage.emailsSent;
+            }
+
+            let freshUser = user;
+            if (user) {
+                freshUser = await this.userRepository.findOne({ where: { id: campaign.userId } }) || user;
+            }
+
+            const extraBalance = freshUser?.extraEmailsBalance || 0;
+            const totalEmailsLimit = planEmailsLimit + extraBalance;
+            const emailsSentNow = Number(usage.emailsSent) || 0;
+
+            if (emailsSentNow < totalEmailsLimit) {
                 let content = node.data?.content || '';
                 let code = '';
                 let valStr = '';
@@ -1252,10 +1265,15 @@ export class CampaignSchedulerService {
                         attachments
                     });
                     stats.sentEmailCount++;
-                    if (!isCampaignSimple) {
-                        usage.emailsSent = (Number(usage.emailsSent) || 0) + 1;
-                        await this.userUsageRepository.save(usage);
+                    const sentBeforeIncrement = emailsSentNow;
+                    usage.emailsSent = sentBeforeIncrement + 1;
+                    await this.userUsageRepository.save(usage);
+
+                    if (sentBeforeIncrement >= planEmailsLimit && freshUser && freshUser.extraEmailsBalance > 0) {
+                        freshUser.extraEmailsBalance--;
+                        await this.userRepository.save(freshUser);
                     }
+
                     this.logger.log(`[CAMPAIGN EMAIL EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                 } catch (error) {
                     this.logger.error(`[CAMPAIGN EMAIL EXECUTED] Falha | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Erro: ${error.message}`);
@@ -1265,8 +1283,25 @@ export class CampaignSchedulerService {
             }
         } else if (node.type === 'sms' && contact.phone) {
             this.logger.log(`[NODE EXECUTING] SMS | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
-            const isCampaignSimple = campaign.complexity === 'simple';
-            if (isCampaignSimple || currentSmsSent < (planSmsLimit + (user?.extraSmsBalance || 0))) {
+
+            const currentMonthYear = new Date().toISOString().slice(0, 7);
+            const freshUsage = await this.userUsageRepository.findOne({
+                where: { userId: campaign.userId, monthYear: currentMonthYear },
+            });
+            if (freshUsage) {
+                usage.smsSent = freshUsage.smsSent;
+            }
+
+            let freshUser = user;
+            if (user) {
+                freshUser = await this.userRepository.findOne({ where: { id: campaign.userId } }) || user;
+            }
+
+            const extraBalance = freshUser?.extraSmsBalance || 0;
+            const totalSmsLimit = planSmsLimit + extraBalance;
+            const smsSentNow = Number(usage.smsSent) || 0;
+
+            if (smsSentNow < totalSmsLimit) {
                 let content = node.data?.content || 'Olá!';
                 let code = '';
                 let valStr = '';
@@ -1307,10 +1342,15 @@ export class CampaignSchedulerService {
                     const success = await this.zenviaService.sendSms(contact.name || 'Contato', contact.phone, content);
                     if (success) {
                         stats.sentSmsCount++;
-                        if (!isCampaignSimple) {
-                            usage.smsSent = (Number(usage.smsSent) || 0) + 1;
-                            await this.userUsageRepository.save(usage);
+                        const sentBeforeIncrement = smsSentNow;
+                        usage.smsSent = sentBeforeIncrement + 1;
+                        await this.userUsageRepository.save(usage);
+
+                        if (sentBeforeIncrement >= planSmsLimit && freshUser && freshUser.extraSmsBalance > 0) {
+                            freshUser.extraSmsBalance--;
+                            await this.userRepository.save(freshUser);
                         }
+
                         this.logger.log(`[CAMPAIGN SMS EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                     } else {
                         this.logger.error(`[CAMPAIGN SMS EXECUTED] Rejeitado pelo provedor | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);

@@ -14,6 +14,7 @@ import { BotFlow } from '../entities/bot-flow.entity';
 import { BotTelegramConnection } from '../entities/bot-telegram-connection.entity';
 import { TelegramApiService, type TelegramUpdate } from '../telegram/telegram-api.service';
 import { TelegramTokenCrypto } from '../telegram/telegram-token.crypto';
+import { BotFlowExecutorService } from './bot-flow-executor.service';
 
 export interface TelegramConnectionStatusDto {
   connected: boolean;
@@ -34,6 +35,7 @@ export class BotTelegramService {
     private readonly telegramApi: TelegramApiService,
     private readonly tokenCrypto: TelegramTokenCrypto,
     private readonly configService: ConfigService,
+    private readonly flowExecutor: BotFlowExecutorService,
   ) {}
 
   private getWebhookBaseUrl(): string {
@@ -211,19 +213,34 @@ export class BotTelegramService {
       return;
     }
 
-    const replyText = this.buildEchoReply(message.text, message.caption);
-    if (!replyText) {
+    const userText = (message.text ?? message.caption ?? '').trim();
+    if (!userText) {
+      await this.telegramApi.sendMessage(
+        botToken,
+        message.chat.id,
+        'Envie uma mensagem de texto para interagir com o bot.',
+      );
       return;
     }
 
-    await this.telegramApi.sendMessage(botToken, message.chat.id, replyText);
-  }
-
-  private buildEchoReply(text?: string, caption?: string): string | null {
-    const content = (text ?? caption ?? '').trim();
-    if (!content) {
-      return 'Recebi sua mensagem. Por enquanto só consigo repetir mensagens de texto.';
+    const flow = await this.botFlowRepository.findOne({ where: { id: botFlowId } });
+    if (!flow) {
+      this.logger.warn(`Fluxo ${botFlowId} não encontrado no webhook`);
+      return;
     }
-    return content;
+
+    const outputs = await this.flowExecutor.processMessage(
+      flow,
+      String(message.chat.id),
+      userText,
+    );
+
+    for (const output of outputs) {
+      if (output.type === 'photo' && output.photoUrl) {
+        await this.telegramApi.sendPhoto(botToken, message.chat.id, output.photoUrl);
+      } else if (output.text) {
+        await this.telegramApi.sendMessage(botToken, message.chat.id, output.text);
+      }
+    }
   }
 }

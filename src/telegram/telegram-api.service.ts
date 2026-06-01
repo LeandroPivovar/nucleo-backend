@@ -83,4 +83,12 @@ export class TelegramApiService {
       text,
     });
   }
+
+  async sendPhoto(botToken: string, chatId: number, photoUrl: string, caption?: string): Promise<void> {
+    await this.request(botToken, 'sendPhoto', {
+      chat_id: chatId,
+      photo: photoUrl,
+      caption: caption || undefined,
+    });
+  }
 }

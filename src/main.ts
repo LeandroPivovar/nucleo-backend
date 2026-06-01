@@ -249,6 +249,40 @@ async function bootstrap() {
     logger.error(`Fallback Migration falhou (bot_telegram_connections): ${err.message}`);
   }
 
+  // AUTO-FIX: Sessões de conversa dos bots + chaves Gemini
+  try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      CREATE TABLE IF NOT EXISTS \`bot_conversation_sessions\` (
+        \`id\` int NOT NULL AUTO_INCREMENT,
+        \`botFlowId\` int NOT NULL,
+        \`chatId\` varchar(64) NOT NULL,
+        \`currentNodeId\` varchar(100) NULL,
+        \`waitingAtNodeId\` varchar(100) NULL,
+        \`status\` varchar(20) NOT NULL DEFAULT 'active',
+        \`history\` json NULL,
+        \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (\`id\`),
+        UNIQUE INDEX \`UQ_bot_sessions_flow_chat\` (\`botFlowId\`, \`chatId\`),
+        CONSTRAINT \`FK_bot_sessions_flow\` FOREIGN KEY (\`botFlowId\`) REFERENCES \`bot_flows\`(\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB
+    `);
+    await dataSource.query(`
+      INSERT INTO system_settings (\`key\`, \`value\`, description)
+      SELECT 'GEMINI_API_KEY', '', 'Chave da API Google Gemini para bots com IA'
+      WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE \`key\` = 'GEMINI_API_KEY')
+    `);
+    await dataSource.query(`
+      INSERT INTO system_settings (\`key\`, \`value\`, description)
+      SELECT 'GEMINI_MODEL', 'gemini-2.0-flash', 'Modelo Gemini (ex: gemini-2.0-flash)'
+      WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE \`key\` = 'GEMINI_MODEL')
+    `);
+    logger.log('Fallback Migration: bot_conversation_sessions e Gemini settings verificados.');
+  } catch (err: any) {
+    logger.error(`Fallback Migration falhou (bot sessions/gemini): ${err.message}`);
+  }
+
   // Habilitar CORS para o frontend
   app.enableCors({
     origin: (origin, callback) => {

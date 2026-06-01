@@ -221,6 +221,34 @@ async function bootstrap() {
     logger.error(`Fallback Migration falhou (bot_flows): ${err.message}`);
   }
 
+  // AUTO-FIX: Conexões Telegram dos fluxos de bot
+  try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      CREATE TABLE IF NOT EXISTS \`bot_telegram_connections\` (
+        \`id\` int NOT NULL AUTO_INCREMENT,
+        \`botFlowId\` int NOT NULL,
+        \`userId\` int NOT NULL,
+        \`botToken\` text NOT NULL,
+        \`telegramBotId\` varchar(32) NOT NULL,
+        \`botUsername\` varchar(255) NULL,
+        \`webhookSecret\` varchar(64) NOT NULL,
+        \`status\` varchar(20) NOT NULL DEFAULT 'connected',
+        \`connectedAt\` datetime NULL,
+        \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (\`id\`),
+        UNIQUE INDEX \`UQ_bot_telegram_connections_botFlowId\` (\`botFlowId\`),
+        UNIQUE INDEX \`UQ_bot_telegram_connections_telegramBotId\` (\`telegramBotId\`),
+        CONSTRAINT \`FK_bot_telegram_connections_botFlow\` FOREIGN KEY (\`botFlowId\`) REFERENCES \`bot_flows\`(\`id\`) ON DELETE CASCADE,
+        CONSTRAINT \`FK_bot_telegram_connections_user\` FOREIGN KEY (\`userId\`) REFERENCES \`users\`(\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB
+    `);
+    logger.log('Fallback Migration: Tabela bot_telegram_connections verificada.');
+  } catch (err: any) {
+    logger.error(`Fallback Migration falhou (bot_telegram_connections): ${err.message}`);
+  }
+
   // Habilitar CORS para o frontend
   app.enableCors({
     origin: (origin, callback) => {

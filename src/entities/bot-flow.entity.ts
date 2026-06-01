@@ -9,9 +9,10 @@ import {
   Index,
 } from 'typeorm';
 import { User } from './user.entity';
+import type { BotFlowChannel } from '../bot-flows/bot-flow-channel';
 
 @Entity('bot_flows')
-@Index(['userId'], { unique: true }) // Um fluxo por usuário por enquanto (segundo a regra de negócio simples)
+@Index(['userId'])
 export class BotFlow {
   @PrimaryGeneratedColumn()
   id: number;
@@ -22,6 +23,12 @@ export class BotFlow {
 
   @Column()
   userId: number;
+
+  @Column({ length: 150 })
+  name: string;
+
+  @Column({ length: 50 })
+  channel: BotFlowChannel;
 
   @Column({ type: 'json', nullable: true })
   nodes: any;

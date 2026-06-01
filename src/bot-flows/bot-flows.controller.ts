@@ -1,6 +1,19 @@
-import { Controller, Get, Post, Body, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  UseGuards,
+  Request,
+  ParseIntPipe,
+} from '@nestjs/common';
 import { BotFlowsService } from './bot-flows.service';
 import { SaveBotFlowDto } from './dto/save-bot-flow.dto';
+import { CreateBotFlowDto } from './dto/create-bot-flow.dto';
+import { UpdateBotFlowDto } from './dto/update-bot-flow.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('bot-flows')
@@ -9,16 +22,42 @@ export class BotFlowsController {
   constructor(private readonly botFlowsService: BotFlowsService) {}
 
   @Get()
-  async getFlow(@Request() req) {
-    const flow = await this.botFlowsService.getFlow(req.user.userId);
-    if (!flow) {
-      return { nodes: [], edges: [], isActive: false };
-    }
+  findAll(@Request() req) {
+    return this.botFlowsService.findAll(req.user.userId);
+  }
+
+  @Get(':id')
+  async findOne(@Request() req, @Param('id', ParseIntPipe) id: number) {
+    const flow = await this.botFlowsService.findOne(req.user.userId, id);
     return flow;
   }
 
   @Post()
-  async saveFlow(@Request() req, @Body() dto: SaveBotFlowDto) {
-    return this.botFlowsService.saveFlow(req.user.userId, dto);
+  create(@Request() req, @Body() dto: CreateBotFlowDto) {
+    return this.botFlowsService.create(req.user.userId, dto);
+  }
+
+  @Patch(':id')
+  updateMeta(
+    @Request() req,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateBotFlowDto,
+  ) {
+    return this.botFlowsService.updateMeta(req.user.userId, id, dto);
+  }
+
+  @Post(':id/save')
+  saveFlow(
+    @Request() req,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SaveBotFlowDto,
+  ) {
+    return this.botFlowsService.saveFlow(req.user.userId, id, dto);
+  }
+
+  @Delete(':id')
+  async remove(@Request() req, @Param('id', ParseIntPipe) id: number) {
+    await this.botFlowsService.remove(req.user.userId, id);
+    return { success: true };
   }
 }

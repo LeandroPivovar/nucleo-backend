@@ -36,6 +36,7 @@ import { InternalAnalytics } from '../entities/internal-analytics.entity';
 import { CampaignMessageEvent } from '../entities/campaign-message-event.entity';
 import { Ticket } from '../entities/ticket.entity';
 import { TicketMessage } from '../entities/ticket-message.entity';
+import { BotFlow } from '../entities/bot-flow.entity';
 
 config();
 
@@ -82,7 +83,8 @@ export const AppDataSource = new DataSource({
     InternalAnalytics,
     CampaignMessageEvent,
     Ticket,
-    TicketMessage
+    TicketMessage,
+    BotFlow
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

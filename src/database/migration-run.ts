@@ -23,7 +23,7 @@ AppDataSource.initialize()
       console.error('   Execute primeiro: npm run db:create');
       console.error('   Ou: npm run setup (cria banco e executa migrations)');
     } else {
-      console.error('❌ Erro ao executar migrations:', error.message);
+      console.error('❌ Erro ao executar migrations:', error);
     }
     process.exit(1);
   });

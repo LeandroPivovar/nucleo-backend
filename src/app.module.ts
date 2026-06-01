@@ -61,6 +61,7 @@ import { AdminModule } from './admin/admin.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { TwilioConnectionsModule } from './twilio-connections/twilio-connections.module';
 import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
+import { BotFlowsModule } from './bot-flows/bot-flows.module';
 
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
     TicketsModule,
     TrayModule,
     KnowledgeBaseModule,
+    BotFlowsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

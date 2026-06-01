@@ -37,20 +37,20 @@ export class BotTelegramConnection {
   @Column({ type: 'text', select: false })
   botToken: string;
 
-  @Column({ length: 32 })
+  @Column({ type: 'varchar', length: 32 })
   telegramBotId: string;
 
-  @Column({ length: 255, nullable: true })
-  botUsername: string | null;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  botUsername: string;
 
-  @Column({ length: 64 })
+  @Column({ type: 'varchar', length: 64 })
   webhookSecret: string;
 
-  @Column({ length: 20, default: 'connected' })
+  @Column({ type: 'varchar', length: 20, default: 'connected' })
   status: BotTelegramConnectionStatus;
 
   @Column({ type: 'datetime', nullable: true })
-  connectedAt: Date | null;
+  connectedAt: Date;
 
   @CreateDateColumn()
   createdAt: Date;

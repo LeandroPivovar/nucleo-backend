@@ -23,10 +23,10 @@ export class BotFlow {
   @Column()
   userId: number;
 
-  @Column('jsonb', { nullable: true })
+  @Column({ type: 'json', nullable: true })
   nodes: any;
 
-  @Column('jsonb', { nullable: true })
+  @Column({ type: 'json', nullable: true })
   edges: any;
 
   @Column({ type: 'boolean', default: false })

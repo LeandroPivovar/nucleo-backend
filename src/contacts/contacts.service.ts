@@ -264,15 +264,19 @@ export class ContactsService {
         // Construir nome completo (suporta planilhas legadas com coluna "lastName" separada)
         const fullName = [row.name.trim(), row.lastName?.trim()].filter(Boolean).join(' ');
 
-        // Mapear grupo por nome
+        // Mapear grupo por nome (cria o grupo se ainda não existir)
         let groupId: number | undefined = undefined;
         if (row.group && row.group.trim()) {
-          const groupName = row.group.trim().toLowerCase();
-          const group = userGroups.find(g => g.name.toLowerCase() === groupName);
-          if (group) {
-            groupId = group.id;
+          const groupName = row.group.trim();
+          const groupNameLower = groupName.toLowerCase();
+          let group = userGroups.find(g => g.name.toLowerCase() === groupNameLower);
+          if (!group) {
+            group = await this.groupsRepository.save(
+              this.groupsRepository.create({ name: groupName, userId }),
+            );
+            userGroups.push(group);
           }
-          // Se grupo não encontrado, não cria erro, apenas ignora
+          groupId = group.id;
         }
 
         // Mapear tags por nomes (separadas por ponto e vírgula)

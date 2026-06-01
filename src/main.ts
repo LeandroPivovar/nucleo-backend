@@ -167,6 +167,28 @@ async function bootstrap() {
     }
   }
 
+  // AUTO-FIX: Tabela bot_flows (construtor de bot WhatsApp)
+  try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      CREATE TABLE IF NOT EXISTS \`bot_flows\` (
+        \`id\` int NOT NULL AUTO_INCREMENT,
+        \`userId\` int NOT NULL,
+        \`nodes\` json NULL,
+        \`edges\` json NULL,
+        \`isActive\` tinyint NOT NULL DEFAULT 0,
+        \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (\`id\`),
+        UNIQUE INDEX \`IDX_bot_flows_userId\` (\`userId\`),
+        CONSTRAINT \`FK_bot_flows_userId\` FOREIGN KEY (\`userId\`) REFERENCES \`users\`(\`id\`) ON DELETE CASCADE ON UPDATE NO ACTION
+      ) ENGINE=InnoDB
+    `);
+    logger.log('Fallback Migration: Tabela bot_flows verificada.');
+  } catch (err: any) {
+    logger.error(`Fallback Migration falhou (bot_flows): ${err.message}`);
+  }
+
   // Habilitar CORS para o frontend
   app.enableCors({
     origin: (origin, callback) => {

@@ -10,7 +10,11 @@ export class BotFlowsController {
 
   @Get()
   async getFlow(@Request() req) {
-    return this.botFlowsService.getFlow(req.user.userId);
+    const flow = await this.botFlowsService.getFlow(req.user.userId);
+    if (!flow) {
+      return { nodes: [], edges: [], isActive: false };
+    }
+    return flow;
   }
 
   @Post()

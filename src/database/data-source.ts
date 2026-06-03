@@ -37,6 +37,10 @@ import { CampaignMessageEvent } from '../entities/campaign-message-event.entity'
 import { Ticket } from '../entities/ticket.entity';
 import { TicketMessage } from '../entities/ticket-message.entity';
 import { BotFlow } from '../entities/bot-flow.entity';
+import { BotTelegramConnection } from '../entities/bot-telegram-connection.entity';
+import { BotWhatsappConnection } from '../entities/bot-whatsapp-connection.entity';
+import { BotWhatsappSession } from '../entities/bot-whatsapp-session.entity';
+
 
 config();
 
@@ -84,7 +88,10 @@ export const AppDataSource = new DataSource({
     CampaignMessageEvent,
     Ticket,
     TicketMessage,
-    BotFlow
+    BotFlow,
+    BotTelegramConnection,
+    BotWhatsappConnection,
+    BotWhatsappSession
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

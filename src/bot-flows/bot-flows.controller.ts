@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { BotFlowsService } from './bot-flows.service';
 import { BotTelegramService } from './bot-telegram.service';
+import { BotWhatsappService } from './bot-whatsapp.service';
 import { SaveBotFlowDto } from './dto/save-bot-flow.dto';
 import { CreateBotFlowDto } from './dto/create-bot-flow.dto';
 import { UpdateBotFlowDto } from './dto/update-bot-flow.dto';
@@ -24,6 +25,7 @@ export class BotFlowsController {
   constructor(
     private readonly botFlowsService: BotFlowsService,
     private readonly botTelegramService: BotTelegramService,
+    private readonly botWhatsappService: BotWhatsappService,
   ) {}
 
   @Get()
@@ -63,6 +65,7 @@ export class BotFlowsController {
   @Delete(':id')
   async remove(@Request() req, @Param('id', ParseIntPipe) id: number) {
     await this.botTelegramService.disconnect(req.user.userId, id).catch(() => undefined);
+    await this.botWhatsappService.disconnect(req.user.userId, id).catch(() => undefined);
     await this.botFlowsService.remove(req.user.userId, id);
     return { success: true };
   }
@@ -84,5 +87,20 @@ export class BotFlowsController {
   @Post(':id/telegram/disconnect')
   disconnectTelegram(@Request() req, @Param('id', ParseIntPipe) id: number) {
     return this.botTelegramService.disconnect(req.user.userId, id);
+  }
+
+  @Get(':id/whatsapp/status')
+  getWhatsappStatus(@Request() req, @Param('id', ParseIntPipe) id: number) {
+    return this.botWhatsappService.getStatus(req.user.userId, id);
+  }
+
+  @Post(':id/whatsapp/connect')
+  connectWhatsapp(@Request() req, @Param('id', ParseIntPipe) id: number) {
+    return this.botWhatsappService.connect(req.user.userId, id);
+  }
+
+  @Post(':id/whatsapp/disconnect')
+  disconnectWhatsapp(@Request() req, @Param('id', ParseIntPipe) id: number) {
+    return this.botWhatsappService.disconnect(req.user.userId, id);
   }
 }

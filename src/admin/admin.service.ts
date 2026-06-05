@@ -697,6 +697,36 @@ export class AdminService {
             }
         }
 
+        // 5.4 Recent Payments
+        const recentPaidInvoices = await this.invoiceRepository.find({
+            where: { status: 'paid' },
+            relations: ['user', 'subscription', 'subscription.plan'],
+            order: { createdAt: 'DESC' },
+            take: 10
+        });
+        const recentPayments = recentPaidInvoices.map(inv => ({
+            id: inv.id,
+            userName: inv.user ? `${inv.user.firstName} ${inv.user.lastName}` : 'Usuário Desconhecido',
+            amount: Number(inv.amount),
+            date: inv.createdAt,
+            planName: inv.subscription?.plan?.name || 'Avulso'
+        }));
+
+        // 5.5 Upcoming Payments
+        const activeSubs = await this.subscriptionRepository.find({
+            where: { status: 'active' },
+            relations: ['user', 'plan'],
+            order: { currentPeriodEnd: 'ASC' },
+            take: 10
+        });
+        const upcomingPayments = activeSubs.map(sub => ({
+            id: sub.id,
+            userName: sub.user ? `${sub.user.firstName} ${sub.user.lastName}` : 'Usuário Desconhecido',
+            planName: sub.plan?.name || 'Desconhecido',
+            amount: Number(sub.plan?.price || 0),
+            dueDate: sub.currentPeriodEnd
+        }));
+
         return {
             monthlyData,
             projections,
@@ -705,6 +735,8 @@ export class AdminService {
             revenueByPlan,
             inadimplency,
             cancellationsByReason,
+            recentPayments,
+            upcomingPayments,
             ytdRevenue: monthlyData.reduce((acc, d) => acc + d.totalRevenue, 0),
             avgMargin: monthlyData.length > 0 ? monthlyData.reduce((acc, d) => acc + d.margin, 0) / monthlyData.length : 0,
             growthRate: avgGrowth * 100,

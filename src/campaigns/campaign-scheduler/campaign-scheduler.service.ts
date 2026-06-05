@@ -1193,14 +1193,6 @@ export class CampaignSchedulerService {
         if (node.type === 'email' && contact.email) {
             this.logger.log(`[NODE EXECUTING] EMAIL | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Email: ${contact.email}`);
 
-            const currentMonthYear = new Date().toISOString().slice(0, 7);
-            const freshUsage = await this.userUsageRepository.findOne({
-                where: { userId: campaign.userId, monthYear: currentMonthYear },
-            });
-            if (freshUsage) {
-                usage.emailsSent = freshUsage.emailsSent;
-            }
-
             let freshUser = user;
             if (user) {
                 freshUser = await this.userRepository.findOne({ where: { id: campaign.userId } }) || user;
@@ -1208,7 +1200,7 @@ export class CampaignSchedulerService {
 
             const extraBalance = freshUser?.extraEmailsBalance || 0;
             const totalEmailsLimit = planEmailsLimit + extraBalance;
-            const emailsSentNow = Number(usage.emailsSent) || 0;
+            const emailsSentNow = Number(freshUser?.cycleEmailsSent) || 0;
 
             if (emailsSentNow < totalEmailsLimit) {
                 let content = node.data?.content || '';
@@ -1266,13 +1258,17 @@ export class CampaignSchedulerService {
                     });
                     stats.sentEmailCount++;
                     const sentBeforeIncrement = emailsSentNow;
-                    usage.emailsSent = sentBeforeIncrement + 1;
-                    await this.userUsageRepository.save(usage);
-
-                    if (sentBeforeIncrement >= planEmailsLimit && freshUser && freshUser.extraEmailsBalance > 0) {
-                        freshUser.extraEmailsBalance--;
+                    
+                    if (freshUser) {
+                        freshUser.cycleEmailsSent = sentBeforeIncrement + 1;
+                        if (sentBeforeIncrement >= planEmailsLimit && freshUser.extraEmailsBalance > 0) {
+                            freshUser.extraEmailsBalance--;
+                        }
                         await this.userRepository.save(freshUser);
                     }
+                    
+                    usage.emailsSent = (Number(usage.emailsSent) || 0) + 1;
+                    await this.userUsageRepository.save(usage);
 
                     this.logger.log(`[CAMPAIGN EMAIL EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                 } catch (error) {
@@ -1284,14 +1280,6 @@ export class CampaignSchedulerService {
         } else if (node.type === 'sms' && contact.phone) {
             this.logger.log(`[NODE EXECUTING] SMS | Campaign ID: ${campaign.id} | Contact ID: ${contact.id} | Phone: ${contact.phone}`);
 
-            const currentMonthYear = new Date().toISOString().slice(0, 7);
-            const freshUsage = await this.userUsageRepository.findOne({
-                where: { userId: campaign.userId, monthYear: currentMonthYear },
-            });
-            if (freshUsage) {
-                usage.smsSent = freshUsage.smsSent;
-            }
-
             let freshUser = user;
             if (user) {
                 freshUser = await this.userRepository.findOne({ where: { id: campaign.userId } }) || user;
@@ -1299,7 +1287,7 @@ export class CampaignSchedulerService {
 
             const extraBalance = freshUser?.extraSmsBalance || 0;
             const totalSmsLimit = planSmsLimit + extraBalance;
-            const smsSentNow = Number(usage.smsSent) || 0;
+            const smsSentNow = Number(freshUser?.cycleSmsSent) || 0;
 
             if (smsSentNow < totalSmsLimit) {
                 let content = node.data?.content || 'Olá!';
@@ -1343,13 +1331,17 @@ export class CampaignSchedulerService {
                     if (success) {
                         stats.sentSmsCount++;
                         const sentBeforeIncrement = smsSentNow;
-                        usage.smsSent = sentBeforeIncrement + 1;
-                        await this.userUsageRepository.save(usage);
 
-                        if (sentBeforeIncrement >= planSmsLimit && freshUser && freshUser.extraSmsBalance > 0) {
-                            freshUser.extraSmsBalance--;
+                        if (freshUser) {
+                            freshUser.cycleSmsSent = sentBeforeIncrement + 1;
+                            if (sentBeforeIncrement >= planSmsLimit && freshUser.extraSmsBalance > 0) {
+                                freshUser.extraSmsBalance--;
+                            }
                             await this.userRepository.save(freshUser);
                         }
+
+                        usage.smsSent = (Number(usage.smsSent) || 0) + 1;
+                        await this.userUsageRepository.save(usage);
 
                         this.logger.log(`[CAMPAIGN SMS EXECUTED] Sucesso | Campaign ID: ${campaign.id} | Contact ID: ${contact.id}`);
                     } else {
@@ -1372,14 +1364,6 @@ export class CampaignSchedulerService {
             }
 
             // ── Controle de Limite (Plano + Extra Balance) ──────────────────────────
-            const currentMonthYear = new Date().toISOString().slice(0, 7);
-            const freshUsage = await this.userUsageRepository.findOne({
-                where: { userId: campaign.userId, monthYear: currentMonthYear },
-            });
-            if (freshUsage) {
-                usage.whatsappSent = freshUsage.whatsappSent;
-            }
-
             let freshUser = user;
             if (user) {
                 freshUser = await this.userRepository.findOne({ where: { id: campaign.userId } }) || user;
@@ -1390,7 +1374,7 @@ export class CampaignSchedulerService {
             const isAdmin = freshUser?.role === 'admin';
             const isUnlimited = isAdmin || planWhatsappLimit === -1;
             const totalWhatsappLimit = isUnlimited ? -1 : planWhatsappLimit + extraBalance;
-            const whatsappSentNow = Number(usage.whatsappSent) || 0;
+            const whatsappSentNow = Number(freshUser?.cycleWhatsappSent) || 0;
 
             if (isUnlimited || whatsappSentNow < totalWhatsappLimit) {
                 let content = node.data?.content || 'Olá!';
@@ -1510,14 +1494,17 @@ export class CampaignSchedulerService {
                     stats.sentWhatsappCount++;
                     if (!isUnlimited) {
                         const sentBeforeIncrement = whatsappSentNow;
-                        usage.whatsappSent = sentBeforeIncrement + 1;
-                        await this.userUsageRepository.save(usage);
-
-                        // Desconta créditos adicionais após esgotar a cota do plano
-                        if (sentBeforeIncrement >= planWhatsappLimit && freshUser && freshUser.extraWhatsappBalance > 0) {
-                            freshUser.extraWhatsappBalance--;
+                        
+                        if (freshUser) {
+                            freshUser.cycleWhatsappSent = sentBeforeIncrement + 1;
+                            if (sentBeforeIncrement >= planWhatsappLimit && freshUser.extraWhatsappBalance > 0) {
+                                freshUser.extraWhatsappBalance--;
+                            }
                             await this.userRepository.save(freshUser);
                         }
+
+                        usage.whatsappSent = (Number(usage.whatsappSent) || 0) + 1;
+                        await this.userUsageRepository.save(usage);
                     }
 
                     this.logger.log(`[CAMPAIGN WHATSAPP EXECUTED] Sucesso | Contact: ${contact.id}`);

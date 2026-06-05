@@ -84,11 +84,11 @@ export class SubscriptionsService {
             where: { userId, monthYear: currentMonthYear }
         });
 
-        // Use recorded usage if exists, otherwise fallback to 0
-        const smsSent = usage?.smsSent ?? 0;
-        const emailsSent = usage?.emailsSent ?? 0;
-        const whatsappSent = usage?.whatsappSent ?? 0;
-        const totalCampaigns = usage?.campaignsCreated ?? 0;
+        // Use recorded usage from the current billing cycle
+        const smsSent = user.cycleSmsSent || 0;
+        const emailsSent = user.cycleEmailsSent || 0;
+        const whatsappSent = user.cycleWhatsappSent || 0;
+        const totalCampaigns = user.cycleCampaignsCreated || 0;
 
         const isSubscriptionValid = subscription && !(subscription as any).isExpired;
 
@@ -566,34 +566,15 @@ export class SubscriptionsService {
                     if (user) {
                         user.planId = subscription.planId;
                         user.subscriptionStatus = 'active';
-                        user.emailsSentMonth = 0; // Reseta envios do mês na tabela principal
+                        user.cycleEmailsSent = 0;
+                        user.cycleSmsSent = 0;
+                        user.cycleWhatsappSent = 0;
+                        user.cycleCampaignsCreated = 0;
                         await this.userRepository.save(user);
 
-                        // Resetar envios do mês na tabela detalhada (user_usages)
-                        const brDate = new Date(new Date().getTime() - (3 * 60 * 60 * 1000));
-                        const currentMonthYear = `${brDate.getFullYear()}-${String(brDate.getMonth() + 1).padStart(2, '0')}`;
-
-                        let currentUsage = await this.userUsageRepository.findOne({
-                            where: { userId: user.id, monthYear: currentMonthYear }
-                        });
-
-                        if (currentUsage) {
-                            currentUsage.emailsSent = 0;
-                            currentUsage.whatsappSent = 0;
-                            // smsSent e campaignsCreated não são resetados se não fizer sentido, 
-                            // mas envios de e-mail e whatsapp sim pois são os maiores custos diretos.
-                            await this.userUsageRepository.save(currentUsage);
-                        } else {
-                            currentUsage = this.userUsageRepository.create({
-                                userId: user.id,
-                                monthYear: currentMonthYear,
-                                emailsSent: 0,
-                                whatsappSent: 0,
-                                smsSent: 0,
-                                campaignsCreated: 0
-                            });
-                            await this.userUsageRepository.save(currentUsage);
-                        }
+                        // Não resetamos mais a tabela `user_usages`. Ela continua acumulando dados do 
+                        // calendário mensal para que os gráficos e faturamentos do CFO não quebrem.
+                        // Os limites agora são avaliados pelos `user.cycle*`.
                     }
 
                     this.logger.log(`Assinatura ${subscription.id} ativada e plano ${subscription.planId} vinculado ao usuário ${user?.id} via pagamento Asaas.`);

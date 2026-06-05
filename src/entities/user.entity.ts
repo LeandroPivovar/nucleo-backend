@@ -47,7 +47,16 @@ export class User {
   active: boolean; // Conta ativa (verificada por e-mail)
 
   @Column({ default: 0 })
-  emailsSentMonth: number;
+  cycleEmailsSent: number;
+
+  @Column({ default: 0 })
+  cycleSmsSent: number;
+
+  @Column({ default: 0 })
+  cycleWhatsappSent: number;
+
+  @Column({ default: 0 })
+  cycleCampaignsCreated: number;
 
   @Column({ length: 20, nullable: true, unique: true })
   referralCode: string; // Código único de indicação do usuário

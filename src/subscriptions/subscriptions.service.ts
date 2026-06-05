@@ -85,10 +85,10 @@ export class SubscriptionsService {
         });
 
         // Use recorded usage from the current billing cycle
-        const smsSent = user.cycleSmsSent || 0;
-        const emailsSent = user.cycleEmailsSent || 0;
-        const whatsappSent = user.cycleWhatsappSent || 0;
-        const totalCampaigns = user.cycleCampaignsCreated || 0;
+        const smsSent = user?.cycleSmsSent || 0;
+        const emailsSent = user?.cycleEmailsSent || 0;
+        const whatsappSent = user?.cycleWhatsappSent || 0;
+        const totalCampaigns = user?.cycleCampaignsCreated || 0;
 
         const isSubscriptionValid = subscription && !(subscription as any).isExpired;
 

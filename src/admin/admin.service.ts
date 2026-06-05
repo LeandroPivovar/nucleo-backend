@@ -713,13 +713,13 @@ export class AdminService {
         }));
 
         // 5.5 Upcoming Payments
-        const activeSubs = await this.subscriptionRepository.find({
+        const upcomingActiveSubs = await this.subscriptionRepository.find({
             where: { status: 'active' },
             relations: ['user', 'plan'],
             order: { currentPeriodEnd: 'ASC' },
             take: 10
         });
-        const upcomingPayments = activeSubs.map(sub => ({
+        const upcomingPayments = upcomingActiveSubs.map(sub => ({
             id: sub.id,
             userName: sub.user ? `${sub.user.firstName} ${sub.user.lastName}` : 'Usuário Desconhecido',
             planName: sub.plan?.name || 'Desconhecido',

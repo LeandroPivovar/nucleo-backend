@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EmailTemplate } from '../entities/email-template.entity';
 import { EmailConnection } from '../entities/email-connection.entity';
 import { EmailService } from '../email/email.service';
 import { SmtpEmailService } from '../email/smtp-email.service';
+import { Logger } from '@nestjs/common';
 
 export enum EmailTemplateCategory {
   TRANSACTIONAL = 'transactional',
@@ -15,6 +16,8 @@ export enum EmailTemplateCategory {
 
 @Injectable()
 export class EmailTemplatesService {
+    private readonly logger = new Logger(EmailTemplatesService.name);
+
     constructor(
       @InjectRepository(EmailTemplate)
       private readonly templateRepo: Repository<EmailTemplate>,
@@ -22,7 +25,6 @@ export class EmailTemplatesService {
       private readonly connectionRepo: Repository<EmailConnection>,
       private readonly emailService: EmailService,
       private readonly smtpEmailService: SmtpEmailService,
-      private readonly logger: Logger,
     ) {}
 
   // ========== CRUD ==========

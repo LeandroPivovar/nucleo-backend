@@ -62,6 +62,8 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { TwilioConnectionsModule } from './twilio-connections/twilio-connections.module';
 import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 import { BotFlowsModule } from './bot-flows/bot-flows.module';
+import { KanbanModule } from './kanban/kanban.module';
+import { EmailTemplatesModule } from './email-templates/email-templates.module';
 
 @Module({
   imports: [
@@ -119,6 +121,8 @@ import { BotFlowsModule } from './bot-flows/bot-flows.module';
     TrayModule,
     KnowledgeBaseModule,
     BotFlowsModule,
+    KanbanModule,
+    EmailTemplatesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

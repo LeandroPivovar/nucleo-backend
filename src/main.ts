@@ -302,6 +302,62 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // AUTO-FIX: Tabelas Kanban
+try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      CREATE TABLE IF NOT EXISTS \`kanban_columns\` (
+        \`id\` int NOT NULL AUTO_INCREMENT,
+        \`userId\` int NOT NULL,
+        \`name\` varchar(100) NOT NULL,
+        \`description\` text NULL,
+        \`order\` int NOT NULL DEFAULT '0',
+        \`active\` tinyint(1) NOT NULL DEFAULT '1',
+        \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (\`id\`),
+        KEY \`IDX_kanban_columns_userId\` (\`userId\`)
+      ) ENGINE=InnoDB
+    `);
+    await dataSource.query(`
+      CREATE TABLE IF NOT EXISTS \`kanban_cards\` (
+        \`id\` int NOT NULL AUTO_INCREMENT,
+        \`userId\` int NOT NULL,
+        \`columnId\` int NOT NULL,
+        \`title\` varchar(200) NOT NULL,
+        \`description\` text NULL,
+        \`order\` int NOT NULL DEFAULT '0',
+        \`active\` tinyint(1) NOT NULL DEFAULT '1',
+        \`metadata\` json NULL,
+        \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (\`id\`),
+        KEY \`IDX_kanban_cards_userId\` (\`userId\`),
+        KEY \`IDX_kanban_cards_columnId\` (\`columnId\`)
+      ) ENGINE=InnoDB
+    `);
+    await dataSource.query(`
+      CREATE TABLE IF NOT EXISTS \`email_templates\` (
+        \`id\` int NOT NULL AUTO_INCREMENT,
+        \`userId\` int NOT NULL,
+        \`name\` varchar(150) NOT NULL,
+        \`category\` enum('transactional','marketing','notification','custom') NOT NULL DEFAULT 'custom',
+        \`html\` longtext NOT NULL,
+        \`subject\` varchar(200) NULL,
+        \`description\` varchar(255) NULL,
+        \`active\` tinyint(1) NOT NULL DEFAULT '1',
+        \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (\`id\`),
+        KEY \`IDX_email_templates_userId\` (\`userId\`),
+        KEY \`IDX_email_templates_category\` (\`category\`)
+      ) ENGINE=InnoDB
+    `);
+    logger.log('Fallback Migration: Tabelas kanban_columns, kanban_cards, email_templates verificadas.');
+  } catch (err: any) {
+    logger.error(`Fallback Migration falhou (kanban/email_templates): ${err.message}`);
+  }
+
   // Prefixo global da API
   app.setGlobalPrefix('api');
 

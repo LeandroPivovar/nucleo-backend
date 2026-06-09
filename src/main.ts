@@ -293,7 +293,7 @@ async function bootstrap() {
     logger.error(`Fallback Migration falhou (bot sessions/gemini): ${err.message}`);
   }
 
-  // Habilitar CORS para o frontend
+// Habilitar CORS para o frontend
   app.enableCors({
     origin: (origin, callback) => {
       // Permitir qualquer origem para que o pixel funcione em sites externos
@@ -302,8 +302,31 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // AUTO-FIX: Tabela internal_analytics
+  try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      CREATE TABLE IF NOT EXISTS \`internal_analytics\` (
+        \`id\` int NOT NULL AUTO_INCREMENT,
+        \`userId\` int NULL,
+        \`type\` varchar(50) NOT NULL,
+        \`name\` varchar(100) NOT NULL,
+        \`metadata\` json NULL,
+        \`timestamp\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (\`id\`),
+        KEY \`IDX_internal_analytics_userId\` (\`userId\`),
+        KEY \`IDX_internal_analytics_type\` (\`type\`),
+        KEY \`IDX_internal_analytics_name\` (\`name\`),
+        KEY \`IDX_internal_analytics_timestamp\` (\`timestamp\`)
+      ) ENGINE=InnoDB
+    `);
+    logger.log('Fallback Migration: Tabela internal_analytics verificada.');
+  } catch (err: any) {
+    logger.error(`Fallback Migration falhou (internal_analytics): ${err.message}`);
+  }
+
   // AUTO-FIX: Tabelas Kanban
-try {
+  try {
     const dataSource = app.get(DataSource);
     await dataSource.query(`
       CREATE TABLE IF NOT EXISTS \`kanban_columns\` (

@@ -278,7 +278,17 @@ async function bootstrap() {
       SELECT 'GEMINI_MODEL', 'gemini-2.0-flash', 'Modelo Gemini (ex: gemini-2.0-flash)'
       WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE \`key\` = 'GEMINI_MODEL')
     `);
-    logger.log('Fallback Migration: bot_conversation_sessions e Gemini settings verificados.');
+    await dataSource.query(`
+      INSERT INTO system_settings (\`key\`, \`value\`, description)
+      SELECT 'PAYMENT_GATEWAY', 'asaas', 'Gateway principal de pagamento (asaas | shopify)'
+      WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE \`key\` = 'PAYMENT_GATEWAY')
+    `);
+    await dataSource.query(`
+      INSERT INTO system_settings (\`key\`, \`value\`, description)
+      SELECT 'SHOPIFY_DEFAULT_SHOP', '', 'Loja Shopify padrão usada como fallback no checkout via Shopify Billing'
+      WHERE NOT EXISTS (SELECT 1 FROM system_settings WHERE \`key\` = 'SHOPIFY_DEFAULT_SHOP')
+    `);
+    logger.log('Fallback Migration: bot_conversation_sessions e Gemini/Payment settings verificados.');
   } catch (err: any) {
     logger.error(`Fallback Migration falhou (bot sessions/gemini): ${err.message}`);
   }

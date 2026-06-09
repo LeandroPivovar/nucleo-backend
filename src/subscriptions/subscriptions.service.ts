@@ -15,6 +15,7 @@ import { AsaasService } from './asaas.service';
 import { SystemSetting } from '../entities/system-setting.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../entities/notification.entity';
+import { ShopifyService } from '../shopify/shopify.service';
 
 @Injectable()
 export class SubscriptionsService {
@@ -43,6 +44,7 @@ export class SubscriptionsService {
         private systemSettingRepository: Repository<SystemSetting>,
         private asaasService: AsaasService,
         private notificationsService: NotificationsService,
+        private shopifyService: ShopifyService,
     ) { }
 
     async getPlans(): Promise<Plan[]> {
@@ -615,7 +617,6 @@ export class SubscriptionsService {
 
     async checkAndNotifyUpcomingInvoice(userId: number) {
         try {
-            // Verificar se o usuário deseja receber notificações de faturamento
             const isEnabled = await this.notificationsService.isPreferenceEnabled(userId, NotificationType.BILLING);
             if (!isEnabled) return;
 
@@ -631,12 +632,10 @@ export class SubscriptionsService {
             const diffTime = dueDate.getTime() - now.getTime();
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-            // Se o vencimento for em 5 dias ou menos (e ainda não venceu)
             if (diffDays <= 5 && diffDays > 0) {
                 const dateString = dueDate.toLocaleDateString('pt-BR');
                 const title = `💳 Fatura disponível - Vencimento ${dateString}`;
 
-                // Verificar se já existe uma notificação para esta fatura/data para este usuário
                 const alreadyNotified = await this.notificationsService.exists(
                     userId,
                     NotificationType.BILLING,
@@ -655,6 +654,127 @@ export class SubscriptionsService {
             }
         } catch (error) {
             this.logger.error(`Error checking upcoming invoice for user ${userId}: ${error.message}`);
+        }
+    }
+
+    async getPaymentGateway(): Promise<'asaas' | 'shopify'> {
+        const setting = await this.systemSettingRepository.findOne({ where: { key: 'PAYMENT_GATEWAY' } });
+        const value = setting?.value?.toLowerCase().trim();
+        return value === 'shopify' ? 'shopify' : 'asaas';
+    }
+
+    async shopifyCheckout(userId: number, data: { planId: number; shop?: string; trialDays?: number }): Promise<any> {
+        const { planId, shop, trialDays = 0 } = data;
+
+        const user = await this.userRepository.findOne({ where: { id: userId } });
+        if (!user) throw new NotFoundException('Usuário não encontrado');
+
+        const plan = await this.planRepository.findOne({ where: { id: planId } });
+        if (!plan) throw new NotFoundException('Plano não encontrado');
+
+        let shopDomain = shop || '';
+        if (!shopDomain) {
+            const settings = await this.systemSettingRepository.find();
+            const settingsMap = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {} as Record<string, string>);
+            const defaultShop = settingsMap['SHOPIFY_DEFAULT_SHOP'] || '';
+            if (defaultShop) {
+                shopDomain = defaultShop;
+            } else {
+                const connections = await this.shopifyService.getConnections(userId);
+                const active = connections.find(c => c.isActive);
+                if (!active) throw new BadRequestException('Nenhuma loja Shopify conectada. Forneça { shop } ou conecte uma loja.');
+                shopDomain = active.shop;
+            }
+        }
+
+        if (!shopDomain) {
+            throw new BadRequestException('Loja Shopify não definida.');
+        }
+
+        const accessToken = await this.shopifyService.getAccessToken(userId, shopDomain);
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        const returnUrl = `${frontendUrl}/integrations/shopify/billing/callback?shop=${encodeURIComponent(shopDomain)}&planId=${planId}&userId=${userId}`;
+
+        const { confirmationUrl, appSubscriptionId } = await this.shopifyService.createAppSubscription(
+            shopDomain,
+            accessToken,
+            { name: plan.name, price: Number(plan.price), interval: plan.interval },
+            returnUrl,
+            trialDays,
+        );
+
+        const pendingSub = this.subscriptionRepository.create({
+            userId,
+            planId,
+            status: 'pending',
+            shopifySubscriptionId: appSubscriptionId,
+            asaasSubscriptionId: '',
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date(new Date().setMonth(new Date().getMonth() + (plan.interval === 'yearly' ? 12 : 1))),
+        });
+        await this.subscriptionRepository.save(pendingSub);
+
+        return {
+            success: true,
+            confirmationUrl,
+            appSubscriptionId,
+            shop: shopDomain,
+            planId,
+        };
+    }
+
+    async handleShopifySubscriptionsUpdateWebhook(payload: any, shopDomain: string): Promise<void> {
+        this.logger.log(`[Shopify Billing Webhook] Recebido app_subscriptions/update para loja ${shopDomain}`);
+        const subData = payload.app_subscription || payload;
+        const status = subData.status || subData.current_status;
+        const adminGraphqlApiId = subData.admin_graphql_api_id || subData.id;
+
+        if (!adminGraphqlApiId) {
+            this.logger.warn('[Shopify Billing Webhook] Sem ID de assinatura no payload');
+            return;
+        }
+
+        const graphQlId = adminGraphqlApiId.includes('/')
+            ? adminGraphqlApiId
+            : `gid://shopify/AppSubscription/${adminGraphqlApiId}`;
+
+        const subscription = await this.subscriptionRepository.findOne({
+            where: { shopifySubscriptionId: graphQlId },
+            relations: ['user'],
+        });
+
+        if (!subscription) {
+            this.logger.warn(`[Shopify Billing Webhook] Assinatura ${graphQlId} não encontrada localmente.`);
+            return;
+        }
+
+        const user = subscription.user;
+        if (!user) {
+            this.logger.warn(`[Shopify Billing Webhook] Usuário não encontrado para subscription ${subscription.id}`);
+            return;
+        }
+
+        if (status === 'ACTIVE') {
+            subscription.status = 'active';
+            subscription.currentPeriodStart = new Date();
+            const plan = await this.planRepository.findOne({ where: { id: subscription.planId } });
+            if (plan) {
+                const periodEnd = new Date();
+                periodEnd.setMonth(periodEnd.getMonth() + (plan.interval === 'yearly' ? 12 : 1));
+                subscription.currentPeriodEnd = periodEnd;
+            }
+            await this.subscriptionRepository.save(subscription);
+            await this.userRepository.update(user.id, { planId: subscription.planId, subscriptionStatus: 'active' });
+            this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} marcada ACTIVE para userId ${user.id}`);
+        } else if (status === 'CANCELLED' || status === 'DECLINED' || status === 'EXPIRED') {
+            subscription.status = 'canceled';
+            await this.subscriptionRepository.save(subscription);
+            await this.userRepository.update(user.id, { subscriptionStatus: 'inactive' });
+            this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} marcada CANCELADA/EXPIRADA para userId ${user.id}`);
+        } else if (status === 'PAST_DUE') {
+            subscription.status = 'past_due';
+            await this.subscriptionRepository.save(subscription);
+            this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} marcada PAST_DUE para userId ${user.id}`);
         }
     }
 }

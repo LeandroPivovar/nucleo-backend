@@ -16,6 +16,7 @@ import { SystemSettingsModule } from '../system-settings/system-settings.module'
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AsaasService } from './asaas.service';
+import { ShopifyModule } from '../shopify/shopify.module';
 
 import { TemplateRequest } from '../entities/template-request.entity';
 
@@ -24,7 +25,8 @@ import { TemplateRequest } from '../entities/template-request.entity';
         TypeOrmModule.forFeature([Subscription, Plan, Invoice, User, Contact, UserUsage, Campaign, ReferralCommission, TemplateRequest, SystemSetting]),
         SystemSettingsModule,
         WebhooksModule,
-        NotificationsModule
+        NotificationsModule,
+        ShopifyModule,
     ],
     controllers: [SubscriptionsController],
     providers: [SubscriptionsService, AsaasService],

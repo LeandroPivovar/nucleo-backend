@@ -400,7 +400,7 @@ export class ShopifyController {
     const secret = process.env.SHOPIFY_WEBHOOK_SECRET || '';
 
     if (!this.shopifyService.verifyWebhookSignature(body, signature, secret)) {
-      throw new Error('Assinatura inválida');
+      throw new UnauthorizedException('Assinatura inválida');
     }
 
     // Processar webhook
@@ -612,8 +612,7 @@ export class ShopifyController {
     // Token de acesso para a loja
     const accessToken = await this.shopifyService.getAccessToken(req.user.userId, shop);
 
-    // returnUrl — backend callback para verificar a assinatura após aprovação do merchant
-    const backendUrl = process.env.BACKEND_URL || `http://localhost:3000`;
+    // returnUrl — frontend callback para verificar a assinatura após aprovação do merchant
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const returnUrl = `${frontendUrl}/integrations/shopify/billing/callback?shop=${encodeURIComponent(shop)}&planId=${planId}&userId=${req.user.userId}`;
 

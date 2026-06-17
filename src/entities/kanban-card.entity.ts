@@ -26,7 +26,7 @@ export class KanbanCard {
     @JoinColumn({ name: 'contact_id' })
     contact: Contact | null;
 
-    @Column({ name: 'contact_id', nullable: true })
+    @Column({ name: 'contact_id', type: 'int', nullable: true })
     contactId: number | null;
 
     @Column({ length: 200 })

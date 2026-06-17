@@ -36,7 +36,7 @@ export class KanbanColumn {
     @Column({ name: 'is_origin', type: 'boolean', default: false })
     isOrigin: boolean;
 
-    @Column({ name: 'entry_type', length: 50, nullable: true })
+    @Column({ name: 'entry_type', type: 'varchar', length: 50, nullable: true })
     entryType: KanbanEntryType | null;
 
     @Column({ name: 'entry_config', type: 'json', nullable: true })
@@ -46,7 +46,7 @@ export class KanbanColumn {
     @JoinColumn({ name: 'campaign_id' })
     campaign: Campaign | null;
 
-    @Column({ name: 'campaign_id', nullable: true })
+    @Column({ name: 'campaign_id', type: 'int', nullable: true })
     campaignId: number | null;
 
     @Column({ type: 'json', nullable: true })

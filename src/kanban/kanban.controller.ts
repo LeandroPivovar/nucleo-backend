@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, UseGua
 import { KanbanService } from './kanban.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+import { KanbanCondition, KanbanEntryType } from '../entities/kanban-column.entity';
 
 @Controller('kanban')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -15,7 +16,18 @@ export class KanbanController {
     }
 
     @Post('columns')
-    async createColumn(@Request() req, @Body() body: { name: string; description?: string }) {
+    async createColumn(
+        @Request() req,
+        @Body() body: {
+            name: string;
+            description?: string;
+            isOrigin?: boolean;
+            entryType?: KanbanEntryType;
+            entryConfig?: Record<string, any>;
+            campaignId?: number;
+            conditions?: KanbanCondition[];
+        },
+    ) {
         return { column: await this.kanbanService.createColumn(req.user.userId, body) };
     }
 
@@ -23,7 +35,17 @@ export class KanbanController {
     async updateColumn(
         @Request() req,
         @Param('columnId', ParseIntPipe) columnId: number,
-        @Body() body: { name?: string; description?: string; order?: number; active?: boolean },
+        @Body() body: {
+            name?: string;
+            description?: string;
+            order?: number;
+            active?: boolean;
+            isOrigin?: boolean;
+            entryType?: KanbanEntryType;
+            entryConfig?: Record<string, any>;
+            campaignId?: number | null;
+            conditions?: KanbanCondition[] | null;
+        },
     ) {
         return { column: await this.kanbanService.updateColumn(req.user.userId, columnId, body) };
     }
@@ -40,7 +62,16 @@ export class KanbanController {
     }
 
     @Post('cards')
-    async createCard(@Request() req, @Body() body: { columnId: number; title: string; description?: string; metadata?: Record<string, any> }) {
+    async createCard(
+        @Request() req,
+        @Body() body: {
+            columnId: number;
+            title: string;
+            description?: string;
+            contactId?: number;
+            metadata?: Record<string, any>;
+        },
+    ) {
         return { card: await this.kanbanService.createCard(req.user.userId, body) };
     }
 
@@ -48,7 +79,15 @@ export class KanbanController {
     async updateCard(
         @Request() req,
         @Param('cardId', ParseIntPipe) cardId: number,
-        @Body() body: { title?: string; description?: string; columnId?: number; order?: number; active?: boolean; metadata?: Record<string, any> },
+        @Body() body: {
+            title?: string;
+            description?: string;
+            columnId?: number;
+            order?: number;
+            active?: boolean;
+            contactId?: number | null;
+            metadata?: Record<string, any>;
+        },
     ) {
         return { card: await this.kanbanService.updateCard(req.user.userId, cardId, body) };
     }
@@ -75,5 +114,14 @@ export class KanbanController {
     @Patch('cards/reorder')
     async reorderCards(@Request() req, @Body() body: { updates: { cardId: number; columnId: number; order: number }[] }) {
         return this.kanbanService.reorderCard(req.user.userId, body.updates);
+    }
+
+    // Entry point: recebe lead de origem externa e cria card automaticamente
+    @Post('entry')
+    async handleEntry(
+        @Request() req,
+        @Body() body: { entryType: KanbanEntryType; entryConfig?: Record<string, any>; contactId: number },
+    ) {
+        return { card: await this.kanbanService.handleEntryPoint(req.user.userId, body) };
     }
 }

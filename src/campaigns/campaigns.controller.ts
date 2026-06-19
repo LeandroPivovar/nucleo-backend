@@ -89,6 +89,15 @@ export class CampaignsController {
         return this.campaignsService.addContactsToCampaign(req.user.userId, +id, body.contactIds);
     }
 
+    @Post(':id/groups')
+    addGroups(
+        @Param('id') id: string,
+        @Request() req,
+        @Body() body: { groupIds: number[] }
+    ) {
+        return this.campaignsService.addGroupsToCampaign(req.user.userId, +id, body.groupIds);
+    }
+
     @Patch(':id')
     update(
         @Param('id') id: string,

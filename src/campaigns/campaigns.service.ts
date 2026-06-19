@@ -316,6 +316,24 @@ export class CampaignsService {
         };
     }
 
+    async addGroupsToCampaign(userId: number, campaignId: number, groupIds: number[]): Promise<any> {
+        this.logger.log(`Adicionando ${groupIds?.length} grupo(s) à campanha [ID: ${campaignId}]`);
+        if (!groupIds || groupIds.length === 0) {
+            throw new Error('Nenhum grupo selecionado.');
+        }
+
+        const contacts = await this.contactsRepository.find({
+            where: { userId, groupId: In(groupIds) }
+        });
+
+        if (contacts.length === 0) {
+            throw new Error('Nenhum contato encontrado nos grupos selecionados.');
+        }
+
+        this.logger.log(`Grupos expandidos em ${contacts.length} contatos.`);
+        return this.addContactsToCampaign(userId, campaignId, contacts.map((c) => c.id));
+    }
+
     async trackClick(id: number, contactId?: number): Promise<Campaign> {
         const campaign = await this.campaignsRepository.findOne({ where: { id } });
         if (!campaign) {

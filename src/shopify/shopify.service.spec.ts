@@ -49,6 +49,7 @@ describe('ShopifyService — webhooks de pedido e rate limit', () => {
   let contactPurchaseRepo: ReturnType<typeof mockRepository>;
   let messageEventRepo: ReturnType<typeof mockRepository>;
   let userRepo: ReturnType<typeof mockRepository>;
+  let subscriptionRepo: ReturnType<typeof mockRepository>;
   let notifications: { create: jest.Mock };
 
   beforeEach(async () => {
@@ -91,6 +92,7 @@ describe('ShopifyService — webhooks de pedido e rate limit', () => {
     contactPurchaseRepo = module.get(getRepositoryToken(ContactPurchase));
     messageEventRepo = module.get(getRepositoryToken(CampaignMessageEvent));
     userRepo = module.get(getRepositoryToken(User));
+    subscriptionRepo = module.get(getRepositoryToken(Subscription));
     notifications = module.get(NotificationsService);
   });
 
@@ -799,6 +801,46 @@ describe('ShopifyService — webhooks de pedido e rate limit', () => {
     it('loja sem conexão ativa não gera erro', async () => {
       connectionRepo.find.mockResolvedValue([]);
       await expect(service.handleWebhook('orders/create', 'x.myshopify.com', { id: 1 })).resolves.toBeUndefined();
+    });
+  });
+
+  describe('handleAppUninstalled — cobrança precisa ser reaprovada na reinstalação', () => {
+    it('cancela a assinatura Shopify local e inativa o usuário', async () => {
+      connectionRepo.find.mockResolvedValue([{ userId: 7, shop: 'x.myshopify.com', isActive: true }]);
+      connectionRepo.findOne.mockResolvedValue(null);
+      subscriptionRepo.find.mockResolvedValue([
+        { id: 1, userId: 7, status: 'active', shopifySubscriptionId: 'gid://shopify/AppSubscription/1', cancelAtPeriodEnd: true },
+        { id: 2, userId: 7, status: 'active', shopifySubscriptionId: null },
+      ]);
+
+      await service.handleAppUninstalled('x.myshopify.com');
+
+      expect(subscriptionRepo.save).toHaveBeenCalledTimes(1);
+      expect(subscriptionRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1, status: 'canceled', cancelAtPeriodEnd: false, cancellationReason: 'app_uninstalled' }),
+      );
+      expect(userRepo.update).toHaveBeenCalledWith(7, { subscriptionStatus: 'inactive' });
+    });
+
+    it('mantém a assinatura se o usuário ainda tem outra loja Shopify ativa', async () => {
+      connectionRepo.find.mockResolvedValue([{ userId: 7, shop: 'x.myshopify.com', isActive: true }]);
+      connectionRepo.findOne.mockResolvedValue({ userId: 7, shop: 'y.myshopify.com', isActive: true });
+
+      await service.handleAppUninstalled('x.myshopify.com');
+
+      expect(subscriptionRepo.find).not.toHaveBeenCalled();
+      expect(userRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('não mexe no usuário sem assinatura Shopify', async () => {
+      connectionRepo.find.mockResolvedValue([{ userId: 7, shop: 'x.myshopify.com', isActive: true }]);
+      connectionRepo.findOne.mockResolvedValue(null);
+      subscriptionRepo.find.mockResolvedValue([{ id: 2, userId: 7, status: 'active', shopifySubscriptionId: null }]);
+
+      await service.handleAppUninstalled('x.myshopify.com');
+
+      expect(subscriptionRepo.save).not.toHaveBeenCalled();
+      expect(userRepo.update).not.toHaveBeenCalled();
     });
   });
 });

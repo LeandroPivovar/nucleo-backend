@@ -1688,6 +1688,47 @@ export class ShopifyService {
     }
 
     this.logger.log(`[Shopify] app/uninstalled: ${connections.length} conexão(ões) desativada(s) para loja ${shop}.`);
+
+    // A Shopify cancela a AppSubscription junto com a desinstalação, mas o webhook
+    // app_subscriptions/update pode não chegar depois dela. Sem cancelar aqui, a
+    // reinstalação encontraria a assinatura local "ativa" e não pediria nova
+    // aprovação de cobrança (App Store requirement 1.2.2).
+    const userIds = [...new Set(connections.map((c) => c.userId).filter((id) => id != null))];
+    for (const userId of userIds) {
+      await this.cancelShopifyBillingOnUninstall(userId, shop);
+    }
+  }
+
+  private async cancelShopifyBillingOnUninstall(userId: number, shop: string): Promise<void> {
+    // A assinatura não guarda a loja; se o usuário ainda tem outra loja Shopify
+    // ativa, a cobrança pode pertencer a ela e não deve ser derrubada.
+    const otherActiveShop = await this.shopifyConnectionRepository.findOne({
+      where: { userId, isActive: true },
+    });
+    if (otherActiveShop) {
+      this.logger.warn(
+        `[Shopify] app/uninstalled: userId ${userId} ainda tem a loja ${otherActiveShop.shop} ativa; assinatura mantida.`,
+      );
+      return;
+    }
+
+    const subscriptions = await this.subscriptionRepository.find({
+      where: { userId, status: In(['active', 'frozen', 'past_due', 'incomplete']) },
+    });
+    const shopifySubscriptions = subscriptions.filter((s) => !!s.shopifySubscriptionId);
+    if (shopifySubscriptions.length === 0) return;
+
+    for (const subscription of shopifySubscriptions) {
+      subscription.status = 'canceled';
+      subscription.cancelAtPeriodEnd = false;
+      subscription.cancellationReason = 'app_uninstalled';
+      await this.subscriptionRepository.save(subscription);
+    }
+    await this.userRepository.update(userId, { subscriptionStatus: 'inactive' });
+
+    this.logger.log(
+      `[Shopify] app/uninstalled: ${shopifySubscriptions.length} assinatura(s) Shopify cancelada(s) para userId ${userId} (loja ${shop}).`,
+    );
   }
 
   /**

@@ -16,6 +16,7 @@ import { CreateContactDto } from './dto/create-contact.dto';
 
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { ImportContactRow } from './dto/import-contacts.dto';
+import { normalizeSpreadsheetDateOnly } from '../common/spreadsheet-date';
 
 export interface SegmentationParam {
   id: string;
@@ -29,6 +30,23 @@ export interface SegmentationParam {
 
 @Injectable()
 export class ContactsService {
+  private readonly completedSaleStatuses = [
+    'completed',
+    'Completo',
+    'pago',
+    'Pago',
+    'aprovado',
+    'Aprovado',
+    'approved',
+    'paid',
+    'success',
+    'Sucesso',
+    'delivered',
+    'entregue',
+    'shipped',
+    'fulfilled',
+  ];
+
   constructor(
     @InjectRepository(Contact)
     private contactsRepository: Repository<Contact>,
@@ -107,7 +125,9 @@ export class ContactsService {
       .leftJoinAndSelect('ct.tag', 'tag')
       .leftJoinAndSelect('contact.contactSegmentations', 'cs')
       .leftJoinAndSelect('contact.group', 'group')
-      .leftJoinAndSelect('contact.sales', 'sales')
+      .leftJoinAndSelect('contact.sales', 'sales', 'sales.status IN (:...completedSaleStatuses)', {
+        completedSaleStatuses: this.completedSaleStatuses,
+      })
       .leftJoinAndSelect('sales.product', 'product')
       .where('contact.userId = :userId', { userId })
       .orderBy('contact.createdAt', 'DESC');
@@ -158,10 +178,18 @@ export class ContactsService {
 
 
   async findOne(userId: number, id: number): Promise<Contact> {
-    const contact = await this.contactsRepository.findOne({
-      where: { id, userId },
-      relations: ['contactTags', 'contactTags.tag', 'contactSegmentations', 'group', 'sales', 'sales.product'],
-    });
+    const contact = await this.contactsRepository.createQueryBuilder('contact')
+      .leftJoinAndSelect('contact.contactTags', 'ct')
+      .leftJoinAndSelect('ct.tag', 'tag')
+      .leftJoinAndSelect('contact.contactSegmentations', 'cs')
+      .leftJoinAndSelect('contact.group', 'group')
+      .leftJoinAndSelect('contact.sales', 'sales', 'sales.status IN (:...completedSaleStatuses)', {
+        completedSaleStatuses: this.completedSaleStatuses,
+      })
+      .leftJoinAndSelect('sales.product', 'product')
+      .where('contact.id = :id', { id })
+      .andWhere('contact.userId = :userId', { userId })
+      .getOne();
 
     if (!contact) {
       throw new NotFoundException(`Contato com ID ${id} não encontrado`);
@@ -305,7 +333,7 @@ export class ContactsService {
           status: row.status?.trim() || undefined,
           state: row.state?.trim() || undefined,
           city: row.city?.trim() || undefined,
-          birthDate: row.birthDate?.trim() || undefined,
+          birthDate: normalizeSpreadsheetDateOnly(row.birthDate) || row.birthDate?.trim() || undefined,
           gender: row.gender?.trim() || undefined,
           cpfCnpj: row.cpfCnpj?.trim() || undefined,
           groupId,
@@ -358,6 +386,7 @@ export class ContactsService {
       .innerJoin('p.contact', 'c')
       .where('c.userId = :userId', { userId })
       .andWhere('p.createdAt >= :ninetyDaysAgo', { ninetyDaysAgo })
+      .andWhere('p.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses })
       .getRawMany();
 
     stats['inactive_customers'] = stats['total'] - active90Days.length;
@@ -367,6 +396,7 @@ export class ContactsService {
       .createQueryBuilder('sale')
       .innerJoin('sale.contact', 'contact')
       .where('contact.userId = :userId', { userId })
+      .andWhere('sale.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses })
       .select('DISTINCT contact.id')
       .getRawMany();
 
@@ -377,6 +407,7 @@ export class ContactsService {
       .createQueryBuilder('sale')
       .innerJoin('sale.contact', 'contact')
       .where('contact.userId = :userId', { userId })
+      .andWhere('sale.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses })
       .select('contact.id')
       .groupBy('contact.id')
       .having('AVG(sale.totalValue) > :value', { value: 500 })
@@ -421,6 +452,7 @@ export class ContactsService {
       .innerJoin('p.contact', 'c')
       .where('c.userId = :userId', { userId })
       .andWhere('p.createdAt >= :thirtyDaysAgo', { thirtyDaysAgo })
+      .andWhere('p.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses })
       .getRawMany();
 
     stats['no_purchase_x_days'] = stats['total'] - active30Days.length;
@@ -446,7 +478,9 @@ export class ContactsService {
 
     // 13. Cliente Recuperado (Teve carrinho abandonado E compra concluída)
     const recovered = await this.contactsRepository.createQueryBuilder('contact')
-      .innerJoin('contact.sales', 's1', "s1.status = 'completed'")
+      .innerJoin('contact.sales', 's1', 's1.status IN (:...completedSaleStatuses)', {
+        completedSaleStatuses: this.completedSaleStatuses,
+      })
       .innerJoin('contact.sales', 's2', "s2.status IN ('pending', 'active_cart', 'abandoned_cart') AND s1.createdAt > s2.createdAt")
       .where('contact.userId = :userId', { userId })
       .select('COUNT(DISTINCT contact.id)', 'count')
@@ -459,7 +493,7 @@ export class ContactsService {
       .select('DISTINCT sale.contactId')
       .innerJoin('sale.contact', 'contact')
       .where('contact.userId = :userId', { userId })
-      .andWhere("sale.status = 'completed'")
+      .andWhere('sale.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses })
       .getRawMany();
 
     stats['purchased_product'] = totalShoppers.length;
@@ -505,7 +539,9 @@ export class ContactsService {
     const query = this.contactsRepository.createQueryBuilder('contact')
       .leftJoinAndSelect('contact.contactSegmentations', 'cs')
       .leftJoinAndSelect('contact.group', 'group')
-      .leftJoinAndSelect('contact.sales', 'sales')
+      .leftJoinAndSelect('contact.sales', 'sales', 'sales.status IN (:...completedSaleStatuses)', {
+        completedSaleStatuses: this.completedSaleStatuses,
+      })
       .leftJoinAndSelect('sales.product', 'product')
       .where('contact.userId = :userId', { userId });
 
@@ -559,7 +595,8 @@ export class ContactsService {
 
         const subQuery = this.saleRepository.createQueryBuilder('p')
           .select('p.contactId')
-          .where('p.createdAt >= :nineDate', { nineDate: ninetyDaysAgo });
+          .where('p.createdAt >= :nineDate', { nineDate: ninetyDaysAgo })
+          .andWhere('p.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses });
 
         orConditions.push(`contact.id NOT IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
@@ -570,7 +607,8 @@ export class ContactsService {
 
         const subQuery = this.saleRepository.createQueryBuilder('p')
           .select('p.contactId')
-          .where('p.createdAt >= :thirtDate', { thirtDate: thirtyDaysAgo });
+          .where('p.createdAt >= :thirtDate', { thirtDate: thirtyDaysAgo })
+          .andWhere('p.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses });
 
         orConditions.push(`contact.id NOT IN (${subQuery.getQuery()})`);
         Object.assign(parameters, subQuery.getParameters());
@@ -578,6 +616,7 @@ export class ContactsService {
         const minPurchases = segParams.minPurchases !== undefined ? segParams.minPurchases : 1;
         const subQuery = this.saleRepository.createQueryBuilder('p')
           .select('p.contactId')
+          .where('p.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses })
           .groupBy('p.contactId')
           .having('COUNT(*) >= :minPurchases', { minPurchases });
 
@@ -587,6 +626,7 @@ export class ContactsService {
         const minTicket = segParams.minTicket !== undefined ? segParams.minTicket : 500;
         const subQuery = this.saleRepository.createQueryBuilder('p')
           .select('p.contactId')
+          .where('p.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses })
           .groupBy('p.contactId')
           .having('AVG(p.totalValue) > :minTicket', { minTicket });
 
@@ -621,7 +661,9 @@ export class ContactsService {
       } else if (segId === 'cart_recovered_customer') {
         const subQuery = this.contactsRepository.createQueryBuilder('c')
           .select('c.id')
-          .innerJoin('c.sales', 's1', "s1.status = 'completed'")
+          .innerJoin('c.sales', 's1', 's1.status IN (:...completedSaleStatuses)', {
+            completedSaleStatuses: this.completedSaleStatuses,
+          })
           .innerJoin('c.sales', 's2', "s2.status IN ('pending', 'active_cart', 'abandoned_cart') AND s1.createdAt > s2.createdAt")
           .where('c.userId = :userId', { userId });
 
@@ -633,7 +675,7 @@ export class ContactsService {
           const subQuery = this.saleRepository.createQueryBuilder('sale')
             .select('DISTINCT sale.contactId')
             .where('sale.productId IN (:...productIds)', { productIds })
-            .andWhere('sale.status = :completedStatus', { completedStatus: 'completed' });
+            .andWhere('sale.status IN (:...completedSaleStatuses)', { completedSaleStatuses: this.completedSaleStatuses });
 
           orConditions.push(`contact.id IN (${subQuery.getQuery()})`);
           Object.assign(parameters, subQuery.getParameters());

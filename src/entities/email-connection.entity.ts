@@ -38,6 +38,12 @@ export class EmailConnection {
   @Column({ length: 255, nullable: true })
   email: string;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  senderName: string | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  verifiedAt: Date | null;
+
   @Column({ length: 255, nullable: true })
   smtpHost: string;
 

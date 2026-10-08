@@ -7,12 +7,13 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Request,
   UseGuards,
 } from '@nestjs/common';
 import { EmailConnectionsService } from './email-connections.service';
-import { CreateEmailConnectionDto } from './dto/create-email-connection.dto';
+import { CreateEmailConnectionDto, UpdateEmailConnectionDto } from './dto/create-email-connection.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('email-connections')
@@ -34,6 +35,15 @@ export class EmailConnectionsController {
   @HttpCode(HttpStatus.CREATED)
   async create(@Request() req, @Body() dto: CreateEmailConnectionDto) {
     return this.emailConnectionsService.create(req.user.userId, dto);
+  }
+
+  @Patch(':id')
+  async update(
+    @Request() req,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateEmailConnectionDto,
+  ) {
+    return this.emailConnectionsService.update(id, req.user.userId, dto);
   }
 
   @Delete(':id')

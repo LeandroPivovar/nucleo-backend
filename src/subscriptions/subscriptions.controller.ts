@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Request, UseGuards, Headers, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Body, Request, UseGuards, Headers, HttpCode, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { ShopifyService } from '../shopify/shopify.service';
@@ -74,9 +74,9 @@ export class SubscriptionsController {
     @Get('payment-gateway')
     @UseGuards(JwtAuthGuard)
     async getPaymentGateway(@Request() req) {
-        const gateway = await this.subscriptionsService.getPaymentGateway();
-        const connections = await this.shopifyService.getConnections(req.user.userId);
-        const hasShopify = connections.some(c => c.isActive);
+        // Gateway resolvido POR USUÁRIO: merchant Shopify -> Shopify; demais -> Asaas.
+        const gateway = await this.subscriptionsService.resolvePaymentGatewayForUser(req.user.userId);
+        const hasShopify = await this.subscriptionsService.isShopifyMerchant(req.user.userId);
         return {
             gateway,
             gatewayName: gateway === 'shopify' ? 'Shopify' : 'Asaas',
@@ -97,12 +97,18 @@ export class SubscriptionsController {
         @Headers('x-shopify-shop-domain') shopDomain: string,
         @Headers('x-shopify-topic') topic: string,
     ) {
-        const body = req.rawBody?.toString() || JSON.stringify(req.body);
+        // Verificar assinatura sobre o corpo BRUTO. Sem fallback de reserialização:
+        // JSON.stringify(req.body) quebraria o HMAC e permitiria bypass.
+        const body = req.rawBody?.toString();
+        if (!body) {
+            throw new BadRequestException('Corpo bruto da request indisponível para verificação HMAC');
+        }
         const signature = req.headers['x-shopify-hmac-sha256'];
-        const secret = process.env.SHOPIFY_WEBHOOK_SECRET || '';
+        // Webhooks app-managed (TOML) são assinados com o client secret do app.
+        const secret = process.env.SHOPIFY_CLIENT_SECRET || process.env.SHOPIFY_WEBHOOK_SECRET || '';
 
         if (!this.shopifyService.verifyWebhookSignature(body, signature, secret)) {
-            throw new Error('Assinatura inválida');
+            throw new UnauthorizedException('Assinatura inválida');
         }
 
         const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;

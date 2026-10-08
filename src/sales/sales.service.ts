@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, Not, IsNull } from 'typeorm';
+import { Repository, Between, Not, IsNull, In } from 'typeorm';
 import { Sale } from '../entities/sale.entity';
 import { Product } from '../entities/product.entity';
 import { Campaign } from '../entities/campaign.entity';
@@ -18,6 +18,7 @@ import { NuvemshopService } from '../nuvemshop/nuvemshop.service';
 import { LojaIntegradaService } from '../loja-integrada/loja-integrada.service';
 import { ShopifyConnection } from '../entities/shopify-connection.entity';
 import { NuvemshopConnection } from '../entities/nuvemshop-connection.entity';
+import { parseSpreadsheetDate } from '../common/spreadsheet-date';
 
 @Injectable()
 export class SalesService {
@@ -39,12 +40,27 @@ export class SalesService {
     private liService: LojaIntegradaService,
   ) { }
 
-  private COMPLETED_STATUSES = ['completed', 'Completo', 'pago', 'Pago', 'aprovado', 'Aprovado', 'success', 'Sucesso'];
+  private COMPLETED_STATUSES = [
+    'completed',
+    'Completo',
+    'pago',
+    'Pago',
+    'aprovado',
+    'Aprovado',
+    'approved',
+    'paid',
+    'success',
+    'Sucesso',
+    'delivered',
+    'entregue',
+    'shipped',
+    'fulfilled',
+  ];
 
   private normalizeStatus(status: string | undefined): string {
     if (!status) return 'completed';
     const s = status.toLowerCase().trim();
-    if (['completo', 'pago', 'aprovado', 'finalizado', 'completed', 'paid', 'approved', 'success'].includes(s)) {
+    if (['completo', 'pago', 'aprovado', 'finalizado', 'completed', 'paid', 'approved', 'success', 'delivered', 'entregue', 'shipped', 'fulfilled'].includes(s)) {
       return 'completed';
     }
     if (['cancelado', 'cancelled', 'canceled', 'estornado', 'refunded'].includes(s)) {
@@ -57,49 +73,7 @@ export class SalesService {
   }
 
   private parseDate(dateStr: string | undefined): Date {
-    if (!dateStr) return new Date();
-
-    // Remove any extra whitespace
-    const cleanStr = dateStr.trim();
-    if (!cleanStr) return new Date();
-
-    // 1. Handle common Brazilian format FIRST: DD/MM/YYYY or DD-MM-YYYY
-    const brDatePattern = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/;
-    const match = cleanStr.match(brDatePattern);
-
-    if (match) {
-      const day = parseInt(match[1]);
-      const month = parseInt(match[2]) - 1; // JS months are 0-11
-      let year = parseInt(match[3]);
-
-      if (year < 100) {
-        year += 2000; // Assume 21st century for 2-digit years
-      }
-
-      const date = new Date(year, month, day);
-      if (!isNaN(date.getTime())) return date;
-    }
-
-    // 2. Try standard parsing (ISO, etc.)
-    let date = new Date(cleanStr);
-    if (!isNaN(date.getTime())) return date;
-
-    // Fallback: If it's a number (Unix timestamp or Excel date number)
-    if (/^\d+$/.test(cleanStr)) {
-      const num = parseInt(cleanStr);
-      // Simple heuristic: if > 100000000000, probably ms timestamp, else maybe Excel date or s timestamp
-      if (num > 10000000000) {
-        date = new Date(num);
-      } else if (num > 30000 && num < 60000) {
-        // Likely Excel date (number of days since 1900-01-01)
-        date = new Date((num - 25569) * 86400 * 1000);
-      } else {
-        date = new Date(num * 1000);
-      }
-      if (!isNaN(date.getTime())) return date;
-    }
-
-    return new Date();
+    return parseSpreadsheetDate(dateStr, new Date());
   }
 
   async create(userId: number, createSaleDto: CreateSaleDto): Promise<Sale> {
@@ -174,13 +148,13 @@ export class SalesService {
     }
 
     return this.saleRepository.find({
-      where: { productId, userId },
+      where: { productId, userId, status: In(this.COMPLETED_STATUSES) },
       order: { createdAt: 'DESC' },
     });
   }
 
   async findAll(userId: number, filters: { onlyWithCampaigns?: boolean } = {}): Promise<Sale[]> {
-    const where: any = { userId };
+    const where: any = { userId, status: In(this.COMPLETED_STATUSES) };
     
     if (filters.onlyWithCampaigns) {
       where.campaignId = Not(IsNull());

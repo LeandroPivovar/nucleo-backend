@@ -27,6 +27,9 @@ import { VtexConnection } from '../../entities/vtex-connection.entity';
 import { TrayConnection } from '../../entities/tray-connection.entity';
 import { CampaignClick } from '../../entities/campaign-click.entity';
 import { CampaignCoupon } from '../../entities/campaign-coupon.entity';
+import { CampaignMessageEvent } from '../../entities/campaign-message-event.entity';
+import { EmailConnection } from '../../entities/email-connection.entity';
+import { SmtpEmailService } from '../../email/smtp-email.service';
 import { addMinutes, addHours, addDays, format, differenceInDays } from 'date-fns';
 
 /** Tipos de condição que envolvem verificação de pedidos/compras */
@@ -39,11 +42,29 @@ const ORDER_CONDITION_TYPES = [
     'payment_method',
 ];
 
+const COMPLETED_SALE_STATUSES = [
+    'completed',
+    'Completo',
+    'pago',
+    'Pago',
+    'aprovado',
+    'Aprovado',
+    'approved',
+    'paid',
+    'success',
+    'Sucesso',
+    'delivered',
+    'entregue',
+    'shipped',
+    'fulfilled',
+];
+
 
 @Injectable()
 export class CampaignSchedulerService {
     private readonly logger = new Logger(CampaignSchedulerService.name);
     private isProcessingOrderWait = false;
+    private readonly emailConnectionCache = new Map<number, EmailConnection | null>();
 
     constructor(
         @InjectRepository(Campaign)
@@ -64,11 +85,16 @@ export class CampaignSchedulerService {
         private campaignClicksRepository: Repository<CampaignClick>,
         @InjectRepository(CampaignCoupon)
         private campaignCouponRepository: Repository<CampaignCoupon>,
+        @InjectRepository(CampaignMessageEvent)
+        private campaignMessageEventsRepository: Repository<CampaignMessageEvent>,
+        @InjectRepository(EmailConnection)
+        private emailConnectionRepository: Repository<EmailConnection>,
         private zenviaService: ZenviaService,
         private twilioService: TwilioService,
 
         private contactsService: ContactsService,
         private emailService: EmailService,
+        private smtpEmailService: SmtpEmailService,
         private twilioConnectionsService: TwilioConnectionsService,
         private shopifyService: ShopifyService,
         private nuvemshopService: NuvemshopService,
@@ -412,6 +438,7 @@ export class CampaignSchedulerService {
                 .where('sale.userId = :userId', { userId })
                 .andWhere('sale.createdAt >= :sinceDate', { sinceDate: twentyFourHoursAgo })
                 .andWhere('sale.campaignId IS NULL')
+                .andWhere('sale.status IN (:...statuses)', { statuses: COMPLETED_SALE_STATUSES })
                 .getMany();
 
             if (recentSales.length === 0) return;
@@ -463,6 +490,7 @@ export class CampaignSchedulerService {
                     const { sum } = await this.saleRepository.createQueryBuilder('sale')
                         .select('SUM(sale.totalValue)', 'sum')
                         .where('sale.campaignId = :campaignId', { campaignId })
+                        .andWhere('sale.status IN (:...statuses)', { statuses: COMPLETED_SALE_STATUSES })
                         .getRawOne();
                     
                     await this.campaignsRepository.update(campaignId, { revenue: parseFloat(sum || '0') });
@@ -562,6 +590,16 @@ export class CampaignSchedulerService {
 
             this.logger.log(`Resumo de contatos para a campanha [ID: ${campaign.id}]: ${targetContacts.length} contatos únicos identificados.`);
 
+            // Consentimento de marketing (exigência Shopify/LGPD): quem está
+            // descadastrado na loja de origem não recebe. `null` = consentimento
+            // desconhecido (contatos importados antes da sincronização) e não bloqueia.
+            const beforeConsent = targetContacts.length;
+            targetContacts = targetContacts.filter((c) => this.hasMarketingConsent(c, campaign.channel));
+            const blocked = beforeConsent - targetContacts.length;
+            if (blocked > 0) {
+                this.logger.log(`Campanha [ID: ${campaign.id}]: ${blocked} contato(s) removido(s) por falta de consentimento (${campaign.channel}).`);
+            }
+
             if (targetContacts.length > 0) {
                 this.logger.log(`Iniciando executeCampaignFlow para a campanha [ID: ${campaign.id}]`);
                 await this.executeCampaignFlow(campaign, targetContacts);
@@ -576,7 +614,84 @@ export class CampaignSchedulerService {
         }
     }
 
+    /**
+     * Contato pode receber marketing neste canal?
+     *
+     * `emailOptIn`/`smsOptIn` são sincronizados da loja (Shopify). `null` significa
+     * desconhecido — mantém o comportamento antigo (envia) para não quebrar bases
+     * importadas antes da sincronização de consentimento. `false` bloqueia.
+     * WhatsApp segue a regra de SMS (mesmo consentimento de canal telefônico).
+     */
+    private hasMarketingConsent(contact: Contact, channel: string): boolean {
+        if (channel === 'email') {
+            return contact.emailOptIn !== false;
+        }
+        if (channel === 'sms' || channel === 'whatsapp') {
+            return contact.smsOptIn !== false;
+        }
+        return true;
+    }
+
+    private async resolveCampaignEmailConnection(campaign: Campaign): Promise<EmailConnection | null> {
+        if (this.emailConnectionCache.has(campaign.id)) {
+            return this.emailConnectionCache.get(campaign.id) || null;
+        }
+
+        const rawConnectionId = campaign.config?.email?.connectionId;
+        const connectionId = Number(rawConnectionId);
+        if (!rawConnectionId || !Number.isInteger(connectionId) || connectionId <= 0) {
+            this.emailConnectionCache.set(campaign.id, null);
+            return null;
+        }
+
+        const connection = await this.emailConnectionRepository
+            .createQueryBuilder('connection')
+            .addSelect('connection.password')
+            .where('connection.id = :connectionId', { connectionId })
+            .andWhere('connection.userId = :userId', { userId: campaign.userId })
+            .andWhere('connection.status = :status', { status: 'verified' })
+            .getOne();
+
+        if (!connection) {
+            throw new Error('O remetente selecionado não existe, não pertence ao usuário ou ainda não foi verificado.');
+        }
+        if (connection.type === 'domain' && !connection.email) {
+            throw new Error('O domínio selecionado não possui endereço remetente configurado.');
+        }
+
+        this.emailConnectionCache.set(campaign.id, connection);
+        return connection;
+    }
+
+    private async registerEmailMessage(
+        campaign: Campaign,
+        contact: Contact,
+        messageId: string,
+        provider: 'zenvia-email' | 'smtp',
+    ): Promise<void> {
+        try {
+            await this.campaignMessageEventsRepository.save(
+                this.campaignMessageEventsRepository.create({
+                    campaignId: campaign.id,
+                    contactId: contact.id,
+                    messageSid: messageId,
+                    status: 'accepted',
+                    provider,
+                }),
+            );
+        } catch (error: any) {
+            if (error?.code === 'ER_DUP_ENTRY') {
+                this.logger.warn(`[CAMPAIGN EMAIL] messageId duplicado ignorado: ${messageId}`);
+                return;
+            }
+            // O provedor já aceitou o envio; não contabilizar como falha de envio.
+            // O erro de persistência fica explícito para reconciliação operacional.
+            this.logger.error(`[CAMPAIGN EMAIL] Falha ao registrar messageId ${messageId}: ${error.message}`);
+        }
+    }
+
     async executeCampaignFlow(campaign: Campaign, targetContacts: Contact[]) {
+        this.emailConnectionCache.delete(campaign.id);
         this.logger.log(`Executando workflow da campanha [ID: ${campaign.id}, Complexidade: ${campaign.complexity}] para ${targetContacts.length} contatos.`);
         let successCount = 0;
         const BATCH_SIZE = 50;
@@ -697,18 +812,15 @@ export class CampaignSchedulerService {
 
             const results = await Promise.allSettled(batchPromises);
             let batchTotal = 0;
-            let batchEmailTotal = 0;
             results.forEach((result, idx) => {
                 if (result.status === 'fulfilled') {
                     batchTotal += result.value.sentEmailCount + result.value.sentSmsCount + result.value.sentWhatsappCount;
-                    batchEmailTotal += result.value.sentEmailCount;
                 } else {
                     this.logger.error(`Erro ao processar contato ${batch[idx].id} no lote: ${result.reason}`);
                 }
             });
 
             campaign.sentCount = (campaign.sentCount || 0) + batchTotal;
-            campaign.deliveredCount = (campaign.deliveredCount || 0) + batchEmailTotal;
             successCount += batchTotal;
             await this.campaignsRepository.save(campaign);
             this.logger.log(`Lote finalizado. Mensagens enviadas no lote: ${batchTotal}. Total acumulado: ${successCount}`);
@@ -761,6 +873,7 @@ export class CampaignSchedulerService {
     }
 
     async executeCampaignFlowFromNode(campaign: Campaign, targetContacts: Contact[], startNode: any, eventContext?: any, isResume = false) {
+        this.emailConnectionCache.delete(campaign.id);
         // Increment recipientsCount only if NOT a resume
         if (!isResume) {
             campaign.recipientsCount = (campaign.recipientsCount || 0) + targetContacts.length;
@@ -804,7 +917,6 @@ export class CampaignSchedulerService {
                 // Save current stats before pausing
                 if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
                     campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
-                    campaign.deliveredCount = (campaign.deliveredCount || 0) + stats.sentEmailCount;
                     await this.campaignsRepository.save(campaign);
                     stats.sentEmailCount = 0; stats.sentSmsCount = 0; stats.sentWhatsappCount = 0;
                 }
@@ -884,7 +996,6 @@ export class CampaignSchedulerService {
                         // Salvar stats acumuladas antes de pausar (senão o return pula a contabilização no fim do loop)
                         if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
                             campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
-                            campaign.deliveredCount = (campaign.deliveredCount || 0) + stats.sentEmailCount;
                             await this.campaignsRepository.save(campaign);
                             stats.sentEmailCount = 0; stats.sentSmsCount = 0; stats.sentWhatsappCount = 0;
                         }
@@ -929,7 +1040,6 @@ export class CampaignSchedulerService {
 
         if (stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount > 0) {
             campaign.sentCount = (campaign.sentCount || 0) + stats.sentEmailCount + stats.sentSmsCount + stats.sentWhatsappCount;
-            campaign.deliveredCount = (campaign.deliveredCount || 0) + stats.sentEmailCount;
             await this.campaignsRepository.save(campaign);
         }
     }
@@ -1249,13 +1359,39 @@ export class CampaignSchedulerService {
                 }));
 
                 try {
-                    await this.emailService.sendEmail({ 
-                        to: contact.email, 
-                        subject: node.data?.subject || 'Nova Campanha', 
-                        html: content, 
-                        text: content.replace(/<[^>]*>?/gm, ''),
-                        attachments
-                    });
+                    const connection = await this.resolveCampaignEmailConnection(campaign);
+                    const subject = node.data?.subject || 'Nova Campanha';
+                    const text = content.replace(/<[^>]*>?/gm, '');
+                    let messageId: string;
+                    let provider: 'zenvia-email' | 'smtp';
+
+                    if (connection?.type === 'smtp') {
+                        const result = await this.smtpEmailService.sendEmail(connection, {
+                            to: contact.email,
+                            subject,
+                            html: content,
+                            text,
+                            fromEmail: connection.email || undefined,
+                            fromName: connection.senderName || undefined,
+                        });
+                        messageId = result.messageId;
+                        provider = 'smtp';
+                    } else {
+                        const result = await this.emailService.sendEmail({
+                            to: contact.email,
+                            subject,
+                            html: content,
+                            text,
+                            attachments,
+                            fromEmail: connection?.email || undefined,
+                            fromName: connection?.senderName || undefined,
+                            externalId: `campaign-${campaign.id}-contact-${contact.id}-${Date.now()}`,
+                        });
+                        messageId = result.messageId;
+                        provider = 'zenvia-email';
+                    }
+
+                    await this.registerEmailMessage(campaign, contact, messageId, provider);
                     stats.sentEmailCount++;
                     const sentBeforeIncrement = emailsSentNow;
                     
@@ -1551,6 +1687,10 @@ export class CampaignSchedulerService {
                 query.andWhere('sale.productId = :productId', { productId: node.data.productId });
             }
 
+            if (condType === 'order_placed' || condType === 'product_purchased' || condType === 'payment_method') {
+                query.andWhere('sale.status IN (:...completedSaleStatuses)', { completedSaleStatuses: COMPLETED_SALE_STATUSES });
+            }
+
             if (condType === 'order_delivered') {
                 query.andWhere('sale.status = :status', { status: 'delivered' });
             }
@@ -1600,7 +1740,7 @@ export class CampaignSchedulerService {
             // Buscar se há uma venda concluída recente
             const completedSale = await this.saleRepository.createQueryBuilder('sale')
                 .where('sale.contactId = :contactId', { contactId: contact.id })
-                .andWhere('sale.status IN (:...statuses)', { statuses: ['completed', 'pago'] })
+                .andWhere('sale.status IN (:...statuses)', { statuses: COMPLETED_SALE_STATUSES })
                 .andWhere('sale.createdAt >= :campaignDate', { campaignDate: campaign.createdAt })
                 .orderBy('sale.createdAt', 'DESC')
                 .getOne();
@@ -1669,7 +1809,7 @@ export class CampaignSchedulerService {
             const { sum } = await this.saleRepository.createQueryBuilder('sale')
                 .select('SUM(sale.totalValue)', 'sum')
                 .where('sale.contactId = :contactId', { contactId: contact.id })
-                .andWhere('sale.status IN (:...statuses)', { statuses: ['completed', 'pago'] })
+                .andWhere('sale.status IN (:...statuses)', { statuses: COMPLETED_SALE_STATUSES })
                 .getRawOne();
             const ltv = parseFloat(sum || '0');
             const target = parseFloat(node.data?.value || '0');
@@ -1687,6 +1827,7 @@ export class CampaignSchedulerService {
             const orderDirection = condType === 'first_purchase_product' ? 'ASC' : 'DESC';
             const sale = await this.saleRepository.createQueryBuilder('sale')
                 .where('sale.contactId = :contactId', { contactId: contact.id })
+                .andWhere('sale.status IN (:...statuses)', { statuses: COMPLETED_SALE_STATUSES })
                 .orderBy('sale.createdAt', orderDirection)
                 .getOne();
             

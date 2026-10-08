@@ -8,6 +8,7 @@ import { EmailConnectionsController } from './email-connections.controller';
   imports: [TypeOrmModule.forFeature([EmailConnection])],
   controllers: [EmailConnectionsController],
   providers: [EmailConnectionsService],
+  exports: [EmailConnectionsService],
 })
 export class EmailConnectionsModule {}
 

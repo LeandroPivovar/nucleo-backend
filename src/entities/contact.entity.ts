@@ -27,7 +27,7 @@ export class Contact {
   @Column({ length: 255, nullable: true })
   email: string;
 
-  @Column({ length: 20, nullable: true })
+  @Column({ length: 50, nullable: true })
   phone: string;
 
   @Column({ length: 100, nullable: true })
@@ -59,6 +59,23 @@ export class Contact {
 
   @Column({ length: 20, nullable: true })
   cpfCnpj: string;
+
+  // ID do cliente na plataforma de origem (ex.: customer id da Shopify).
+  // Permite casar/excluir o contato mesmo se o e-mail mudar.
+  // `type` explícito é obrigatório aqui: com o tipo união TypeScript o TypeORM
+  // não consegue inferir a coluna e quebra o boot.
+  @Index()
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  externalId: string | null;
+
+  // Consentimento de marketing sincronizado da origem. `null` = desconhecido
+  // (contatos antigos/importados) — o disparo trata null como não bloqueado
+  // para não quebrar bases existentes; `false` bloqueia o envio.
+  @Column({ type: 'boolean', nullable: true })
+  emailOptIn: boolean | null;
+
+  @Column({ type: 'boolean', nullable: true })
+  smsOptIn: boolean | null;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'userId' })

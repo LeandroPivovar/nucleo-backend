@@ -47,6 +47,84 @@ export class SubscriptionsService {
         private shopifyService: ShopifyService,
     ) { }
 
+    private endOfDateOnly(value?: string | Date | null): Date | null {
+        if (!value) return null;
+
+        if (value instanceof Date) {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return null;
+            date.setHours(23, 59, 59, 999);
+            return date;
+        }
+
+        const trimmed = String(value).trim();
+        const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (dateOnlyMatch) {
+            const [, year, month, day] = dateOnlyMatch;
+            return new Date(Number(year), Number(month) - 1, Number(day), 23, 59, 59, 999);
+        }
+
+        const parsed = new Date(trimmed);
+        if (Number.isNaN(parsed.getTime())) return null;
+        parsed.setHours(23, 59, 59, 999);
+        return parsed;
+    }
+
+    private startOfDateOnly(value?: string | Date | null): Date | null {
+        if (!value) return null;
+
+        if (value instanceof Date) {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return null;
+            date.setHours(0, 0, 0, 0);
+            return date;
+        }
+
+        const trimmed = String(value).trim();
+        const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (dateOnlyMatch) {
+            const [, year, month, day] = dateOnlyMatch;
+            return new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
+        }
+
+        const parsed = new Date(trimmed);
+        if (Number.isNaN(parsed.getTime())) return null;
+        parsed.setHours(0, 0, 0, 0);
+        return parsed;
+    }
+
+    private addBillingCycle(date: Date, interval?: string): Date {
+        const result = new Date(date);
+        const day = result.getDate();
+        const monthsToAdd = interval === 'yearly' ? 12 : 1;
+
+        result.setDate(1);
+        result.setMonth(result.getMonth() + monthsToAdd);
+
+        const lastDayOfTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+        result.setDate(Math.min(day, lastDayOfTargetMonth));
+        result.setHours(23, 59, 59, 999);
+
+        return result;
+    }
+
+    private resolvePaidPeriodEnd(subscription: Subscription, payment: any, asaasSubscription: any): Date {
+        const paidDueDate = this.endOfDateOnly(payment?.dueDate);
+        if (paidDueDate) {
+            return this.addBillingCycle(paidDueDate, subscription.plan?.interval);
+        }
+
+        const asaasNextDueDate = this.endOfDateOnly(asaasSubscription?.nextDueDate);
+        if (asaasNextDueDate) return asaasNextDueDate;
+
+        const currentEnd = this.endOfDateOnly(subscription.currentPeriodEnd);
+        if (currentEnd && currentEnd > new Date()) {
+            return this.addBillingCycle(currentEnd, subscription.plan?.interval);
+        }
+
+        return this.addBillingCycle(new Date(), subscription.plan?.interval);
+    }
+
     async getPlans(): Promise<Plan[]> {
         return this.planRepository.find({ where: { active: true, visible: true } });
     }
@@ -63,6 +141,11 @@ export class SubscriptionsService {
         // Se a assinatura estiver vencida, tratar como sem plano
         const now = new Date();
         if (new Date(subscription.currentPeriodEnd) < now) {
+            if (subscription.cancelAtPeriodEnd) {
+                subscription.status = 'canceled';
+                await this.subscriptionRepository.save(subscription);
+                await this.userRepository.update(userId, { subscriptionStatus: 'inactive' });
+            }
             // Retorna com flag de expirado para o frontend distinguir
             return { ...subscription, isExpired: true, _treatAsNoPlan: true };
         }
@@ -173,6 +256,14 @@ export class SubscriptionsService {
         const user = await this.userRepository.findOne({ where: { id: userId } });
         if (!user) throw new NotFoundException('Usuário não encontrado');
 
+        // Merchant Shopify deve ser cobrado pelo Shopify Billing (política da Shopify
+        // proíbe gateway externo). Bloqueia checkout Asaas para esses usuários.
+        if (await this.isShopifyMerchant(userId)) {
+            throw new BadRequestException(
+                'Usuário Shopify deve assinar via Shopify Billing (use /subscriptions/shopify/checkout).',
+            );
+        }
+
         const plan = await this.planRepository.findOne({ where: { id: planId } });
         if (!plan) throw new NotFoundException('Plano não encontrado');
 
@@ -265,7 +356,13 @@ export class SubscriptionsService {
 
     async buyCredits(userId: number, data: any, remoteIp?: string): Promise<any> {
         const { type, amount, billingType, creditCard, creditCardHolderInfo } = data;
-        
+
+        // Merchant Shopify não pode ser cobrado por gateway externo (Asaas).
+        // Compra avulsa via Shopify (one-time purchase) ainda não é suportada → bloquear.
+        if (await this.isShopifyMerchant(userId)) {
+            throw new BadRequestException('Compra de créditos indisponível para contas Shopify.');
+        }
+
         // Fetch current prices from settings
         const settings = await this.systemSettingRepository.find();
         const settingsMap = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {} as Record<string, string>);
@@ -383,6 +480,11 @@ export class SubscriptionsService {
         const { content, billingType, creditCard, creditCardHolderInfo } = data;
         
         if (!content) throw new Error('Conteúdo do template é obrigatório.');
+
+        // Merchant Shopify não pode ser cobrado por gateway externo (Asaas).
+        if (await this.isShopifyMerchant(userId)) {
+            throw new BadRequestException('Compra de template indisponível para contas Shopify.');
+        }
 
         const user = await this.userRepository.findOne({ where: { id: userId } });
         if (!user) throw new NotFoundException('Usuário não encontrado');
@@ -530,19 +632,27 @@ export class SubscriptionsService {
                 });
 
                 if (subscription) {
+                    const nextPeriodEnd = this.resolvePaidPeriodEnd(subscription, payment, asaasSubscription);
                     subscription.status = 'active';
-                    subscription.currentPeriodStart = new Date();
+                    subscription.currentPeriodStart = this.startOfDateOnly(payment?.dueDate) || new Date();
+                    subscription.currentPeriodEnd = nextPeriodEnd;
                     await this.subscriptionRepository.save(subscription);
 
-                    // Criar fatura paga localmente
-                    const newInvoice = this.invoiceRepository.create({
-                        subscriptionId: subscription.id,
-                        userId: subscription.userId,
-                        amount: payment?.value || asaasSubscription?.value || subscription.plan?.price || 0,
-                        status: 'paid',
-                        hostedInvoiceUrl: payment?.invoiceUrl,
-                    });
-                    await this.invoiceRepository.save(newInvoice);
+                    // Criar fatura paga localmente sem duplicar quando o Asaas reenviar o mesmo pagamento
+                    const existingInvoice = payment?.invoiceUrl
+                        ? await this.invoiceRepository.findOne({ where: { hostedInvoiceUrl: payment.invoiceUrl } })
+                        : null;
+
+                    if (!existingInvoice) {
+                        const newInvoice = this.invoiceRepository.create({
+                            subscriptionId: subscription.id,
+                            userId: subscription.userId,
+                            amount: payment?.value || asaasSubscription?.value || subscription.plan?.price || 0,
+                            status: 'paid',
+                            hostedInvoiceUrl: payment?.invoiceUrl,
+                        });
+                        await this.invoiceRepository.save(newInvoice);
+                    }
 
                     // Lógica de Comissão de Indicação
                     const user = subscription.user;
@@ -609,10 +719,49 @@ export class SubscriptionsService {
             return { success: false, message: 'Nenhuma assinatura ativa encontrada.' };
         }
 
-        subscription.status = 'canceled';
+        const previousPeriodEnd = subscription.currentPeriodEnd;
+        const previousCancelAtPeriodEnd = subscription.cancelAtPeriodEnd;
+        const accessUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        // A recorrência é encerrada no provedor agora, mas o acesso local continua
+        // ativo por 30 dias. Persistimos antes da chamada externa para que um
+        // webhook CANCELLED recebido imediatamente já encontre essa intenção.
+        subscription.cancelAtPeriodEnd = true;
+        subscription.currentPeriodEnd = accessUntil;
         await this.subscriptionRepository.save(subscription);
 
-        return { success: true, message: 'Assinatura cancelada com sucesso. Seus benefícios ficam ativos por 30 dias.' };
+        try {
+            if (subscription.shopifySubscriptionId) {
+                const connections = await this.shopifyService.getConnections(userId);
+                const connection = connections.find((item) => item.isActive);
+
+                if (!connection) {
+                    throw new BadRequestException(
+                        'Não foi possível cancelar a cobrança porque a loja Shopify não está conectada.',
+                    );
+                }
+
+                const accessToken = await this.shopifyService.getAccessToken(userId, connection.shop);
+                await this.shopifyService.cancelAppSubscription(
+                    connection.shop,
+                    accessToken,
+                    subscription.shopifySubscriptionId,
+                );
+            } else if (subscription.asaasSubscriptionId) {
+                await this.asaasService.cancelSubscription(subscription.asaasSubscriptionId);
+            }
+        } catch (error) {
+            subscription.cancelAtPeriodEnd = previousCancelAtPeriodEnd;
+            subscription.currentPeriodEnd = previousPeriodEnd;
+            await this.subscriptionRepository.save(subscription);
+            throw error;
+        }
+
+        return {
+            success: true,
+            message: 'Cobrança recorrente cancelada. Seu acesso continuará ativo por mais 30 dias.',
+            accessUntil,
+        };
     }
 
     async checkAndNotifyUpcomingInvoice(userId: number) {
@@ -657,10 +806,33 @@ export class SubscriptionsService {
         }
     }
 
+    /**
+     * Gateway GLOBAL (setting do sistema). Mantido apenas como default/legado.
+     * Para decidir a cobrança de um usuário use `resolvePaymentGatewayForUser`.
+     */
     async getPaymentGateway(): Promise<'asaas' | 'shopify'> {
         const setting = await this.systemSettingRepository.findOne({ where: { key: 'PAYMENT_GATEWAY' } });
         const value = setting?.value?.toLowerCase().trim();
         return value === 'shopify' ? 'shopify' : 'asaas';
+    }
+
+    /**
+     * Indica se o usuário é um merchant Shopify (possui loja Shopify conectada e ativa).
+     */
+    async isShopifyMerchant(userId: number): Promise<boolean> {
+        const connections = await this.shopifyService.getConnections(userId);
+        return connections.some((c) => c.isActive);
+    }
+
+    /**
+     * Resolve o gateway de cobrança de UM usuário.
+     *
+     * Regra (e exigência da política Shopify): merchant que usa Shopify é cobrado
+     * pelo Shopify Billing; todos os demais usuários são cobrados pelo Asaas.
+     * Não é um switch global — cada usuário é roteado individualmente.
+     */
+    async resolvePaymentGatewayForUser(userId: number): Promise<'asaas' | 'shopify'> {
+        return (await this.isShopifyMerchant(userId)) ? 'shopify' : 'asaas';
     }
 
     async shopifyCheckout(userId: number, data: { planId: number; shop?: string; trialDays?: number }): Promise<any> {
@@ -672,33 +844,48 @@ export class SubscriptionsService {
         const plan = await this.planRepository.findOne({ where: { id: planId } });
         if (!plan) throw new NotFoundException('Plano não encontrado');
 
-        let shopDomain = shop || '';
-        if (!shopDomain) {
-            const settings = await this.systemSettingRepository.find();
-            const settingsMap = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {} as Record<string, string>);
-            const defaultShop = settingsMap['SHOPIFY_DEFAULT_SHOP'] || '';
-            if (defaultShop) {
-                shopDomain = defaultShop;
-            } else {
-                const connections = await this.shopifyService.getConnections(userId);
-                const active = connections.find(c => c.isActive);
-                if (!active) throw new BadRequestException('Nenhuma loja Shopify conectada. Forneça { shop } ou conecte uma loja.');
-                shopDomain = active.shop;
-            }
+        // Cobrança Shopify é em USD: exige preço próprio em dólar no plano.
+        // NUNCA reaproveitar o valor BRL de `price` (R$ 169,99 viraria US$ 169,99).
+        const priceUsd = Number(plan.priceUsd);
+        if (!plan.priceUsd || !Number.isFinite(priceUsd) || priceUsd <= 0) {
+            throw new BadRequestException(
+                `O plano "${plan.name}" não tem preço em USD configurado para cobrança via Shopify. Configure o campo priceUsd no plano.`,
+            );
         }
 
-        if (!shopDomain) {
-            throw new BadRequestException('Loja Shopify não definida.');
+        // Cobrança Shopify SEMPRE usa uma loja ATIVA DO PRÓPRIO usuário.
+        // Nunca usar loja padrão do sistema (cobraria a loja errada).
+        const connections = await this.shopifyService.getConnections(userId);
+        const activeConnections = connections.filter((c) => c.isActive);
+        if (activeConnections.length === 0) {
+            throw new BadRequestException('Nenhuma loja Shopify conectada. Conecte sua loja para assinar via Shopify.');
+        }
+
+        let shopDomain: string;
+        if (shop) {
+            // Se a loja foi informada, ela precisa pertencer ao usuário.
+            const owned = activeConnections.find((c) => c.shop === shop);
+            if (!owned) {
+                throw new BadRequestException('Loja Shopify informada não pertence a este usuário.');
+            }
+            shopDomain = owned.shop;
+        } else {
+            shopDomain = activeConnections[0].shop;
         }
 
         const accessToken = await this.shopifyService.getAccessToken(userId, shopDomain);
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-        const returnUrl = `${frontendUrl}/integrations/shopify/billing/callback?shop=${encodeURIComponent(shopDomain)}&planId=${planId}&userId=${userId}`;
+        // returnUrl aponta para o callback do BACKEND, sem dados de identidade na URL:
+        // o charge_id que a Shopify anexa resolve a assinatura local pendente
+        // (dono/plano/preço saem desse registro). Em dev, defina BACKEND_PUBLIC_URL
+        // (ex.: http://localhost:3000/api); em produção o /api fica no mesmo host.
+        const apiBaseUrl = process.env.BACKEND_PUBLIC_URL || `${frontendUrl}/api`;
+        const returnUrl = `${apiBaseUrl}/shopify/billing/callback?shop=${encodeURIComponent(shopDomain)}`;
 
         const { confirmationUrl, appSubscriptionId } = await this.shopifyService.createAppSubscription(
             shopDomain,
             accessToken,
-            { name: plan.name, price: Number(plan.price), interval: plan.interval },
+            { name: plan.name, price: priceUsd, interval: plan.interval, currencyCode: 'USD' },
             returnUrl,
             trialDays,
         );
@@ -755,7 +942,13 @@ export class SubscriptionsService {
         }
 
         if (status === 'ACTIVE') {
+            // Garantir uma única assinatura ativa por usuário.
+            await this.subscriptionRepository.update(
+                { userId: user.id, status: 'active' },
+                { status: 'canceled' },
+            );
             subscription.status = 'active';
+            subscription.cancelAtPeriodEnd = false;
             subscription.currentPeriodStart = new Date();
             const plan = await this.planRepository.findOne({ where: { id: subscription.planId } });
             if (plan) {
@@ -766,15 +959,37 @@ export class SubscriptionsService {
             await this.subscriptionRepository.save(subscription);
             await this.userRepository.update(user.id, { planId: subscription.planId, subscriptionStatus: 'active' });
             this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} marcada ACTIVE para userId ${user.id}`);
+        } else if (
+            status === 'CANCELLED' &&
+            subscription.cancelAtPeriodEnd &&
+            new Date(subscription.currentPeriodEnd) > new Date()
+        ) {
+            // O merchant encerrou a renovação, mas mantém o acesso já concedido
+            // até a data local de cortesia/período pago.
+            subscription.status = 'active';
+            await this.subscriptionRepository.save(subscription);
+            await this.userRepository.update(user.id, { subscriptionStatus: 'active' });
+            this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} cancelada na Shopify, com acesso local até ${subscription.currentPeriodEnd.toISOString()}.`);
         } else if (status === 'CANCELLED' || status === 'DECLINED' || status === 'EXPIRED') {
             subscription.status = 'canceled';
             await this.subscriptionRepository.save(subscription);
             await this.userRepository.update(user.id, { subscriptionStatus: 'inactive' });
             this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} marcada CANCELADA/EXPIRADA para userId ${user.id}`);
-        } else if (status === 'PAST_DUE') {
-            subscription.status = 'past_due';
+        } else if (status === 'FROZEN') {
+            // Loja congelada (pausada/inadimplente na Shopify): suspender o acesso
+            // SEM cancelar — a Shopify reenvia ACTIVE quando a loja é reativada,
+            // e o branch ACTIVE acima restaura o plano.
+            subscription.status = 'frozen';
             await this.subscriptionRepository.save(subscription);
-            this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} marcada PAST_DUE para userId ${user.id}`);
+            await this.userRepository.update(user.id, { subscriptionStatus: 'inactive' });
+            this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} CONGELADA (FROZEN) para userId ${user.id}`);
+        } else if (status === 'PENDING') {
+            // Aguardando aprovação do merchant — nada a fazer.
+            this.logger.log(`[Shopify Billing Webhook] Assinatura ${subscription.id} PENDING (aguardando aprovação).`);
+        } else {
+            // Status oficiais: PENDING, ACTIVE, DECLINED, EXPIRED, FROZEN, CANCELLED.
+            // (PAST_DUE não existe em AppSubscription.)
+            this.logger.warn(`[Shopify Billing Webhook] Status não reconhecido "${status}" para assinatura ${subscription.id}.`);
         }
     }
 }

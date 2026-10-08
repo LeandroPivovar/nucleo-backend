@@ -17,6 +17,18 @@ import * as Twilio from 'twilio';
 import { TwilioService } from '../twilio/twilio.service';
 import { TwilioConnectionsService } from '../twilio-connections/twilio-connections.service';
 import { AdminCampaignTemplate } from '../entities/admin-campaign-template.entity';
+import { EmailConnection } from '../entities/email-connection.entity';
+
+const normalizeContactPhone = (phone?: string | number | null): string => {
+    if (phone === undefined || phone === null) return '';
+    const raw = String(phone).trim();
+    if (!raw) return '';
+    const startsWithPlus = raw.startsWith('+');
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '';
+    const normalized = startsWithPlus ? `+${digits}` : digits;
+    return normalized.slice(0, 50);
+};
 
 @Injectable()
 export class CampaignsService {
@@ -41,6 +53,8 @@ export class CampaignsService {
         private usersRepository: Repository<User>,
         @InjectRepository(CampaignMessageEvent)
         private campaignMessageEventsRepository: Repository<CampaignMessageEvent>,
+        @InjectRepository(EmailConnection)
+        private emailConnectionRepository: Repository<EmailConnection>,
         @InjectRepository(AdminCampaignTemplate)
         private adminCampaignTemplateRepository: Repository<AdminCampaignTemplate>,
         private campaignSchedulerService: CampaignSchedulerService,
@@ -53,6 +67,34 @@ export class CampaignsService {
         if (channel === 'whatsapp') return true;
         const workflowNodes = config?.workflow?.nodes || [];
         return Array.isArray(workflowNodes) && workflowNodes.some((node: any) => node?.type === 'whatsapp');
+    }
+
+    private async validateEmailConnectionSelection(userId: number, config?: any): Promise<void> {
+        const rawConnectionId = config?.email?.connectionId;
+        if (rawConnectionId === undefined || rawConnectionId === null || rawConnectionId === '') {
+            return;
+        }
+
+        const connectionId = Number(rawConnectionId);
+        if (!Number.isInteger(connectionId) || connectionId <= 0) {
+            throw new BadRequestException('Remetente de e-mail inválido.');
+        }
+
+        const connection = await this.emailConnectionRepository.findOne({
+            where: { id: connectionId, userId },
+        });
+        if (!connection) {
+            throw new BadRequestException('O remetente selecionado não pertence a esta conta.');
+        }
+        if (connection.status !== 'verified') {
+            throw new BadRequestException('O remetente selecionado ainda não foi verificado.');
+        }
+        if (connection.type === 'domain' && !connection.email) {
+            throw new BadRequestException('O domínio selecionado não possui endereço remetente configurado.');
+        }
+        if (connection.type === 'smtp' && (!connection.smtpHost || !connection.smtpPort || !connection.username)) {
+            throw new BadRequestException('A conexão SMTP selecionada está incompleta.');
+        }
     }
 
     async getTwilioTemplates(userId: number): Promise<any[]> {
@@ -195,6 +237,7 @@ export class CampaignsService {
 
     async create(userId: number, campaignData: Partial<Campaign>): Promise<Campaign> {
         this.logger.log(`Criando nova campanha para o usuário ${userId}`);
+        await this.validateEmailConnectionSelection(userId, campaignData.config);
         const campaign = this.campaignsRepository.create({
             ...campaignData,
             userId,
@@ -247,6 +290,8 @@ export class CampaignsService {
                 manualContacts: newManual !== undefined ? newManual : oldManual
             };
         }
+
+        await this.validateEmailConnectionSelection(userId, campaignData.config || campaign.config);
 
         Object.assign(campaign, campaignData);
         const savedCampaign = await this.campaignsRepository.save(campaign);
@@ -600,35 +645,83 @@ export class CampaignsService {
 
     async handleDeliveredWebhook(payload: any): Promise<void> {
         try {
-            const statusCode: string = payload?.messageStatus?.code;
-            if (statusCode !== 'DELIVERED') {
-                return; // Apenas processa eventos DELIVERED
-            }
+            const statusCode = String(payload?.messageStatus?.code || '').toUpperCase();
+            const channel = String(payload?.channel || '').toLowerCase();
+            const messageId = String(payload?.messageId || payload?.message?.id || '');
 
-            const channel: string = payload?.channel; // 'sms' | 'email'
-            const messageId: string = payload?.messageId || payload?.message?.id;
-
-            this.logger.log(`Webhook DELIVERED recebido - canal: ${channel}, messageId: ${messageId}`);
-
-            // Localiza a campanha mais recente ativa/finalizada no canal correspondente
-            // Como o webhook não carrega campaignId, incrementamos a campanha mais recente do canal
-            const campaign = await this.campaignsRepository.findOne({
-                where: { channel },
-                order: { updatedAt: 'DESC' },
-            });
-
-            if (!campaign) {
-                this.logger.warn(`Nenhuma campanha encontrada para o canal ${channel}`);
+            if (!statusCode || !messageId) {
+                this.logger.warn('[ZENVIA WEBHOOK] Evento ignorado por não conter status ou messageId.');
                 return;
             }
 
-            await this.campaignsRepository.update(campaign.id, {
-                deliveredCount: () => 'deliveredCount + 1',
-            } as any);
+            // O rastreamento idempotente foi implantado para e-mail. SMS mantém o
+            // comportamento legado até o serviço de SMS também retornar messageId.
+            if (channel !== 'email') {
+                if (statusCode !== 'DELIVERED') return;
+                const campaign = await this.campaignsRepository.findOne({
+                    where: { channel },
+                    order: { updatedAt: 'DESC' },
+                });
+                if (!campaign) return;
+                await this.campaignsRepository.update(campaign.id, {
+                    deliveredCount: () => 'deliveredCount + 1',
+                } as any);
+                return;
+            }
 
-            this.logger.log(`deliveredCount incrementado na campanha [ID: ${campaign.id}] - canal: ${channel}`);
+            const causes = Array.isArray(payload?.messageStatus?.causes)
+                ? payload.messageStatus.causes
+                : [];
+            const failureReason = causes
+                .map((cause: any) => [cause?.channelErrorCode, cause?.reason].filter(Boolean).join(': '))
+                .filter(Boolean)
+                .join('; ') || payload?.messageStatus?.description || null;
+
+            let matchedCampaignId: number | null = null;
+            let deliveryAdded = false;
+
+            await this.campaignMessageEventsRepository.manager.transaction(async (manager) => {
+                const eventRepository = manager.getRepository(CampaignMessageEvent);
+                const campaignRepository = manager.getRepository(Campaign);
+                const event = await eventRepository
+                    .createQueryBuilder('event')
+                    .setLock('pessimistic_write')
+                    .where('event.messageSid = :messageId', { messageId })
+                    .andWhere('event.provider = :provider', { provider: 'zenvia-email' })
+                    .getOne();
+
+                if (!event) return;
+                matchedCampaignId = event.campaignId;
+                const now = new Date();
+                const impliesDelivery = ['DELIVERED', 'READ', 'CLICKED'].includes(statusCode);
+
+                if (impliesDelivery && !event.deliveredAt) {
+                    event.deliveredAt = now;
+                    deliveryAdded = true;
+                    await campaignRepository.increment({ id: event.campaignId }, 'deliveredCount', 1);
+                }
+                if (statusCode === 'READ' && !event.readAt) event.readAt = now;
+                if (statusCode === 'CLICKED' && !event.clickedAt) event.clickedAt = now;
+                if (['NOT_DELIVERED', 'REJECTED', 'IGNORED'].includes(statusCode) && !event.failedAt) {
+                    event.failedAt = now;
+                    event.failureReason = failureReason;
+                }
+
+                event.status = statusCode.toLowerCase();
+                await eventRepository.save(event);
+            });
+
+            if (!matchedCampaignId) {
+                this.logger.warn(`[ZENVIA EMAIL WEBHOOK] messageId desconhecido ignorado: ${messageId}`);
+                return;
+            }
+
+            this.logger.log(
+                `[ZENVIA EMAIL WEBHOOK] campaign=${matchedCampaignId} status=${statusCode} messageId=${messageId}${deliveryAdded ? ' delivery+1' : ''}`,
+            );
         } catch (error: any) {
             this.logger.error(`Erro ao processar webhook de entrega: ${error.message}`);
+            throw error;
         }
     }
 
@@ -832,6 +925,11 @@ export class CampaignsService {
             }
 
             if (!userId || !internalEventType || (!customerEmail && !customerPhone)) {
+                return;
+            }
+
+            customerPhone = normalizeContactPhone(customerPhone);
+            if (!customerEmail && !customerPhone) {
                 return;
             }
 

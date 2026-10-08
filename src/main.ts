@@ -4,15 +4,17 @@ import { AppModule } from './app.module';
 import { DataSource } from 'typeorm';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
-import { json, urlencoded } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true, // Necessário para verificar assinatura HMAC dos webhooks da Shopify
   });
 
-  app.use(json({ limit: '50mb' }));
-  app.use(urlencoded({ limit: '50mb', extended: true }));
+  // Use o parser do próprio Nest: ele respeita `rawBody: true` e preserva o
+  // Buffer original usado no HMAC dos webhooks. Registrar `express.json()` aqui
+  // consumia o stream antes do parser do Nest e deixava req.rawBody indefinido.
+  app.useBodyParser('json', { limit: '50mb' });
+  app.useBodyParser('urlencoded', { limit: '50mb', extended: true });
 
   // Middleware de log de requisições
   app.use((req, res, next) => {
@@ -148,6 +150,18 @@ async function bootstrap() {
     logger.log('Fallback Migration: Tamanho da coluna state em contacts aumentado para 50.');
   } catch (err: any) {
     logger.error(`Fallback Migration falhou (contacts state): ${err.message}`);
+  }
+
+  // AUTO-FIX: Aumentar tamanho da coluna phone em contacts (integrações podem enviar DDI/ramal/texto)
+  try {
+    const dataSource = app.get(DataSource);
+    await dataSource.query(`
+      ALTER TABLE \`contacts\` 
+      MODIFY COLUMN \`phone\` varchar(50) NULL
+    `);
+    logger.log('Fallback Migration: Tamanho da coluna phone em contacts aumentado para 50.');
+  } catch (err: any) {
+    logger.error(`Fallback Migration falhou (contacts phone): ${err.message}`);
   }
 
   // AUTO-FIX: Forçar adição de colunas faltantes na tabela shopify_connections

@@ -96,6 +96,18 @@ export class AsaasService {
         }
     }
 
+    async cancelSubscription(id: string) {
+        const client = await this.getClient();
+        try {
+            const response = await client.delete(`/subscriptions/${id}`);
+            return response.data;
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.errors?.[0]?.description || error.message;
+            this.logger.error(`Error cancelling Asaas subscription ${id}: ${errorMsg}`);
+            throw new Error(`Erro Asaas: ${errorMsg}`);
+        }
+    }
+
 
     async createSinglePayment(data: {
         customer: string;

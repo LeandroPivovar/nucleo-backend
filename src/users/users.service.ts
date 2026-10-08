@@ -30,6 +30,31 @@ export class UsersService {
     private twilioService: TwilioService,
   ) { }
 
+  private endOfDateOnly(value: string | Date): Date {
+    if (value instanceof Date) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        throw new BadRequestException('Data de vencimento inválida');
+      }
+      date.setHours(23, 59, 59, 999);
+      return date;
+    }
+
+    const trimmed = String(value || '').trim();
+    const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnlyMatch) {
+      const [, year, month, day] = dateOnlyMatch;
+      return new Date(Number(year), Number(month) - 1, Number(day), 23, 59, 59, 999);
+    }
+
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('Data de vencimento inválida');
+    }
+    parsed.setHours(23, 59, 59, 999);
+    return parsed;
+  }
+
   async findOne(id: number): Promise<any> {
     const user = await this.userRepository.findOne({
       where: { id },
@@ -133,17 +158,34 @@ export class UsersService {
     const subscriptions = await this.subscriptionRepository.find({
       where: { status: 'active' },
       relations: ['plan'],
+      order: { createdAt: 'DESC' },
     });
 
-    const subMap = new Map();
-    subscriptions.forEach(sub => subMap.set(sub.userId, sub.plan));
+    const subMap = new Map<number, Subscription>();
+    subscriptions.forEach(sub => {
+      if (!subMap.has(sub.userId)) {
+        subMap.set(sub.userId, sub);
+      }
+    });
 
     return users.map(u => {
       const { password, ...safeUser } = u;
+      const currentSubscription = subMap.get(u.id) || null;
       return {
         ...safeUser,
         templateId: u.templateId,
-        currentPlan: subMap.get(u.id) || null
+        currentPlan: currentSubscription?.plan || null,
+        currentSubscription: currentSubscription
+          ? {
+            id: currentSubscription.id,
+            status: currentSubscription.status,
+            planId: currentSubscription.planId,
+            currentPeriodStart: currentSubscription.currentPeriodStart,
+            currentPeriodEnd: currentSubscription.currentPeriodEnd,
+            createdAt: currentSubscription.createdAt,
+            updatedAt: currentSubscription.updatedAt,
+          }
+          : null,
       };
     });
   }
@@ -213,7 +255,7 @@ export class UsersService {
 
     if (!subscription) throw new NotFoundException('Nenhuma assinatura ativa encontrada para este usuário');
 
-    subscription.currentPeriodEnd = new Date(expiryDate);
+    subscription.currentPeriodEnd = this.endOfDateOnly(expiryDate);
     return this.subscriptionRepository.save(subscription);
   }
 

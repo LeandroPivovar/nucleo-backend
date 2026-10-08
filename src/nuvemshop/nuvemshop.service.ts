@@ -1,4 +1,4 @@
-import {
+﻿import {
   Injectable,
   NotFoundException,
   BadRequestException,
@@ -39,17 +39,30 @@ export class NuvemshopService {
       this.configService.get<string>('NUVEMSHOP_CLIENT_SECRET') || 'bff8303f400b05b63945f07dc77de74e142e890eba84face';
   }
 
+  private normalizeContactPhone(phone?: string | number | null): string {
+    if (phone === undefined || phone === null) return '';
+    const raw = String(phone).trim();
+    if (!raw) return '';
+
+    const startsWithPlus = raw.startsWith('+');
+    const digits = raw.replace(/\D/g, '');
+    if (!digits) return '';
+
+    const normalized = startsWithPlus ? `+${digits}` : digits;
+    return normalized.slice(0, 50);
+  }
+
   /**
-   * Gera a URL de autorização OAuth
-   * Nota: A Nuvemshop não suporta passar scopes na URL de autorização
-   * Os scopes são configurados no painel do desenvolvedor do app
+   * Gera a URL de autorizaÃ§Ã£o OAuth
+   * Nota: A Nuvemshop nÃ£o suporta passar scopes na URL de autorizaÃ§Ã£o
+   * Os scopes sÃ£o configurados no painel do desenvolvedor do app
    */
   generateAuthUrl(state: string): string {
     return `${this.authBaseUrl}/${this.clientId}/authorize?state=${state}&scope=${encodeURIComponent(this.scopes)}`;
   }
 
   /**
-   * Troca o código de autorização por um token de acesso permanente
+   * Troca o cÃ³digo de autorizaÃ§Ã£o por um token de acesso permanente
    */
   async exchangeCodeForToken(
     code: string,
@@ -80,7 +93,7 @@ export class NuvemshopService {
         error = { message: errorText || 'Falha ao obter token de acesso' };
       }
 
-      console.error('Erro ao trocar código por token:', {
+      console.error('Erro ao trocar cÃ³digo por token:', {
         status: response.status,
         statusText: response.statusText,
         error,
@@ -95,18 +108,11 @@ export class NuvemshopService {
 
     // Validar resposta
     if (!tokenData.access_token || !tokenData.user_id) {
-      console.error('Resposta inválida da Nuvemshop:', tokenData);
-      throw new BadRequestException('Resposta inválida da Nuvemshop: token ou user_id não encontrados');
+      console.error('Resposta invÃ¡lida da Nuvemshop:', tokenData);
+      throw new BadRequestException('Resposta invÃ¡lida da Nuvemshop: token ou user_id nÃ£o encontrados');
     }
 
-    // Log para debug
-    console.log('Token obtido com sucesso:', {
-      tokenLength: tokenData.access_token.length,
-      tokenPrefix: tokenData.access_token.substring(0, 20) + '...',
-      userId: tokenData.user_id,
-      scope: tokenData.scope,
-      tokenType: tokenData.token_type,
-    });
+    this.logger.log(`[Nuvemshop OAuth] Token obtido com sucesso para loja ${tokenData.user_id}.`);
 
     return tokenData;
   }
@@ -142,14 +148,14 @@ export class NuvemshopService {
 
       const parts = encryptedToken.split(':');
       if (parts.length !== 2) {
-        throw new Error('Formato de token criptografado inválido');
+        throw new Error('Formato de token criptografado invÃ¡lido');
       }
 
       const iv = Buffer.from(parts[0], 'hex');
       const encrypted = parts[1];
 
       if (!iv || iv.length !== 16) {
-        throw new Error('IV inválido');
+        throw new Error('IV invÃ¡lido');
       }
 
       const decipher = crypto.createDecipheriv(algorithm, key, iv);
@@ -164,7 +170,7 @@ export class NuvemshopService {
   }
 
   /**
-   * Cria ou atualiza uma conexão Nuvemshop
+   * Cria ou atualiza uma conexÃ£o Nuvemshop
    */
   async createOrUpdateConnection(
     userId: number,
@@ -172,23 +178,9 @@ export class NuvemshopService {
     accessToken: string,
     scope: string,
   ): Promise<NuvemshopConnection> {
-    // Log para debug (remover em produção)
-    console.log('Salvando conexão Nuvemshop:', {
-      userId,
-      storeId,
-      tokenLength: accessToken.length,
-      tokenComplete: accessToken, // Log completo temporário para debug
-      tokenPrefix: accessToken.substring(0, 20) + '...',
-      scope,
-    });
+    this.logger.log(`[Nuvemshop Connection] Salvando conexão para usuário ${userId}, loja ${storeId}.`);
 
     const encryptedToken = this.encryptToken(accessToken);
-
-    // Log para debug (remover em produção)
-    console.log('Token criptografado:', {
-      encryptedLength: encryptedToken.length,
-      encryptedPrefix: encryptedToken.substring(0, 30) + '...',
-    });
 
     let connection = await this.nuvemshopConnectionRepository.findOne({
       where: { userId, storeId },
@@ -215,29 +207,24 @@ export class NuvemshopService {
     // Verificar se o token foi salvo corretamente fazendo um teste de descriptografia
     try {
       const testDecrypt = this.decryptToken(saved.accessToken);
-      console.log('Token salvo e verificado com sucesso:', {
-        decryptedLength: testDecrypt.length,
-        matches: testDecrypt === accessToken,
-        originalToken: accessToken, // Log completo temporário
-        decryptedToken: testDecrypt, // Log completo temporário
-      });
+      this.logger.log(`[Nuvemshop Connection] Token salvo e verificado para loja ${storeId}: ${testDecrypt === accessToken ? 'ok' : 'falhou'}.`);
 
       // Verificar se o escopo inclui read_products
       if (scope && !scope.includes('read_products')) {
-        console.error('ERRO CRÍTICO: O token não tem o escopo read_products!');
+        console.error('ERRO CRÃTICO: O token nÃ£o tem o escopo read_products!');
         console.error('Escopo atual recebido da Nuvemshop:', scope);
-        console.error('AÇÃO NECESSÁRIA: Configure o escopo "read_products" no painel de desenvolvedor da Nuvemshop para o App ID:', this.clientId);
-        console.error('Isso causará erros ao tentar buscar produtos da API.');
+        console.error('AÃ‡ÃƒO NECESSÃRIA: Configure o escopo "read_products" no painel de desenvolvedor da Nuvemshop para o App ID:', this.clientId);
+        console.error('Isso causarÃ¡ erros ao tentar buscar produtos da API.');
       }
     } catch (error) {
-      console.error('ERRO: Token não pode ser descriptografado após salvar!', error);
+      console.error('ERRO: Token nÃ£o pode ser descriptografado apÃ³s salvar!', error);
     }
 
     return saved;
   }
 
   /**
-   * Busca uma conexão ativa do usuário
+   * Busca uma conexÃ£o ativa do usuÃ¡rio
    */
   async getActiveConnection(
     userId: number,
@@ -253,41 +240,28 @@ export class NuvemshopService {
     });
 
     if (!connection) {
-      throw new NotFoundException('Conexão Nuvemshop não encontrada');
+      throw new NotFoundException('ConexÃ£o Nuvemshop nÃ£o encontrada');
     }
 
     return connection;
   }
 
   /**
-   * Obtém o token de acesso descriptografado
+   * ObtÃ©m o token de acesso descriptografado
    */
   async getAccessToken(userId: number, storeId?: string): Promise<string> {
     const connection = await this.getActiveConnection(userId, storeId);
 
     if (!connection || !connection.accessToken) {
-      throw new BadRequestException('Token de acesso não encontrado na conexão');
+      throw new BadRequestException('Token de acesso nÃ£o encontrado na conexÃ£o');
     }
 
     try {
-      // Log para debug (remover em produção)
-      console.log('Descriptografando token:', {
-        userId,
-        storeId,
-        encryptedLength: connection.accessToken.length,
-        encryptedPrefix: connection.accessToken.substring(0, 20) + '...',
-      });
 
       const token = this.decryptToken(connection.accessToken);
 
-      // Log para debug (remover em produção)
-      console.log('Token descriptografado:', {
-        tokenLength: token.length,
-        tokenPrefix: token.substring(0, 20) + '...',
-      });
-
       if (!token || token.trim().length === 0) {
-        throw new BadRequestException('Token de acesso inválido ou vazio');
+        throw new BadRequestException('Token de acesso invÃ¡lido ou vazio');
       }
 
       return token;
@@ -302,18 +276,18 @@ export class NuvemshopService {
         storeId,
         encryptedTokenLength: connection.accessToken.length,
       });
-      throw new BadRequestException('Erro ao descriptografar token de acesso. Pode ser necessário reconectar a integração.');
+      throw new BadRequestException('Erro ao descriptografar token de acesso. Pode ser necessÃ¡rio reconectar a integraÃ§Ã£o.');
     }
   }
 
   /**
-   * Testa se o token está válido fazendo uma requisição simples
+   * Testa se o token estÃ¡ vÃ¡lido fazendo uma requisiÃ§Ã£o simples
    */
   async testToken(userId: number, storeId: string): Promise<boolean> {
     try {
       const accessToken = await this.getAccessToken(userId, storeId);
 
-      // Fazer uma requisição simples para verificar se o token é válido
+      // Fazer uma requisiÃ§Ã£o simples para verificar se o token Ã© vÃ¡lido
       const response = await fetch(
         `${this.apiBaseUrl}/${storeId}/products?limit=1`,
         {
@@ -335,7 +309,7 @@ export class NuvemshopService {
 
   /**
    * Sincroniza um produto (criar ou atualizar)
-   * Nota: Ao atualizar (PUT), não podemos enviar variants - use updateVariant separadamente
+   * Nota: Ao atualizar (PUT), nÃ£o podemos enviar variants - use updateVariant separadamente
    */
   async syncProduct(
     userId: number,
@@ -358,7 +332,7 @@ export class NuvemshopService {
   ): Promise<any> {
     const accessToken = await this.getAccessToken(userId, storeId);
 
-    // Separar variants do produto (variants não podem ser enviados no PUT)
+    // Separar variants do produto (variants nÃ£o podem ser enviados no PUT)
     const { variants, ...productDataWithoutVariants } = productData;
 
     const url = productData.id
@@ -372,7 +346,7 @@ export class NuvemshopService {
         'Authentication': `bearer ${accessToken}`,
         'User-Agent': 'Nucleo CRM (https://nucleocrm.com.br)',
       },
-      // Ao atualizar (PUT), não enviar variants
+      // Ao atualizar (PUT), nÃ£o enviar variants
       body: JSON.stringify(productData.id ? productDataWithoutVariants : productData),
     });
 
@@ -404,7 +378,7 @@ export class NuvemshopService {
 
     const result = await response.json();
 
-    // Se é atualização e temos variants, atualizar variantes separadamente
+    // Se Ã© atualizaÃ§Ã£o e temos variants, atualizar variantes separadamente
     if (productData.id && variants && variants.length > 0) {
       // Buscar variantes existentes do produto
       const productDetails = await this.getProduct(userId, storeId, productData.id);
@@ -424,7 +398,7 @@ export class NuvemshopService {
           );
         }
       } else if (variants.length > 0) {
-        // Se não tem variantes, criar uma nova
+        // Se nÃ£o tem variantes, criar uma nova
         await this.createVariant(
           userId,
           storeId,
@@ -438,7 +412,7 @@ export class NuvemshopService {
   }
 
   /**
-   * Busca detalhes de um produto específico
+   * Busca detalhes de um produto especÃ­fico
    */
   async getProduct(userId: number, storeId: string, productId: number): Promise<any> {
     const accessToken = await this.getAccessToken(userId, storeId);
@@ -613,22 +587,26 @@ export class NuvemshopService {
       try {
         error = JSON.parse(errorText);
       } catch {
-        error = { message: errorText || `Falha na requisição para ${path}` };
+        error = { message: errorText || `Falha na requisiÃ§Ã£o para ${path}` };
+      }
+
+      const isPaginationEnd = ignorePagination404
+        && response.status === 404
+        && (error.description?.includes('Last page is') || error.message?.includes('Last page is'));
+
+      // Tratar erro 404 de pÃ¡gina inexistente ou loja sem dados (paginaÃ§Ã£o)
+      if (isPaginationEnd) {
+        this.logger.log(`[Nuvemshop API] PÃ¡gina nÃ£o encontrada (fim dos dados ou lista vazia). Retornando array vazio.`);
+        return [];
       }
 
       this.logger.error(`[Nuvemshop API Error] ${method} ${url} - Status: ${response.status}`, error);
 
-      // Tratar erro 404 de página inexistente ou loja sem dados (paginação)
-      if (ignorePagination404 && response.status === 404 && (error.description?.includes('Last page is') || error.message?.includes('Last page is'))) {
-        this.logger.log(`[Nuvemshop API] Página não encontrada (fim dos dados ou lista vazia). Retornando array vazio.`);
-        return [];
-      }
-
       if (response.status === 401 || response.status === 403) {
-        throw new BadRequestException(error.error_description || error.message || error.error || 'Token de acesso inválido ou expirado. Pode ser necessário reconectar a loja.');
+        throw new BadRequestException(error.error_description || error.message || error.error || 'Token de acesso invÃ¡lido ou expirado. Pode ser necessÃ¡rio reconectar a loja.');
       }
 
-      throw new BadRequestException(error.error_description || error.message || error.error || `Falha na requisição (${response.status})`);
+      throw new BadRequestException(error.error_description || error.message || error.error || `Falha na requisiÃ§Ã£o (${response.status})`);
     }
 
     const data = await response.json();
@@ -646,7 +624,7 @@ export class NuvemshopService {
    * Sincroniza clientes da Nuvemshop
    */
   async syncCustomers(userId: number, storeId: string): Promise<{ imported: number; updated: number }> {
-    console.log(`[Nuvemshop Sync] Iniciando sincronização de clientes para loja ${storeId}`);
+    console.log(`[Nuvemshop Sync] Iniciando sincronizaÃ§Ã£o de clientes para loja ${storeId}`);
     let allCustomers: any[] = [];
     let page = 1;
     let hasMore = true;
@@ -668,6 +646,7 @@ export class NuvemshopService {
       if (!sCustomer.email) continue;
 
       const normalizedEmail = sCustomer.email.toLowerCase().trim();
+      const phone = this.normalizeContactPhone(sCustomer.phone);
       let contact = await this.contactRepository.findOne({
         where: { userId, email: normalizedEmail },
       });
@@ -678,8 +657,8 @@ export class NuvemshopService {
           contact.name = sCustomer.name || 'Sem Nome';
           updatedContact = true;
         }
-        if (!contact.phone && sCustomer.phone) {
-          contact.phone = sCustomer.phone;
+        if (!contact.phone && phone) {
+          contact.phone = phone;
           updatedContact = true;
         }
         if (!contact.city && sCustomer.default_address?.city) {
@@ -699,7 +678,7 @@ export class NuvemshopService {
           userId,
           email: normalizedEmail,
           name: sCustomer.name || 'Sem Nome',
-          phone: sCustomer.phone || '',
+          phone,
           city: sCustomer.default_address?.city || '',
           state: sCustomer.default_address?.province || '',
           source: 'nuvemshop',
@@ -737,8 +716,8 @@ export class NuvemshopService {
       }
     } catch (error) {
       if (error instanceof BadRequestException && error.message.includes('read_orders')) {
-        console.warn(`[Nuvemshop Sync] Falha ao sincronizar pedidos: Sem permissão read_orders. O usuário precisa reconectar o app.`);
-        // Não lançamos erro aqui para permitir que clientes e produtos continuem sincronizando
+        console.warn(`[Nuvemshop Sync] Falha ao sincronizar pedidos: Sem permissÃ£o read_orders. O usuÃ¡rio precisa reconectar o app.`);
+        // NÃ£o lanÃ§amos erro aqui para permitir que clientes e produtos continuem sincronizando
         return { imported: 0, updated: 0 };
       }
       throw error;
@@ -753,7 +732,7 @@ export class NuvemshopService {
 
       let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
       const name = sOrder.customer?.name || 'Sem Nome';
-      const phone = sOrder.customer?.phone || '';
+      const phone = this.normalizeContactPhone(sOrder.customer?.phone);
 
       if (!contact) {
         contact = this.contactRepository.create({
@@ -791,14 +770,14 @@ export class NuvemshopService {
         if (item.sku) searchConditions.push({ userId, sku: item.sku });
         if (item.name) searchConditions.push({ userId, name: item.name });
 
-        console.log(`[Nuvemshop Sync] Condições de busca para o produto:`, searchConditions);
+        console.log(`[Nuvemshop Sync] CondiÃ§Ãµes de busca para o produto:`, searchConditions);
 
         let product = searchConditions.length > 0 ? await this.productRepository.findOne({
           where: searchConditions
         }) : null;
 
         if (!product) {
-          console.log(`[Nuvemshop Sync] Produto NÃO encontrado no CRM. Criando novo produto...`);
+          console.log(`[Nuvemshop Sync] Produto NÃƒO encontrado no CRM. Criando novo produto...`);
           product = this.productRepository.create({
             userId,
             name: item.name || 'Produto sem nome',
@@ -838,7 +817,7 @@ export class NuvemshopService {
           console.error(`[Nuvemshop Sync] Erro ao buscar por externalId (${externalId}):`, error.message);
         }
 
-        // Se não achou por externalId, tenta o fallback por data e produto
+        // Se nÃ£o achou por externalId, tenta o fallback por data e produto
         if (!existingSale) {
           let existingSaleConditions: any = {
             userId,
@@ -862,7 +841,7 @@ export class NuvemshopService {
           let needsUpdate = false;
 
           if (!existingSale.contactId && contact?.id) {
-            console.log(`[Nuvemshop Sync] Vinculando Contato ID ${contact.id} à Venda ID ${existingSale.id}`);
+            console.log(`[Nuvemshop Sync] Vinculando Contato ID ${contact.id} Ã  Venda ID ${existingSale.id}`);
             existingSale.contactId = contact.id;
             needsUpdate = true;
           }
@@ -884,7 +863,7 @@ export class NuvemshopService {
             console.log(`[Nuvemshop Sync] Venda ID ${existingSale.id} atualizada com sucesso.`);
           }
         } else {
-          // Criar nova venda se não existir
+          // Criar nova venda se nÃ£o existir
           const sale = this.saleRepository.create({
             userId,
             productId: product.id,
@@ -932,13 +911,13 @@ export class NuvemshopService {
       this.logger.log(`[Nuvemshop Sync] Analisando checkout ${checkout.id || checkout.token}. Status: ${checkout.abandoned ? 'Abandonado' : 'Ativo'}. Itens: ${checkout.products?.length || checkout.line_items?.length || 0}`);
 
       if (checkout.order_id || checkout.order) {
-        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por já ter sido convertido em pedido (Order ID: ${checkout.order_id || checkout.order.id}).`);
+        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por jÃ¡ ter sido convertido em pedido (Order ID: ${checkout.order_id || checkout.order.id}).`);
         continue;
       }
 
       const createdAt = checkout.created_at ? new Date(checkout.created_at) : new Date();
       
-      // Critério: Apenas considerar abandonado se tiver mais de 1 minuto de inatividade para testes rápidos
+      // CritÃ©rio: Apenas considerar abandonado se tiver mais de 1 minuto de inatividade para testes rÃ¡pidos
       if (createdAt > fiveMinutesAgo) {
         this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por ser muito recente (${createdAt.toISOString()}). Threshold: ${fiveMinutesAgo.toISOString()}`);
         continue;
@@ -946,7 +925,7 @@ export class NuvemshopService {
 
       const customerEmail = (checkout.email || checkout.customer?.email || checkout.contact_email || '').toLowerCase().trim();
       if (!customerEmail) {
-        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por não ter e-mail.`);
+        this.logger.log(`[Nuvemshop Sync] Checkout ${checkout.id || checkout.token} ignorado por nÃ£o ter e-mail.`);
         continue;
       }
 
@@ -954,7 +933,7 @@ export class NuvemshopService {
       if (customerEmail) {
         contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
         const name = checkout.contact_name || checkout.customer?.name || checkout.shipping_address?.first_name || checkout.billing_address?.first_name || 'Sem Nome';
-        const phone = checkout.contact_phone || checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone || '';
+        const phone = this.normalizeContactPhone(checkout.contact_phone || checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone);
 
         if (!contact) {
           contact = this.contactRepository.create({
@@ -1010,7 +989,7 @@ export class NuvemshopService {
           await this.productRepository.save(product);
         }
 
-        const checkoutStatus = 'abandoned_cart'; // Após 15min de inatividade, consideramos abandonado
+        const checkoutStatus = 'abandoned_cart'; // ApÃ³s 15min de inatividade, consideramos abandonado
 
         const existingSale = await this.saleRepository.findOne({
           where: { userId, externalId, productId: product.id }
@@ -1030,7 +1009,7 @@ export class NuvemshopService {
             quantity: item.quantity || 1,
             unitPrice: parseFloat(item.price || '0'),
             totalValue: parseFloat(item.price || '0') * (item.quantity || 1),
-            customerName: contact ? contact.name : (checkout.customer?.name || 'Cliente Anônimo'),
+            customerName: contact ? contact.name : (checkout.customer?.name || 'Cliente AnÃ´nimo'),
             customerEmail: customerEmail || 'anonimo@nuvemshop.com.br',
             channel: 'nuvemshop',
             status: checkoutStatus,
@@ -1116,7 +1095,7 @@ export class NuvemshopService {
         await this.productRepository.save(product);
         imported++;
       } else {
-        // Atualizar ID externo se não estiver presente
+        // Atualizar ID externo se nÃ£o estiver presente
         const currentExternalIds = product.externalIds || {};
         const nuvemshopIds = currentExternalIds.nuvemshop || {};
 
@@ -1181,7 +1160,7 @@ export class NuvemshopService {
     }
 
     const data = await response.json();
-    this.logger.log(`[Nuvemshop API] Loja ${storeId}/checkouts retornou ${Array.isArray(data) ? data.length + ' itens' : 'não é um array'}`);
+    this.logger.log(`[Nuvemshop API] Loja ${storeId}/checkouts retornou ${Array.isArray(data) ? data.length + ' itens' : 'nÃ£o Ã© um array'}`);
     return data || [];
   }
 
@@ -1257,19 +1236,35 @@ export class NuvemshopService {
     body: string,
     signature: string,
   ): boolean {
+    if (!signature || !this.clientSecret) return false;
+
     const hmac = crypto
       .createHmac('sha256', this.clientSecret)
       .update(body, 'utf8')
       .digest('hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(hmac),
-      Buffer.from(signature),
-    );
+    // timingSafeEqual lança RangeError se os tamanhos diferirem — checar antes
+    // (senão uma assinatura malformada viraria HTTP 500 em vez de 401).
+    const expected = Buffer.from(hmac);
+    const received = Buffer.from(signature);
+    if (expected.length !== received.length) return false;
+
+    return crypto.timingSafeEqual(expected, received);
   }
 
   /**
-   * Busca todas as conexões do usuário
+   * Resolve a conexão ativa de uma loja pelo storeId (usado para atribuir
+   * webhooks recebidos ao usuário dono da loja).
+   */
+  async findActiveConnectionByStoreId(storeId: string): Promise<NuvemshopConnection | null> {
+    if (!storeId) return null;
+    return this.nuvemshopConnectionRepository.findOne({
+      where: { storeId: String(storeId), isActive: true },
+    });
+  }
+
+  /**
+   * Busca todas as conexÃµes do usuÃ¡rio
    */
   async getConnections(userId: number): Promise<NuvemshopConnection[]> {
     return await this.nuvemshopConnectionRepository.find({
@@ -1279,7 +1274,7 @@ export class NuvemshopService {
   }
 
   /**
-   * Desativa uma conexão
+   * Desativa uma conexÃ£o
    */
   async deactivateConnection(
     userId: number,
@@ -1310,7 +1305,7 @@ export class NuvemshopService {
   ): Promise<any> {
     const accessToken = await this.getAccessToken(userId, storeId);
 
-    // Converter valores string para number se necessário
+    // Converter valores string para number se necessÃ¡rio
     // E formatar datas para YYYY-MM-DD
     const formatDate = (dateStr?: string) => {
       if (!dateStr) return undefined;
@@ -1333,7 +1328,7 @@ export class NuvemshopService {
   }
 
   /**
-   * Busca o ID de um cupom pelo código
+   * Busca o ID de um cupom pelo cÃ³digo
    */
   async getCouponIdByCode(userId: number, storeId: string, code: string): Promise<number | null> {
     try {
@@ -1344,7 +1339,7 @@ export class NuvemshopService {
         return coupon ? coupon.id : null;
       }
     } catch (e) {
-      this.logger.error(`Erro ao buscar cupom Nuvemshop por código (${code}): ${e.message}`);
+      this.logger.error(`Erro ao buscar cupom Nuvemshop por cÃ³digo (${code}): ${e.message}`);
     }
     return null;
   }
@@ -1362,13 +1357,13 @@ export class NuvemshopService {
   async handleWebhook(storeId: string, event: string, data: any): Promise<void> {
     this.logger.log(`[Nuvemshop Webhook] Processando evento ${event} para loja ${storeId}`);
 
-    // Buscar todas as conexões para esta loja
+    // Buscar todas as conexÃµes para esta loja
     const connections = await this.nuvemshopConnectionRepository.find({
       where: { storeId, isActive: true }
     });
 
     if (connections.length === 0) {
-      this.logger.warn(`[Nuvemshop Webhook] Nenhuma conexão ativa encontrada para a loja ${storeId}`);
+      this.logger.warn(`[Nuvemshop Webhook] Nenhuma conexÃ£o ativa encontrada para a loja ${storeId}`);
       return;
     }
 
@@ -1379,10 +1374,10 @@ export class NuvemshopService {
         if (event.includes('checkout')) {
           await this.processCartWebhook(userId, event, data);
         } else if (event.includes('order')) {
-          // A lógica de sincronização de pedidos já existe no syncOrders.
+          // A lÃ³gica de sincronizaÃ§Ã£o de pedidos jÃ¡ existe no syncOrders.
         }
       } catch (error) {
-        this.logger.error(`[Nuvemshop Webhook] Erro ao processar webhook para usuário ${userId}:`, error.message);
+        this.logger.error(`[Nuvemshop Webhook] Erro ao processar webhook para usuÃ¡rio ${userId}:`, error.message);
       }
     }
   }
@@ -1393,6 +1388,7 @@ export class NuvemshopService {
   private async processCartWebhook(userId: number, event: string, data: any): Promise<void> {
     const customerEmail = data.customer?.email || data.email;
     if (!customerEmail) return;
+    const phone = this.normalizeContactPhone(data.contact_phone || data.customer?.phone || data.shipping_address?.phone || data.billing_address?.phone);
 
     // Buscar ou criar contato
     let contact = await this.contactRepository.findOne({ where: { userId, email: customerEmail } });
@@ -1401,9 +1397,13 @@ export class NuvemshopService {
         userId,
         email: customerEmail,
         name: data.customer?.name || 'Sem Nome',
+        phone,
         source: 'nuvemshop',
         status: 'customer',
       });
+      await this.contactRepository.save(contact);
+    } else if (!contact.phone && phone) {
+      contact.phone = phone;
       await this.contactRepository.save(contact);
     }
 
@@ -1468,7 +1468,7 @@ export class NuvemshopService {
     const connection = await this.getActiveConnection(userId, storeId);
     const resolvedStoreId = connection.storeId;
 
-    this.logger.log(`[Nuvemshop Sync] Iniciando sincronização global para loja ${resolvedStoreId}`);
+    this.logger.log(`[Nuvemshop Sync] Iniciando sincronizaÃ§Ã£o global para loja ${resolvedStoreId}`);
 
     const customers = await this.syncCustomers(userId, resolvedStoreId);
     const orders = await this.syncOrders(userId, resolvedStoreId);
@@ -1477,7 +1477,7 @@ export class NuvemshopService {
     // Sincronizar e persistir checkouts abandonados
     let checkoutSyncResult = { imported: 0, updated: 0 };
     try {
-      this.logger.log(`[Nuvemshop Sync] Iniciando sincronização de checkouts...`);
+      this.logger.log(`[Nuvemshop Sync] Iniciando sincronizaÃ§Ã£o de checkouts...`);
       checkoutSyncResult = await this.syncCheckouts(userId, resolvedStoreId);
       this.logger.log(`[Nuvemshop Sync] Checkouts sincronizados: ${checkoutSyncResult.imported} novos, ${checkoutSyncResult.updated} atualizados`);
     } catch (e) {

@@ -138,12 +138,17 @@ export class EmailTemplatesService {
       return { success: true, messageId: result.messageId };
     } else {
       this.logger.log(`[EmailTemplates] Usando Zenvia (domain)`);
-      await this.emailService.sendEmail({
+      if (!connection.email) {
+        throw new BadRequestException('A conexão não possui um endereço remetente configurado.');
+      }
+      const result = await this.emailService.sendEmail({
         to: data.to,
         subject,
         html,
+        fromEmail: connection.email,
+        fromName: connection.senderName || undefined,
       });
-      return { success: true };
+      return { success: true, messageId: result.messageId };
     }
   }
 }

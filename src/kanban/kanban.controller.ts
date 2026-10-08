@@ -1,11 +1,10 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, UseGuards, Request, Query } from '@nestjs/common';
 import { KanbanService } from './kanban.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../auth/admin.guard';
 import { KanbanCondition, KanbanEntryType } from '../entities/kanban-column.entity';
 
 @Controller('kanban')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(JwtAuthGuard)
 export class KanbanController {
     constructor(private readonly kanbanService: KanbanService) { }
 

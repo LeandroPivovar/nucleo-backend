@@ -40,6 +40,8 @@ import { BotFlow } from '../entities/bot-flow.entity';
 import { BotTelegramConnection } from '../entities/bot-telegram-connection.entity';
 import { BotWhatsappConnection } from '../entities/bot-whatsapp-connection.entity';
 import { BotWhatsappSession } from '../entities/bot-whatsapp-session.entity';
+import { ShopifyWebhookEvent } from '../entities/shopify-webhook-event.entity';
+import { ShopifyDataRequest } from '../entities/shopify-data-request.entity';
 
 
 config();
@@ -91,7 +93,9 @@ export const AppDataSource = new DataSource({
     BotFlow,
     BotTelegramConnection,
     BotWhatsappConnection,
-    BotWhatsappSession
+    BotWhatsappSession,
+    ShopifyWebhookEvent,
+    ShopifyDataRequest
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

@@ -21,12 +21,12 @@ import { ShopifyService } from './shopify.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateShopifyConnectionDto } from './dto/create-shopify-connection.dto';
 import { SyncProductsDto } from './dto/sync-products.dto';
-import * as crypto from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Plan } from '../entities/plan.entity';
 import { Subscription } from '../entities/subscription.entity';
+import { User } from '../entities/user.entity';
 
 @Controller('shopify')
 export class ShopifyController {
@@ -37,6 +37,8 @@ export class ShopifyController {
     private readonly planRepository: Repository<Plan>,
     @InjectRepository(Subscription)
     private readonly subscriptionRepository: Repository<Subscription>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) { }
 
   /**
@@ -128,11 +130,15 @@ export class ShopifyController {
     @Request() req,
     @Body() createShopifyConnectionDto: CreateShopifyConnectionDto,
   ) {
-    const { shop } = createShopifyConnectionDto;
+    // Aceita URL pública/domínio próprio, mas converte para o domínio permanente
+    // *.myshopify.com antes de assinar o state e iniciar o OAuth.
+    const shop = await this.shopifyService.resolveShopDomain(createShopifyConnectionDto.shop);
 
-    // Gerar state token para segurança
+    // Isolamento: bloqueia se a conta já usa Asaas ou já tem outra loja conectada.
+    await this.shopifyService.assertCanConnectShopify(req.user.userId, shop);
 
-    const state = crypto.randomBytes(32).toString('hex');
+    // State assinado (anti-CSRF, vinculado à loja e com validade).
+    const state = this.shopifyService.generateSignedState(shop);
 
     // URL de callback (ajustar conforme necessário)
     const redirectUri = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/shopify/callback`;
@@ -157,11 +163,20 @@ export class ShopifyController {
   @Get('auth/install')
   async install(
     @Query('shop') shop: string,
+    @Query() query: Record<string, any>,
     @Res() res: ExpressResponse,
   ) {
     this.shopifyService['logger'].log(`[Shopify Controller] Iniciando instalação para loja: ${shop}`);
-    if (!shop) {
-      return res.status(HttpStatus.BAD_REQUEST).send('Parâmetro shop é obrigatório');
+
+    // Segurança: só aceitar domínios *.myshopify.com legítimos.
+    if (!shop || !this.shopifyService.validateShopDomain(shop)) {
+      return res.status(HttpStatus.BAD_REQUEST).send('Parâmetro shop inválido');
+    }
+
+    // Se a Shopify assinou a request (hmac presente), validar antes de prosseguir.
+    if (query.hmac && !this.shopifyService.verifyOAuthHmac(query)) {
+      this.shopifyService['logger'].error(`[Shopify Install] HMAC inválido para loja ${shop}`);
+      return res.status(HttpStatus.UNAUTHORIZED).send('Assinatura inválida');
     }
 
     const connection = await this.shopifyService.findActiveConnectionByShop(shop);
@@ -169,12 +184,12 @@ export class ShopifyController {
       // Já está conectada. Redirecionar para a página de integrações no frontend de forma segura.
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
       const redirectUrl = `${frontendUrl}/integracoes?shop=${shop}`;
-      
+
       res.setHeader('Content-Type', 'text/html');
       return res.send(this.getBreakoutHtml(redirectUrl));
     }
 
-    const state = crypto.randomBytes(32).toString('hex');
+    const state = this.shopifyService.generateSignedState(shop);
     const redirectUri = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/shopify/callback`;
     const authUrl = this.shopifyService.generateAuthUrl(shop, redirectUri, state);
 
@@ -192,10 +207,29 @@ export class ShopifyController {
     @Query('code') code: string,
     @Query('shop') shop: string,
     @Query('state') state: string,
+    @Query() query: Record<string, any>,
   ) {
     this.shopifyService['logger'].log(`[Shopify Controller] Callback recebido para loja: ${shop}`);
     if (!code || !shop) {
-      throw new Error('Código de autorização ou loja não fornecidos');
+      throw new BadRequestException('Código de autorização ou loja não fornecidos');
+    }
+
+    // Segurança: domínio da loja precisa ser um *.myshopify.com legítimo.
+    if (!this.shopifyService.validateShopDomain(shop)) {
+      throw new BadRequestException('Domínio de loja inválido');
+    }
+
+    // Segurança: validar o state assinado (anti-CSRF, vinculado à loja e com validade).
+    if (!this.shopifyService.verifySignedState(state, shop)) {
+      this.shopifyService['logger'].error(`[Shopify Callback] State inválido para loja ${shop}`);
+      throw new UnauthorizedException('State de segurança inválido ou expirado');
+    }
+
+    // Segurança: HMAC OBRIGATÓRIO. A Shopify sempre assina o redirect do OAuth;
+    // ausência de hmac significa request forjada.
+    if (!query.hmac || !this.shopifyService.verifyOAuthHmac(query)) {
+      this.shopifyService['logger'].error(`[Shopify Callback] HMAC ausente ou inválido para loja ${shop}`);
+      throw new UnauthorizedException('Assinatura inválida');
     }
 
     // 1. Trocar código por token
@@ -204,13 +238,18 @@ export class ShopifyController {
       code,
     );
 
-    this.shopifyService['logger'].log(`[Shopify Controller] Token data recebido para ${shop}: ${JSON.stringify(tokenData)}`);
+    // NÃO logar tokenData: contém access_token em texto claro.
 
     // 2. Buscar informações da loja para identificar o usuário
     const shopInfo = await this.shopifyService.getShopInfo(shop, tokenData.access_token);
 
     // 3. Buscar ou criar o usuário CRM baseado no e-mail da loja
-    const user = await this.shopifyService.findOrCreateUserFromShopify(shopInfo);
+    const user = await this.shopifyService.findOrCreateUserFromShopify(shopInfo, shop);
+
+    // Isolamento: conta existente já vinculada ao Asaas ou a outra loja não pode
+    // conectar esta loja Shopify (precisa de outra conta). Usuário recém-criado
+    // via Shopify passa (sem Asaas / sem outra loja).
+    await this.shopifyService.assertCanConnectShopify(user.id, shop);
 
     // 4. Salvar conexão vinculada a este usuário
     const connection = await this.shopifyService.createOrUpdateConnection(
@@ -225,9 +264,12 @@ export class ShopifyController {
     // 5. Gerar token JWT para o CRM
     const jwtToken = this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
 
-    // Se for um redirecionamento direto (HTML), manda o token na URL usando o iframe breakout
+    // Redirecionamento direto (HTML): NUNCA colocar o JWT na URL — query strings
+    // vazam em histórico, logs de servidor e header Referer. O merchant cai na
+    // página de integrações e autentica pelo fluxo normal (login ou session token
+    // embedded). O fluxo padrão (frontend via fetch) recebe o token no corpo JSON.
     if (req.headers['accept']?.includes('text/html')) {
-      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/shopify/callback?token=${jwtToken}&shop=${shop}&state=${state}`;
+      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/integracoes?shopify=connected&shop=${encodeURIComponent(shop)}`;
       const responseObj = (req as any).res;
       responseObj.setHeader('Content-Type', 'text/html');
       return responseObj.send(this.getBreakoutHtml(redirectUrl));
@@ -240,6 +282,61 @@ export class ShopifyController {
         id: connection.id,
         shop: connection.shop,
         isActive: connection.isActive,
+      },
+    };
+  }
+
+  /**
+   * Autenticação embedded: troca um session token (idToken do App Bridge) por um
+   * JWT do CRM. Chamado pelo frontend quando roda dentro do admin da Shopify.
+   * NÃO usa JwtAuthGuard — a autenticação é o próprio session token da Shopify.
+   *
+   * Managed installation: se a loja ainda não tem conexão no nosso lado
+   * (primeiro acesso), o próprio session token é trocado por um access token
+   * offline via token exchange e a conexão + usuário são provisionados aqui —
+   * sem redirect para o fluxo OAuth legado.
+   */
+  @Post('session/token-exchange')
+  @HttpCode(HttpStatus.OK)
+  async sessionTokenExchange(
+    @Headers('authorization') authHeader: string,
+    @Body() body: { sessionToken?: string },
+  ) {
+    const token =
+      body?.sessionToken ||
+      (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '');
+
+    if (!token) {
+      throw new BadRequestException('sessionToken é obrigatório');
+    }
+
+    let shop: string;
+    let user: User;
+    try {
+      ({ shop, user } = await this.shopifyService.authenticateSessionToken(token));
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        // Loja sem conexão: primeiro acesso via managed install → token exchange.
+        ({ shop, user } = await this.shopifyService.provisionConnectionFromSessionToken(token));
+      } else {
+        throw error;
+      }
+    }
+
+    const jwtToken = this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
+
+    return {
+      token: jwtToken,
+      shop,
+      // Shape esperado pelo AuthContext do frontend (localStorage 'user').
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
       },
     };
   }
@@ -394,18 +491,36 @@ export class ShopifyController {
     @Headers('x-shopify-topic') topic: string,
     @Headers('x-shopify-shop-domain') shopDomain: string,
     @Headers('x-shopify-hmac-sha256') signature: string,
+    @Headers('x-shopify-webhook-id') webhookId: string,
   ) {
-    // Verificar assinatura
-    const body = (req as any).rawBody?.toString() || JSON.stringify(req.body);
-    const secret = process.env.SHOPIFY_WEBHOOK_SECRET || '';
+    // Verificar assinatura sobre o corpo BRUTO (rawBody). Sem fallback:
+    // reserializar o body quebraria o HMAC e permitiria bypass.
+    const rawBody = (req as any).rawBody;
+    if (!rawBody) {
+      throw new BadRequestException('Corpo bruto da request indisponível para verificação HMAC');
+    }
+    const secret = process.env.SHOPIFY_CLIENT_SECRET || process.env.SHOPIFY_WEBHOOK_SECRET || '';
 
-    if (!this.shopifyService.verifyWebhookSignature(body, signature, secret)) {
+    if (!this.shopifyService.verifyWebhookSignature(rawBody, signature, secret)) {
       throw new UnauthorizedException('Assinatura inválida');
+    }
+
+    // Dedupe: a Shopify reentrega o mesmo evento quando não recebe 200 a tempo.
+    // Sem isto, uma reentrega de orders/create duplicaria vendas.
+    const isNew = await this.shopifyService.registerWebhookEvent(webhookId, topic, shopDomain);
+    if (!isNew) {
+      return { success: true, topic, shop: shopDomain, deduplicated: true };
     }
 
     // Processar webhook
     const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    await this.shopifyService.handleWebhook(topic, shopDomain, data);
+    try {
+      await this.shopifyService.handleWebhook(topic, shopDomain, data);
+    } catch (error) {
+      // Liberar o dedupe: a falha deve ser retentável quando a Shopify reentregar.
+      await this.shopifyService.unregisterWebhookEvent(webhookId);
+      throw error;
+    }
 
     return {
       success: true,
@@ -430,7 +545,10 @@ export class ShopifyController {
     @Headers('x-shopify-hmac-sha256') signature: string,
   ) {
     const topic = topicHeader || (topicParam ? topicParam.replace(/-/g, '/') : 'unknown');
-    const body = (req as any).rawBody || JSON.stringify(req.body);
+    const body = (req as any).rawBody;
+    if (!body) {
+      throw new BadRequestException('Corpo bruto da request indisponível para verificação HMAC');
+    }
     const secret = process.env.SHOPIFY_CLIENT_SECRET || process.env.SHOPIFY_WEBHOOK_SECRET || '';
 
     if (!this.shopifyService.verifyWebhookSignature(body, signature, secret)) {
@@ -443,6 +561,25 @@ export class ShopifyController {
     await this.shopifyService.handleComplianceWebhook(topic, shopDomain, data);
 
     return { success: true };
+  }
+
+  /**
+   * Solicitações de dados de clientes (customers/data_request) da conta.
+   * O merchant é quem responde ao cliente final — aqui ele obtém o conteúdo.
+   */
+  @Get('compliance/data-requests')
+  @UseGuards(JwtAuthGuard)
+  async listDataRequests(@Request() req) {
+    return this.shopifyService.listDataRequests(req.user.userId);
+  }
+
+  /**
+   * Conteúdo completo de uma solicitação (só do próprio dono).
+   */
+  @Get('compliance/data-requests/:id')
+  @UseGuards(JwtAuthGuard)
+  async getDataRequest(@Request() req, @Param('id') id: string) {
+    return this.shopifyService.getDataRequest(req.user.userId, Number(id));
   }
 
   /**
@@ -580,159 +717,100 @@ export class ShopifyController {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Cria uma AppSubscription via Shopify Billing API.
-   * O frontend deve redirecionar o merchant para a confirmationUrl retornada.
-   *
-   * Body: { shop?: string; planId: number; trialDays?: number }
-   */
-  @Post('billing/create-subscription')
-  @UseGuards(JwtAuthGuard)
-  @HttpCode(HttpStatus.OK)
-  async createBillingSubscription(
-    @Request() req,
-    @Body() body: { shop?: string; planId: number; trialDays?: number },
-  ) {
-    const { planId, trialDays = 0 } = body;
-
-    // Resolver a loja ativa do usuário se não fornecida
-    let { shop } = body;
-    if (!shop) {
-      const connections = await this.shopifyService.getConnections(req.user.userId);
-      const active = connections.find(c => c.isActive);
-      if (!active) {
-        throw new BadRequestException('Nenhuma loja Shopify conectada. Forneça { shop } no body ou conecte uma loja.');
-      }
-      shop = active.shop;
-    }
-
-    // Buscar plano CRM
-    const plan = await this.planRepository.findOne({ where: { id: planId } });
-    if (!plan) throw new NotFoundException(`Plano ID ${planId} não encontrado`);
-
-    // Token de acesso para a loja
-    const accessToken = await this.shopifyService.getAccessToken(req.user.userId, shop);
-
-    // returnUrl — frontend callback para verificar a assinatura após aprovação do merchant
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const returnUrl = `${frontendUrl}/integrations/shopify/billing/callback?shop=${encodeURIComponent(shop)}&planId=${planId}&userId=${req.user.userId}`;
-
-    const { confirmationUrl, appSubscriptionId } = await this.shopifyService.createAppSubscription(
-      shop,
-      accessToken,
-      { name: plan.name, price: Number(plan.price), interval: plan.interval },
-      returnUrl,
-      trialDays,
-    );
-
-    return {
-      success: true,
-      confirmationUrl,
-      appSubscriptionId,
-      shop,
-      planId,
-    };
-  }
-
-  /**
    * Callback da Shopify após o merchant aprovar (ou recusar) a cobrança.
-   * A Shopify redireciona para este endpoint com ?charge_id=&shop= (ou subscription_id).
+   * A Shopify redireciona para cá com ?charge_id= (o ?shop= vem do nosso returnUrl).
    *
-   * Fluxo:
-   *  1. Recebe charge_id (= appSubscriptionId) e shop na query string
-   *  2. Consulta a Admin API para verificar status
-   *  3. Se ACTIVE → cria/atualiza Subscription local e redireciona para /assinaturas
-   *  4. Se DECLINED → redireciona para /assinaturas?billing=declined
+   * Segurança: nenhum dado de identidade vem da URL. O charge_id resolve a
+   * assinatura local `pending` criada em POST /subscriptions/shopify/checkout;
+   * dono, plano e preço saem desse registro, e o status é confirmado na Admin API
+   * com o token da conexão do próprio dono. A ativação primária acontece pelo
+   * webhook app_subscriptions/update — este callback só confirma e redireciona.
    */
   @Get('billing/callback')
   @HttpCode(HttpStatus.OK)
   async billingCallback(
-    @Req() req: ExpressRequest,
     @Res() res: ExpressResponse,
     @Query('charge_id') chargeId: string,
-    @Query('subscription_id') subscriptionId: string,
     @Query('shop') shop: string,
-    @Query('planId') planIdStr: string,
-    @Query('userId') userIdStr: string,
   ) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const appSubscriptionId = chargeId || subscriptionId;
-
-    this.shopifyService['logger'].log(`[Shopify Billing Callback] shop=${shop}, appSubscriptionId=${appSubscriptionId}, planId=${planIdStr}, userId=${userIdStr}`);
-
-    if (!appSubscriptionId || !shop) {
-      const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?error=missing_params`;
+    const redirectHtml = (params: string) => {
+      const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?${params}`;
       res.setHeader('Content-Type', 'text/html');
       return res.send(this.getBreakoutHtml(redirectUrl));
+    };
+
+    if (!chargeId || !shop || !this.shopifyService.validateShopDomain(shop)) {
+      return redirectHtml('error=missing_params');
     }
 
     try {
-      const userId = parseInt(userIdStr, 10);
-      const planId = parseInt(planIdStr, 10);
+      const gid = chargeId.includes('/')
+        ? chargeId
+        : `gid://shopify/AppSubscription/${chargeId}`;
 
-      if (!userId || !planId) {
-        throw new BadRequestException('userId e planId são obrigatórios no callback');
+      // Assinatura local pendente criada no checkout — fonte da verdade de dono/plano.
+      const localSub = await this.subscriptionRepository.findOne({
+        where: { shopifySubscriptionId: gid },
+      });
+      if (!localSub) {
+        this.shopifyService['logger'].warn(`[Shopify Billing Callback] charge ${gid} sem assinatura local correspondente (shop=${shop})`);
+        return redirectHtml('error=unknown_subscription');
       }
 
-      // Buscar token da loja (sem depender de userId — pode ser instalação nova)
+      // A loja do callback precisa ser uma conexão ativa DO DONO da assinatura.
       const connection = await this.shopifyService.findActiveConnectionByShop(shop);
-      if (!connection) {
-        throw new NotFoundException(`Conexão Shopify não encontrada para a loja ${shop}`);
+      if (!connection || connection.userId !== localSub.userId) {
+        this.shopifyService['logger'].warn(`[Shopify Billing Callback] loja ${shop} não pertence ao dono da assinatura ${localSub.id}`);
+        return redirectHtml('error=connection_mismatch');
+      }
+
+      // Idempotência: o webhook app_subscriptions/update pode já ter ativado.
+      if (localSub.status === 'active') {
+        return redirectHtml(`success=true&shop=${encodeURIComponent(shop)}`);
       }
 
       const accessToken = this.shopifyService['decryptToken'](connection.accessToken);
+      const subStatus = await this.shopifyService.getAppSubscriptionStatus(shop, accessToken, gid);
 
-      // Verificar status da assinatura com a Shopify
-      const subStatus = await this.shopifyService.getAppSubscriptionStatus(
-        shop,
-        accessToken,
-        appSubscriptionId,
-      );
-
-      if (subStatus.status === 'ACTIVE') {
-        // Buscar plano CRM
-        const plan = await this.planRepository.findOne({ where: { id: planId } });
-        if (!plan) throw new NotFoundException(`Plano ID ${planId} não encontrado`);
-
-        // Cancelar assinaturas ativas anteriores do usuário
-        await this.subscriptionRepository.update(
-          { userId, status: 'active' },
-          { status: 'canceled' },
-        );
-
-        // Calcular fim do período
-        const periodEnd = subStatus.currentPeriodEnd
-          ? new Date(subStatus.currentPeriodEnd)
-          : new Date(Date.now() + (plan.interval === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000);
-
-        // Criar assinatura local
-        const newSub = this.subscriptionRepository.create({
-          userId,
-          planId,
-          status: 'active',
-          shopifySubscriptionId: appSubscriptionId,
-          currentPeriodStart: new Date(),
-          currentPeriodEnd: periodEnd,
-        });
-        await this.subscriptionRepository.save(newSub);
-
-        this.shopifyService['logger'].log(`[Shopify Billing] Assinatura ${appSubscriptionId} ATIVA. Subscription local ID ${newSub.id} criada para userId ${userId}.`);
-
-        const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?success=true&shop=${encodeURIComponent(shop)}`;
-        res.setHeader('Content-Type', 'text/html');
-        return res.send(this.getBreakoutHtml(redirectUrl));
-      } else {
-        // DECLINED ou outro status
-        this.shopifyService['logger'].warn(`[Shopify Billing] Assinatura ${appSubscriptionId} com status: ${subStatus.status}`);
-        const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?error=not_approved&status=${subStatus.status}`;
-        res.setHeader('Content-Type', 'text/html');
-        return res.send(this.getBreakoutHtml(redirectUrl));
+      if (subStatus.status !== 'ACTIVE') {
+        this.shopifyService['logger'].warn(`[Shopify Billing] Assinatura ${gid} com status: ${subStatus.status}`);
+        return redirectHtml(`error=not_approved&status=${encodeURIComponent(subStatus.status)}`);
       }
+
+      await this.activateLocalSubscription(localSub, subStatus.currentPeriodEnd);
+      this.shopifyService['logger'].log(`[Shopify Billing] Assinatura ${gid} ATIVA via callback. Subscription local ${localSub.id} (userId ${localSub.userId}).`);
+
+      return redirectHtml(`success=true&shop=${encodeURIComponent(shop)}`);
     } catch (error) {
       this.shopifyService['logger'].error(`[Shopify Billing Callback] Erro: ${error.message}`);
-      const redirectUrl = `${frontendUrl}/integrations/shopify/billing/callback?error=server_error&msg=${encodeURIComponent(error.message)}`;
-      res.setHeader('Content-Type', 'text/html');
-      return res.send(this.getBreakoutHtml(redirectUrl));
+      return redirectHtml('error=server_error');
     }
+  }
+
+  /**
+   * Ativa uma assinatura local pendente de forma idempotente: cancela outras
+   * assinaturas ativas do usuário e sincroniza o plano no cadastro do usuário.
+   * Mesmo efeito do webhook app_subscriptions/update (SubscriptionsService).
+   */
+  private async activateLocalSubscription(localSub: Subscription, currentPeriodEnd?: string | null) {
+    await this.subscriptionRepository.update(
+      { userId: localSub.userId, status: 'active' },
+      { status: 'canceled' },
+    );
+
+    const plan = await this.planRepository.findOne({ where: { id: localSub.planId } });
+    localSub.status = 'active';
+    localSub.currentPeriodStart = new Date();
+    localSub.currentPeriodEnd = currentPeriodEnd
+      ? new Date(currentPeriodEnd)
+      : new Date(Date.now() + ((plan?.interval === 'yearly' ? 365 : 30) * 24 * 60 * 60 * 1000));
+    await this.subscriptionRepository.save(localSub);
+
+    await this.userRepository.update(localSub.userId, {
+      planId: localSub.planId,
+      subscriptionStatus: 'active',
+    });
   }
 
   /**

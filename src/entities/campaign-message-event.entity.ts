@@ -20,7 +20,7 @@ export class CampaignMessageEvent {
     contactId?: number;
 
     @Index({ unique: true })
-    @Column({ length: 80 })
+    @Column({ length: 191 })
     messageSid: string;
 
     @Column({ length: 40 })
@@ -28,6 +28,21 @@ export class CampaignMessageEvent {
 
     @Column({ length: 30, default: 'twilio' })
     provider: string;
+
+    @Column({ type: 'datetime', nullable: true })
+    deliveredAt?: Date;
+
+    @Column({ type: 'datetime', nullable: true })
+    readAt?: Date;
+
+    @Column({ type: 'datetime', nullable: true })
+    clickedAt?: Date;
+
+    @Column({ type: 'datetime', nullable: true })
+    failedAt?: Date;
+
+    @Column({ type: 'text', nullable: true })
+    failureReason?: string;
 
     @CreateDateColumn()
     createdAt: Date;

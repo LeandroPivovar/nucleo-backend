@@ -10,6 +10,22 @@ import { CampaignsService } from '../campaigns/campaigns.service';
 @Injectable()
 export class KanbanService {
     private readonly logger = new Logger(KanbanService.name);
+    private readonly completedSaleStatuses = [
+        'completed',
+        'Completo',
+        'pago',
+        'Pago',
+        'aprovado',
+        'Aprovado',
+        'approved',
+        'paid',
+        'success',
+        'Sucesso',
+        'delivered',
+        'entregue',
+        'shipped',
+        'fulfilled',
+    ];
 
     constructor(
         @InjectRepository(KanbanColumn)
@@ -231,10 +247,17 @@ export class KanbanService {
     }
 
     private async checkConditions(userId: number, contactId: number, conditions: KanbanCondition[]): Promise<boolean> {
-        const contact = await this.contactRepo.findOne({
-            where: { id: contactId, userId },
-            relations: ['contactTags', 'contactTags.tag', 'contactSegmentations', 'sales'],
-        });
+        const contact = await this.contactRepo
+            .createQueryBuilder('contact')
+            .leftJoinAndSelect('contact.contactTags', 'contactTags')
+            .leftJoinAndSelect('contactTags.tag', 'tag')
+            .leftJoinAndSelect('contact.contactSegmentations', 'contactSegmentations')
+            .leftJoinAndSelect('contact.sales', 'sales', 'sales.status IN (:...completedSaleStatuses)', {
+                completedSaleStatuses: this.completedSaleStatuses,
+            })
+            .where('contact.id = :contactId', { contactId })
+            .andWhere('contact.userId = :userId', { userId })
+            .getOne();
         if (!contact) return false;
 
         for (const condition of conditions) {

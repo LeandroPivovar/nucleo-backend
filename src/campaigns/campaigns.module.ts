@@ -14,6 +14,7 @@ import { CampaignClick } from '../entities/campaign-click.entity';
 import { CampaignCoupon } from '../entities/campaign-coupon.entity';
 import { CampaignMessageEvent } from '../entities/campaign-message-event.entity';
 import { AdminCampaignTemplate } from '../entities/admin-campaign-template.entity';
+import { EmailConnection } from '../entities/email-connection.entity';
 
 
 import { ZenviaModule } from '../zenvia/zenvia.module';
@@ -33,7 +34,7 @@ import { Subscription } from '../entities/subscription.entity';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Campaign, Contact, Sale, UserUsage, User, Subscription, ShopifyConnection, NuvemshopConnection, CampaignQueue, CampaignClick, CampaignCoupon, CampaignMessageEvent, AdminCampaignTemplate]),
+        TypeOrmModule.forFeature([Campaign, Contact, Sale, UserUsage, User, Subscription, ShopifyConnection, NuvemshopConnection, CampaignQueue, CampaignClick, CampaignCoupon, CampaignMessageEvent, AdminCampaignTemplate, EmailConnection]),
         ZenviaModule,
         ContactsModule,
         EmailModule,

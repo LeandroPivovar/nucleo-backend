@@ -9,6 +9,9 @@ export interface EmailOptions {
   text?: string;
   cc?: string | string[];
   bcc?: string | string[];
+  fromEmail?: string;
+  fromName?: string;
+  externalId?: string;
   attachments?: Array<{
     filename: string;
     content?: string | Buffer;
@@ -34,12 +37,12 @@ export class EmailService {
     const smsFrom = this.configService.get<string>('ZENVIA_SMS_FROM', '');
 
     const fromEmail = dbFromEmail || this.configService.get<string>('SMTP_FROM_EMAIL') || this.configService.get<string>('SMTP_FROM') || smsFrom || 'contato@nucleocrm.com.br';
-    const fromName = 'Núcleo CRM';
+    const fromName = dbFromName || this.configService.get<string>('SMTP_FROM_NAME') || 'Núcleo CRM';
 
     return { apiToken, fromEmail, fromName };
   }
 
-  async sendEmail(options: EmailOptions): Promise<void> {
+  async sendEmail(options: EmailOptions): Promise<{ messageId: string }> {
     try {
       const config = await this.getZenviaConfig();
 
@@ -92,7 +95,8 @@ export class EmailService {
         : undefined;
 
       const payload = {
-        from: config.fromEmail,
+        ...(options.externalId ? { externalId: options.externalId } : {}),
+        from: options.fromEmail || config.fromEmail,
         to: toAddresses[0], // Pelo doc, 'to' é string e obrigatório
         contents: [
           {
@@ -105,11 +109,13 @@ export class EmailService {
           }
         ],
         representative: {
-          name: config.fromName
+          name: options.fromName || config.fromName
         }
       };
 
-      this.logger.debug(`Zenvia E-mail Request Payload for ${payload.to}: \n${JSON.stringify(payload, null, 2)}`);
+      const recipientDomain = String(payload.to).split('@')[1] || 'inválido';
+      const senderDomain = String(payload.from).split('@')[1] || 'inválido';
+      this.logger.debug(`Enviando e-mail via Zenvia: ${senderDomain} -> ${recipientDomain}`);
 
       const response = await fetch('https://api.zenvia.com/v2/channels/email/messages', {
         method: 'POST',
@@ -128,7 +134,7 @@ export class EmailService {
 
       const successPayload = await response.json();
       this.logger.log(`E-mail enviado com sucesso via Zenvia: ID ${successPayload.id}`);
-      this.logger.debug(`Zenvia E-mail Success Response:\n${JSON.stringify(successPayload, null, 2)}`);
+      return { messageId: String(successPayload.id) };
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
@@ -176,7 +182,7 @@ export class EmailService {
   }
 
   async sendPasswordResetEmail(to: string, resetToken: string): Promise<void> {
-    const resetUrl = `${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:8080'}/auth/reset-password?token=${resetToken}`;
+    const resetUrl = `${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:8080'}/auth/forgot-password`;
 
     const html = `
       <!DOCTYPE html>

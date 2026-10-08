@@ -22,7 +22,7 @@ export class EmailHelper {
   /**
    * Envia um e-mail genérico
    */
-  async send(options: EmailOptions): Promise<void> {
+  async send(options: EmailOptions): Promise<{ messageId: string }> {
     return this.emailService.sendEmail(options);
   }
 

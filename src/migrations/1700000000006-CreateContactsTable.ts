@@ -33,7 +33,7 @@ export class CreateContactsTable1700000000006 implements MigrationInterface {
           {
             name: 'phone',
             type: 'varchar',
-            length: '20',
+            length: '50',
             isNullable: true,
           },
           {

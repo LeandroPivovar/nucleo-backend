@@ -14,6 +14,12 @@ export class Plan {
     @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
     priceYearly: number;
 
+    // Preço da cobrança via Shopify Billing, em USD. A Shopify cobra na moeda
+    // declarada — NUNCA reutilizar o valor BRL de `price` (R$ 169,99 viraria
+    // US$ 169,99). Nulo = plano indisponível para checkout Shopify.
+    @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+    priceUsd: number | null;
+
     @Column({ length: 20, default: 'monthly' })
     interval: string; // 'monthly', 'yearly'
 

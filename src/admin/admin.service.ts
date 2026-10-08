@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan, Between, Not } from 'typeorm';
 import { User } from '../entities/user.entity';
@@ -27,6 +27,24 @@ import { AdminCampaignTemplate } from '../entities/admin-campaign-template.entit
 import { Pixel } from '../entities/pixel.entity';
 import { PixelEvent } from '../entities/pixel-event.entity';
 import * as bcrypt from 'bcrypt';
+import { EmailService } from '../email/email.service';
+
+const COMPLETED_SALE_STATUSES = [
+    'completed',
+    'Completo',
+    'pago',
+    'Pago',
+    'aprovado',
+    'Aprovado',
+    'approved',
+    'paid',
+    'success',
+    'Sucesso',
+    'delivered',
+    'entregue',
+    'shipped',
+    'fulfilled',
+];
 
 export interface MonthlyFinanceData {
     month: string;
@@ -96,6 +114,7 @@ export class AdminService {
         @InjectRepository(PixelEvent)
         private pixelEventRepository: Repository<PixelEvent>,
         private jwtService: JwtService,
+        private emailService: EmailService,
     ) { }
 
     async getSystemSettings() {
@@ -126,6 +145,7 @@ export class AdminService {
             .createQueryBuilder('sale')
             .select('SUM(sale.totalValue)', 'total')
             .where('sale.userId = :userId', { userId })
+            .andWhere('sale.status IN (:...statuses)', { statuses: COMPLETED_SALE_STATUSES })
             .getRawOne();
 
         const billingAmount = parseFloat(salesResult?.total || '0');
@@ -269,7 +289,7 @@ export class AdminService {
         const user = await this.usersRepository.findOne({ where: { id: userId }, relations: ['plan'] });
         if (!user) throw new Error('Usuário não encontrado');
 
-        const token = this.jwtService.sign({ sub: user.id, email: user.email });
+        const token = this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
         const { password, ...userWithoutPassword } = user;
         return { token, user: userWithoutPassword };
     }
@@ -840,9 +860,36 @@ export class AdminService {
             where: { id },
             relations: ['user']
         });
-        if (!connection) throw new Error('Conexão de e-mail não encontrada');
+        if (!connection) throw new NotFoundException('Conexão de e-mail não encontrada');
+        if (!connection.email) {
+            throw new BadRequestException('Informe o endereço remetente antes de aprovar este domínio.');
+        }
+
+        const senderDomain = connection.email.split('@')[1]?.toLowerCase();
+        const domain = connection.domain?.toLowerCase();
+        if (!senderDomain || !domain || (senderDomain !== domain && !senderDomain.endsWith(`.${domain}`))) {
+            throw new BadRequestException('O endereço remetente não pertence ao domínio solicitado.');
+        }
+
+        // A Zenvia só aceita o campo `from` quando o endereço foi cadastrado no
+        // canal de e-mail. O teste impede uma aprovação meramente administrativa.
+        try {
+            await this.emailService.sendEmail({
+                fromEmail: connection.email,
+                fromName: connection.senderName || undefined,
+                to: connection.user.email,
+                subject: 'Validação do remetente de e-mail - Núcleo CRM',
+                text: `O remetente ${connection.email} foi validado com sucesso e está pronto para uso no Núcleo CRM.`,
+            });
+        } catch (error: any) {
+            throw new BadRequestException(
+                `A Zenvia não aceitou o remetente ${connection.email}. Confirme o domínio, os registros DNS e o endereço cadastrado na Zenvia. Detalhe: ${error.message}`,
+            );
+        }
 
         connection.status = 'verified';
+        connection.verifiedAt = new Date();
+        connection.adminNote = '';
         await this.emailConnectionRepository.save(connection);
 
         // Criar notificação para o usuário

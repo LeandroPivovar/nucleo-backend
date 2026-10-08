@@ -28,6 +28,11 @@ export class WebhookLog {
     @Column({ length: 50, nullable: true })
     source: string; // Ex: 'zapier', 'make', 'custom'
 
+    // Dono do webhook (tenant). Null = sem dono identificado; visível só para admin.
+    @Index()
+    @Column({ type: 'int', nullable: true })
+    userId: number | null;
+
     @CreateDateColumn()
     createdAt: Date;
 }
